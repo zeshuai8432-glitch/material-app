@@ -497,6 +497,25 @@ function addShipment() {
     thick = document.getElementById('ship-thick').value.trim();
     if (!name||!spec||!thick) { showToast('⚠️ 請填寫材料名稱、規格、厚度'); return; }
   }
+  // 檢查是否超出該案場的需求
+  const matchedDemands = demands.filter(d=>d.project===site && d.name===name && d.spec===spec && d.thick===thick);
+  if (matchedDemands.length > 0) {
+    const totalDemand = matchedDemands.reduce((a,b)=>a+b.qty,0);
+    const alreadyShipped = getShippedQty(site, name, spec, thick);
+    const afterThis = alreadyShipped + qty;
+    if (afterThis > totalDemand) {
+      const over = afterThis - totalDemand;
+      const unit = matchedDemands[0].unit || '';
+      if (!confirm('⚠️ 超出需求！\n\n此案場「'+name+'」需求 '+totalDemand+unit+'\n已出 '+alreadyShipped+unit+'，這次再出 '+qty+unit+'\n將超出 '+over+unit+'\n\n確定要繼續出貨嗎？')) {
+        // 若取消，且是庫存出，要把剛扣的庫存加回去
+        if (shipType==='stock') {
+          const inv = findInventory(name,spec,thick);
+          if (inv) { inv.qty+=qty; }
+        }
+        return;
+      }
+    }
+  }
   const record = {date,site,name,spec,thick,qty,type:shipType};
   shipments.push(record);
   currentOrder.push(record);
@@ -952,16 +971,23 @@ function renderDemands() {
     const rows = items.map(d=>{
       const shipped = getShippedQty(d.project, d.name, d.spec, d.thick);
       const remaining = d.qty - shipped;
+      const over = shipped - d.qty;
       const unit = d.unit||'';
-      const statusColor = remaining<=0?'badge-green':remaining<d.qty?'badge-amber':'badge-red';
-      const statusText = remaining<=0?'已完成':remaining<d.qty?'部分到貨':'未出貨';
+      let statusColor, statusText;
+      if (over > 0) { statusColor='badge-red'; statusText='⚠️ 超出 '+over+unit; }
+      else if (remaining===0) { statusColor='badge-green'; statusText='已完成'; }
+      else if (shipped>0) { statusColor='badge-amber'; statusText='部分到貨'; }
+      else { statusColor='badge-red'; statusText='未出貨'; }
+      let diffHTML;
+      if (over > 0) diffHTML = '超出：<strong style="color:#dc2626">+'+over+unit+'</strong>';
+      else diffHTML = '差額：<strong style="color:'+(remaining>0?'#dc2626':'#166534')+'">'+(remaining>0?'-'+remaining:0)+unit+'</strong>';
       return `<div class="list-item">
         <div style="flex:1">
           <div class="list-main">${d.name}</div>
           <div class="list-sub">${d.spec}${d.thick?'・'+d.thick:''}${d.note?'・'+d.note:''}</div>
           <div style="margin-top:4px;font-size:12px;color:#374151">
             需求：<strong>${d.qty}${unit}</strong>　已出：<strong style="color:#185FA5">${shipped}${unit}</strong>　
-            差額：<strong style="color:${remaining>0?'#dc2626':'#166534'}">${remaining>0?'-'+remaining:0}${unit}</strong>
+            ${diffHTML}
           </div>
           <span class="badge ${statusColor}" style="margin-top:4px">${statusText}</span>
         </div>
