@@ -945,6 +945,7 @@ function renderDemands() {
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;margin-left:8px">
           <div class="list-date">${d.date}</div>
+          <button class="btn-sm" onclick="copyDemand(${d._idx})">複製</button>
           <button class="btn-sm" onclick="editDemand(${d._idx})">編輯</button>
           <button class="btn-danger-sm" onclick="deleteDemand(${d._idx})">刪除</button>
         </div>
@@ -960,6 +961,28 @@ function renderDemands() {
       <div class="site-group-body">${rows}</div>
     </div>`;
   }).join('');
+}
+
+function copyDemand(idx) {
+  const d = demands[idx];
+  // 把材料資料帶到新增表單，案件名稱保留讓使用者改樓層
+  document.getElementById('dem-name').value = d.name;
+  document.getElementById('dem-spec').value = d.spec;
+  document.getElementById('dem-thick').value = d.thick||'';
+  document.getElementById('dem-unit').value = d.unit||'';
+  document.getElementById('dem-qty').value = d.qty;
+  document.getElementById('dem-note').value = d.note||'';
+  // 案件名稱預設選同一個（方便改成新樓層時用新增）
+  const sel = document.getElementById('dem-project');
+  if (sel) {
+    let found = false;
+    for (const opt of sel.options) { if (opt.value===d.project) { found=true; break; } }
+    if (found) sel.value = d.project;
+    onSelectProject();
+  }
+  // 捲動到表單頂端
+  window.scrollTo({top:0, behavior:'smooth'});
+  showToast('📋 已複製，可修改後新增');
 }
 
 function editDemand(idx) {
