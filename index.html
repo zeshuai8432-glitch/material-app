@@ -96,6 +96,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .edit-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:300;display:none;align-items:flex-end}
 .edit-modal-bg.show{display:flex}
 .edit-modal{background:#fff;border-radius:20px 20px 0 0;padding:24px 20px;width:100%;padding-bottom:calc(24px + env(safe-area-inset-bottom));max-height:85vh;overflow-y:auto}
+.dtab{padding:7px 14px;font-size:13px;border:1.5px solid #e5e7eb;border-radius:20px;cursor:pointer;color:#6b7280;background:#fff;white-space:nowrap;flex-shrink:0}
+.dtab.active{background:#185FA5;border-color:#185FA5;color:#fff;font-weight:600}
+.cat-header{font-size:13px;font-weight:700;color:#185FA5;padding:10px 4px 6px;border-bottom:2px solid #e6f1fb;margin-bottom:4px}
 /* Site group */
 .site-group{background:#fff;border-radius:14px;margin-bottom:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
 .site-group-header{padding:12px 16px;background:#185FA5;color:#fff;display:flex;justify-content:space-between;align-items:center}
@@ -253,6 +256,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <input type="text" id="dem-new-project" placeholder="例：元利四季12F">
     </div>
     <div class="form-group"><label>日期</label><input type="date" id="dem-date"></div>
+    <div class="form-group">
+      <label>分類</label>
+      <select id="dem-category" onchange="onSelectCategory()">
+        <option value="隔間">隔間</option>
+        <option value="天花板">天花板</option>
+        <option value="__new__">＋ 新增分類...</option>
+      </select>
+    </div>
+    <div class="form-group" id="dem-new-category-group" style="display:none">
+      <label>新分類名稱</label>
+      <input type="text" id="dem-new-category" placeholder="例：地板">
+    </div>
     <div class="form-row">
       <div class="form-group"><label>材料名稱</label><input type="text" id="dem-name" placeholder="例：C65"></div>
       <div class="form-group"><label>規格</label><input type="text" id="dem-spec" placeholder="例：2700"></div>
@@ -265,13 +280,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="form-group"><label>備註</label><input type="text" id="dem-note" placeholder="選填"></div>
     <button class="btn-primary" onclick="addDemand()">新增需求</button>
   </div>
-  <div class="card">
-    <div class="card-title">
-      需求清單
-      <button class="btn-outline" onclick="exportPDF('demand')" style="font-size:12px;padding:5px 10px">匯出 PDF</button>
-    </div>
-    <div id="demand-list"></div>
-  </div>
+  <div id="demand-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 12px;flex-wrap:nowrap"></div>
+  <div id="demand-list"></div>
 </div>
 
 <!-- Bottom Nav -->
@@ -326,6 +336,7 @@ const GAS_URL = 'https://script.google.com/macros/s/AKfycbyKkpL0XC-NfjhblC8eKhu0
 
 let inventory = [];
 let demands = [];
+let activeProject = null;
 let productions = [];
 let shipments = [];
 let currentOrder = [];
@@ -545,7 +556,7 @@ function removeOrderItem(idx) {
 // ── Render ──
 function renderAll() {
   renderInventory(); renderProductions(); renderShipments(); renderArrival(); renderOrder(); renderDemands();
-  renderInvStats(); refreshProjectSelects();
+  renderInvStats(); refreshProjectSelects(); refreshCategorySelect();
 }
 
 function renderInvStats() {
@@ -772,13 +783,19 @@ function exportPDF(page) {
     demands.forEach(d=>{ if(!projectMap[d.project]) projectMap[d.project]=[]; projectMap[d.project].push(d); });
     html += Object.keys(projectMap).map(project=>{
       const items = projectMap[project];
-      const rows = items.map(function(d){
-        const shipped = getShippedQty(d.project,d.name,d.spec,d.thick);
-        const remaining = d.qty - shipped;
-        const unit = d.unit||'';
-        return '<tr><td>'+d.date+'</td><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+shipped+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
-      }).join('');
-      return '<h2>🏢 '+project+'</h2><table><thead><tr><th>日期</th><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已出</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      const catMap = {};
+      items.forEach(function(d){ const c=d.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(d); });
+      let block = '<h1 style="margin-top:16px">🏢 '+project+'</h1>';
+      Object.keys(catMap).forEach(function(cat){
+        const rows = catMap[cat].map(function(d){
+          const shipped = getShippedQty(d.project,d.name,d.spec,d.thick);
+          const remaining = d.qty - shipped;
+          const unit = d.unit||'';
+          return '<tr><td>'+d.date+'</td><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+shipped+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
+        }).join('');
+        block += '<h2>'+cat+'</h2><table><thead><tr><th>日期</th><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已出</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      });
+      return block;
     }).join('');
   }
   printHTML(titles[page], html);
@@ -913,6 +930,34 @@ function onSelectProject() {
   document.getElementById('dem-new-project-group').style.display = val==='__new__' ? 'block' : 'none';
 }
 
+function onSelectCategory() {
+  const val = document.getElementById('dem-category').value;
+  document.getElementById('dem-new-category-group').style.display = val==='__new__' ? 'block' : 'none';
+}
+
+function getCategoryName() {
+  const sel = document.getElementById('dem-category').value;
+  if (sel === '__new__') {
+    const ni = document.getElementById('dem-new-category');
+    return ni ? ni.value.trim() : '';
+  }
+  return sel || '隔間';
+}
+
+function refreshCategorySelect() {
+  const cats = new Set(['隔間','天花板']);
+  demands.forEach(d=>{ if(d.category) cats.add(d.category); });
+  const sel = document.getElementById('dem-category');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '';
+  Array.from(cats).forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; sel.appendChild(o); });
+  const newOpt = document.createElement('option');
+  newOpt.value='__new__'; newOpt.textContent='＋ 新增分類...';
+  sel.appendChild(newOpt);
+  if (prev) { for(const o of sel.options){ if(o.value===prev){ sel.value=prev; break; } } }
+}
+
 function getProjectName() {
   const selEl = document.getElementById('dem-project');
   const sel = selEl ? selEl.value : '';
@@ -925,6 +970,7 @@ function getProjectName() {
 
 function addDemand() {
   const project = getProjectName();
+  const category = getCategoryName();
   const date = document.getElementById('dem-date').value;
   const name = document.getElementById('dem-name').value.trim();
   const spec = document.getElementById('dem-spec').value.trim();
@@ -933,13 +979,20 @@ function addDemand() {
   const qty = parseInt(document.getElementById('dem-qty').value);
   const note = document.getElementById('dem-note').value.trim();
   if (!project) { showToast('⚠️ 請選擇或輸入案件名稱'); return; }
+  if (!category) { showToast('⚠️ 請選擇或輸入分類'); return; }
   if (!date) { showToast('⚠️ 請填寫日期'); return; }
   if (!name) { showToast('⚠️ 請填寫材料名稱'); return; }
   if (!spec) { showToast('⚠️ 請填寫規格'); return; }
   if (!qty||qty<=0) { showToast('⚠️ 請填寫數量'); return; }
-  demands.push({project,date,name,spec,thick,unit,qty,note});
+  demands.push({project,category,date,name,spec,thick,unit,qty,note});
+  activeProject = project;
   ['dem-name','dem-spec','dem-thick','dem-unit','dem-qty','dem-note'].forEach(id=>document.getElementById(id).value='');
   saveLocal();
+  refreshCategorySelect();
+  const catSel = document.getElementById('dem-category');
+  if (catSel) { for(const o of catSel.options){ if(o.value===category){ catSel.value=category; break; } } }
+  document.getElementById('dem-new-category').value='';
+  document.getElementById('dem-new-category-group').style.display='none';
   renderDemands();
   refreshProjectSelects();
   const sel = document.getElementById('dem-project');
@@ -960,77 +1013,118 @@ function getShippedQty(project, name, spec, thick) {
     .reduce((a,b)=>a+b.qty, 0);
 }
 
+function buildDemandRow(d) {
+  const shipped = getShippedQty(d.project, d.name, d.spec, d.thick);
+  const remaining = d.qty - shipped;
+  const over = shipped - d.qty;
+  const unit = d.unit||'';
+  let statusColor, statusText;
+  if (over > 0) { statusColor='badge-red'; statusText='⚠️ 超出 '+over+unit; }
+  else if (remaining===0) { statusColor='badge-green'; statusText='已完成'; }
+  else if (shipped>0) { statusColor='badge-amber'; statusText='部分到貨'; }
+  else { statusColor='badge-red'; statusText='未出貨'; }
+  let diffHTML;
+  if (over > 0) diffHTML = '超出：<strong style="color:#dc2626">+'+over+unit+'</strong>';
+  else diffHTML = '差額：<strong style="color:'+(remaining>0?'#dc2626':'#166534')+'">'+(remaining>0?'-'+remaining:0)+unit+'</strong>';
+  return `<div class="list-item">
+    <div style="flex:1">
+      <div class="list-main">${d.name}</div>
+      <div class="list-sub">${d.spec}${d.thick?'・'+d.thick:''}${d.note?'・'+d.note:''}</div>
+      <div style="margin-top:4px;font-size:12px;color:#374151">
+        需求：<strong>${d.qty}${unit}</strong>　已出：<strong style="color:#185FA5">${shipped}${unit}</strong>　
+        ${diffHTML}
+      </div>
+      <span class="badge ${statusColor}" style="margin-top:4px">${statusText}</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;margin-left:8px">
+      <div class="list-date">${d.date}</div>
+      <button class="btn-sm" onclick="copyDemand(${d._idx})">複製</button>
+      <button class="btn-sm" onclick="editDemand(${d._idx})">編輯</button>
+      <button class="btn-danger-sm" onclick="deleteDemand(${d._idx})">刪除</button>
+    </div>
+  </div>`;
+}
+
+function selectProjectTab(project) {
+  activeProject = project;
+  renderDemands();
+}
+
 function renderDemands() {
+  const tabsEl = document.getElementById('demand-tabs');
   const el = document.getElementById('demand-list');
   if (!el) return;
-  if (!demands.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>尚無需求紀錄</div>'; return; }
-  const projectMap = {};
-  demands.forEach((d,i)=>{ if(!projectMap[d.project]) projectMap[d.project]=[]; projectMap[d.project].push({...d,_idx:i}); });
-  el.innerHTML = Object.keys(projectMap).map(project=>{
-    const items = projectMap[project];
-    const rows = items.map(d=>{
-      const shipped = getShippedQty(d.project, d.name, d.spec, d.thick);
-      const remaining = d.qty - shipped;
-      const over = shipped - d.qty;
-      const unit = d.unit||'';
-      let statusColor, statusText;
-      if (over > 0) { statusColor='badge-red'; statusText='⚠️ 超出 '+over+unit; }
-      else if (remaining===0) { statusColor='badge-green'; statusText='已完成'; }
-      else if (shipped>0) { statusColor='badge-amber'; statusText='部分到貨'; }
-      else { statusColor='badge-red'; statusText='未出貨'; }
-      let diffHTML;
-      if (over > 0) diffHTML = '超出：<strong style="color:#dc2626">+'+over+unit+'</strong>';
-      else diffHTML = '差額：<strong style="color:'+(remaining>0?'#dc2626':'#166534')+'">'+(remaining>0?'-'+remaining:0)+unit+'</strong>';
-      return `<div class="list-item">
-        <div style="flex:1">
-          <div class="list-main">${d.name}</div>
-          <div class="list-sub">${d.spec}${d.thick?'・'+d.thick:''}${d.note?'・'+d.note:''}</div>
-          <div style="margin-top:4px;font-size:12px;color:#374151">
-            需求：<strong>${d.qty}${unit}</strong>　已出：<strong style="color:#185FA5">${shipped}${unit}</strong>　
-            ${diffHTML}
-          </div>
-          <span class="badge ${statusColor}" style="margin-top:4px">${statusText}</span>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:4px;margin-left:8px">
-          <div class="list-date">${d.date}</div>
-          <button class="btn-sm" onclick="copyDemand(${d._idx})">複製</button>
-          <button class="btn-sm" onclick="editDemand(${d._idx})">編輯</button>
-          <button class="btn-danger-sm" onclick="deleteDemand(${d._idx})">刪除</button>
-        </div>
-      </div>`;
-    }).join('');
-    const totalNeeded = items.reduce((a,b)=>a+b.qty,0);
-    const totalShipped = items.reduce((a,b)=>a+getShippedQty(b.project,b.name,b.spec,b.thick),0);
-    return `<div class="site-group" style="margin-bottom:12px">
-      <div class="site-group-header">
-        <div class="site-group-title">🏢 ${project}</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span class="site-group-total">需${totalNeeded} 出${totalShipped}</span>
-          <button onclick="exportProjectPDF('${project.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出此案場</button>
-        </div>
+  if (!demands.length) {
+    if (tabsEl) tabsEl.innerHTML = '';
+    el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>尚無需求紀錄</div>';
+    return;
+  }
+  // 取得所有案場
+  const projects = [];
+  demands.forEach(d=>{ if(!projects.includes(d.project)) projects.push(d.project); });
+  // 確認 activeProject 有效
+  if (!activeProject || !projects.includes(activeProject)) activeProject = projects[0];
+  // 畫案場頁籤
+  if (tabsEl) {
+    tabsEl.innerHTML = projects.map(p=>
+      `<button class="dtab ${p===activeProject?'active':''}" onclick="selectProjectTab('${p.replace(/'/g,"\\'")}')">🏢 ${p}</button>`
+    ).join('');
+  }
+  // 顯示目前案場的需求，依分類分組
+  const items = demands.map((d,i)=>({...d,_idx:i})).filter(d=>d.project===activeProject);
+  const catMap = {};
+  items.forEach(d=>{ const c=d.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(d); });
+  const totalNeeded = items.reduce((a,b)=>a+b.qty,0);
+  const totalShipped = items.reduce((a,b)=>a+getShippedQty(b.project,b.name,b.spec,b.thick),0);
+  let html = `<div class="site-group" style="margin-bottom:12px">
+    <div class="site-group-header">
+      <div class="site-group-title">🏢 ${activeProject}</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="site-group-total">需${totalNeeded} 出${totalShipped}</span>
+        <button onclick="exportProjectPDF('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出此案場</button>
       </div>
-      <div class="site-group-body">${rows}</div>
-    </div>`;
-  }).join('');
+    </div>
+    <div class="site-group-body">`;
+  Object.keys(catMap).forEach(cat=>{
+    const catItems = catMap[cat];
+    const catNeeded = catItems.reduce((a,b)=>a+b.qty,0);
+    html += `<div class="cat-header">${cat}　<span style="font-weight:400;color:#6b7280;font-size:12px">需求 ${catNeeded}</span></div>`;
+    html += catItems.map(d=>buildDemandRow(d)).join('');
+  });
+  html += `</div></div>`;
+  el.innerHTML = html;
 }
 
 function exportProjectPDF(project) {
   const items = demands.filter(d=>d.project===project);
   if (!items.length) { showToast('⚠️ 此案場無需求'); return; }
   let html = '<h1>需求單 - ' + project + '</h1><div class="meta">匯出日期：' + today + '</div>';
-  const rows = items.map(function(d){
-    const shipped = getShippedQty(d.project,d.name,d.spec,d.thick);
-    const remaining = d.qty - shipped;
-    const unit = d.unit||'';
-    return '<tr><td>'+d.date+'</td><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+shipped+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
-  }).join('');
-  html += '<table><thead><tr><th>日期</th><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已出</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  const catMap = {};
+  items.forEach(function(d){ const c=d.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(d); });
+  Object.keys(catMap).forEach(function(cat){
+    const catItems = catMap[cat];
+    const rows = catItems.map(function(d){
+      const shipped = getShippedQty(d.project,d.name,d.spec,d.thick);
+      const remaining = d.qty - shipped;
+      const unit = d.unit||'';
+      return '<tr><td>'+d.date+'</td><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+shipped+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
+    }).join('');
+    html += '<h2>'+cat+'</h2><table><thead><tr><th>日期</th><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已出</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  });
   printHTML('需求單 ' + project, html);
 }
 
 function copyDemand(idx) {
   const d = demands[idx];
   // 把材料資料帶到新增表單，案件名稱保留讓使用者改樓層
+  refreshCategorySelect();
+  const catSel = document.getElementById('dem-category');
+  if (catSel && d.category) {
+    let found=false;
+    for(const o of catSel.options){ if(o.value===d.category){found=true;break;} }
+    if(found) catSel.value = d.category;
+    onSelectCategory();
+  }
   document.getElementById('dem-name').value = d.name;
   document.getElementById('dem-spec').value = d.spec;
   document.getElementById('dem-thick').value = d.thick||'';
@@ -1054,6 +1148,7 @@ function editDemand(idx) {
   const d = demands[idx];
   const body = `
     <div class="form-group"><label>案件名稱</label><input type="text" id="ed-project" value="${d.project}"></div>
+    <div class="form-group"><label>分類</label><input type="text" id="ed-category" value="${d.category||'隔間'}"></div>
     <div class="form-group"><label>日期</label><input type="date" id="ed-date" value="${d.date}"></div>
     <div class="form-group"><label>材料名稱</label><input type="text" id="ed-name" value="${d.name}"></div>
     <div class="form-group"><label>規格</label><input type="text" id="ed-spec" value="${d.spec}"></div>
@@ -1063,6 +1158,7 @@ function editDemand(idx) {
     <div class="form-group"><label>備註</label><input type="text" id="ed-note" value="${d.note||''}"></div>`;
   showEditModal('編輯需求', body, ()=>{
     demands[idx].project = document.getElementById('ed-project').value.trim();
+    demands[idx].category = document.getElementById('ed-category').value.trim()||'隔間';
     demands[idx].date = document.getElementById('ed-date').value;
     demands[idx].name = document.getElementById('ed-name').value.trim();
     demands[idx].spec = document.getElementById('ed-spec').value.trim();
