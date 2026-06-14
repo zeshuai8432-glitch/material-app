@@ -748,11 +748,34 @@ function renderShipments() {
     return `<div class="site-group" style="margin-bottom:12px">
       <div class="site-group-header">
         <div class="site-group-title">📅 ${date}</div>
-        <div class="site-group-total">合計 ${dayTotal}</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="site-group-total">合計 ${dayTotal}</span>
+          <button onclick="exportShipDatePDF('${date}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
+        </div>
       </div>
       <div class="site-group-body">${rows}</div>
     </div>`;
   }).join('');
+}
+
+function exportShipDatePDF(date) {
+  const items = shipments.filter(s=>(s.date||'（無日期）')===date);
+  if (!items.length) { showToast('⚠️ 無資料'); return; }
+  let html = '';
+  if (company.name) html += '<div class="company">'+company.name+'</div>';
+  html += '<h1>出貨單</h1><div class="meta">日期：'+date+'</div>';
+  // 依案場分組
+  const siteMap = {};
+  items.forEach(function(s){ const k=s.site||'（未指定）'; if(!siteMap[k]) siteMap[k]=[]; siteMap[k].push(s); });
+  Object.keys(siteMap).forEach(function(site){
+    const rows = siteMap[site].map(function(s){
+      return '<tr><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+(s.thick||'')+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式')+'</td></tr>';
+    }).join('');
+    const st = siteMap[site].reduce(function(a,b){return a+Number(b.qty);},0);
+    html += '<h2>🏢 '+site+'</h2><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    html += '<div style="text-align:right;font-size:12px;color:#6b7280;margin-top:4px">小計：'+st+'</div>';
+  });
+  printHTML('出貨單 '+date, html);
 }
 
 function renderOrder() {
@@ -1658,7 +1681,10 @@ function renderAllocList() {
     return `<div class="site-group" style="margin-bottom:12px">
       <div class="site-group-header">
         <div class="site-group-title">📅 ${date}</div>
-        <div class="site-group-total">合計 ${dtotal}</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="site-group-total">合計 ${dtotal}</span>
+          <button onclick="exportAllocDatePDF('${date}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
+        </div>
       </div>
       <div class="site-group-body">${rows}</div>
     </div>`;
@@ -1745,6 +1771,24 @@ function exportSettlementPDF() {
   document.getElementById('edit-modal').classList.remove('show');
   document.getElementById('edit-save-btn').style.display = '';
   printHTML('用料結算 '+project, html);
+}
+
+function exportAllocDatePDF(date) {
+  const items = allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject) && allocNorm(a.floor)===allocNorm(allocActiveFloor) && (a.date||'（無日期）')===date);
+  if (!items.length) { showToast('⚠️ 無資料'); return; }
+  let html = '';
+  if (company.name) html += '<div class="company">'+company.name+'</div>';
+  html += '<h1>材料搬運單</h1>';
+  html += '<div class="meta">案場：'+allocActiveProject+'　樓層：'+allocActiveFloor+'　日期：'+date+'</div>';
+  const catMap = {};
+  items.forEach(function(a){ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
+  Object.keys(catMap).forEach(function(cat){
+    const rows = catMap[cat].map(function(a){
+      return '<tr><td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
+    }).join('');
+    html += '<h2>📐 '+cat+'</h2><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>搬運數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  });
+  printHTML('搬運單 '+allocActiveProject+' '+date, html);
 }
 
 function deleteAllocation(idx) {
