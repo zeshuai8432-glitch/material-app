@@ -168,7 +168,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="form-group"><label>日期</label><input type="date" id="ship-date"></div>
     <div class="form-group">
       <label>工地／案件名稱</label>
-      <select id="ship-site">
+      <select id="ship-site" onchange="updateDemandGap()">
         <option value="">-- 請選擇案件 --</option>
       </select>
     </div>
@@ -194,12 +194,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <!-- 制式材料：手動輸入 -->
     <div id="ship-manual-fields" style="display:none">
       <div class="form-row">
-        <div class="form-group"><label>材料名稱</label><input type="text" id="ship-name" placeholder="例：鍍鋅管"></div>
-        <div class="form-group"><label>規格</label><input type="text" id="ship-spec" placeholder="例：DN100"></div>
+        <div class="form-group"><label>材料名稱</label><input type="text" id="ship-name" placeholder="例：鍍鋅管" oninput="updateDemandGap()"></div>
+        <div class="form-group"><label>規格</label><input type="text" id="ship-spec" placeholder="例：DN100" oninput="updateDemandGap()"></div>
       </div>
-      <div class="form-group"><label>厚度</label><input type="text" id="ship-thick" placeholder="例：3mm"></div>
+      <div class="form-group"><label>厚度</label><input type="text" id="ship-thick" placeholder="例：3mm" oninput="updateDemandGap()"></div>
     </div>
-    <div class="form-group"><label>數量</label><input type="number" id="ship-qty" placeholder="0" min="1"></div>
+    <div class="form-group"><label>數量</label><input type="number" id="ship-qty" placeholder="0" min="1" oninput="updateDemandGap()"></div>
+    <div id="demand-gap-box" style="display:none;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
     <button class="btn-primary" onclick="addShipment()">加入採購單</button>
   </div>
 
@@ -480,11 +481,67 @@ function onSelectInventory() {
   const sel = document.getElementById('ship-inv-select');
   const info = document.getElementById('ship-stock-info');
   const detail = document.getElementById('ship-stock-detail');
-  if (!sel.value && sel.value !== 0) { info.style.display='none'; return; }
+  if (!sel.value && sel.value !== 0) { info.style.display='none'; updateDemandGap(); return; }
   const i = inventory.filter(i=>i.qty>0)[parseInt(sel.value)];
-  if (!i) { info.style.display='none'; return; }
+  if (!i) { info.style.display='none'; updateDemandGap(); return; }
   info.style.display='block';
   detail.textContent = '名稱：'+i.name+'　規格：'+i.spec+'　厚度：'+i.thick+'　庫存：'+i.qty;
+  updateDemandGap();
+}
+
+function getCurrentShipMaterial() {
+  if (shipType==='stock') {
+    const sel = document.getElementById('ship-inv-select');
+    if (!sel.value && sel.value!==0) return null;
+    const inv = inventory.filter(i=>i.qty>0)[parseInt(sel.value)];
+    if (!inv) return null;
+    return { name: inv.name, spec: inv.spec, thick: inv.thick };
+  } else {
+    const name = document.getElementById('ship-name').value.trim();
+    const spec = document.getElementById('ship-spec').value.trim();
+    const thick = document.getElementById('ship-thick').value.trim();
+    if (!name||!spec) return null;
+    return { name, spec, thick };
+  }
+}
+
+function updateDemandGap() {
+  const box = document.getElementById('demand-gap-box');
+  if (!box) return;
+  const site = document.getElementById('ship-site').value;
+  const mat = getCurrentShipMaterial();
+  if (!site || !mat) { box.style.display='none'; return; }
+  const normM = v => String(v==null?'':v).trim();
+  const matched = demands.filter(d=>normM(d.project)===normM(site) && normM(d.name)===normM(mat.name) && normM(d.spec)===normM(mat.spec) && normM(d.thick)===normM(mat.thick));
+  if (!matched.length) {
+    box.style.display='block';
+    box.style.background='#f1efe8';
+    box.style.color='#5f5e5a';
+    box.innerHTML='ℹ️ 此案場沒有「'+mat.name+'」的需求紀錄';
+    return;
+  }
+  const unit = matched[0].unit || '';
+  const totalDemand = matched.reduce((a,b)=>a+Number(b.qty),0);
+  const shipped = getShippedQty(site, mat.name, mat.spec, mat.thick);
+  const inputQty = parseInt(document.getElementById('ship-qty').value) || 0;
+  const afterThis = shipped + inputQty;
+  const remaining = totalDemand - afterThis;
+  box.style.display='block';
+  let line = '需求 <strong>'+totalDemand+unit+'</strong>　已出 <strong>'+shipped+unit+'</strong>';
+  if (inputQty>0) line += '　本次 <strong>'+inputQty+unit+'</strong>';
+  if (remaining > 0) {
+    box.style.background='#fef3c7';
+    box.style.color='#92400e';
+    box.innerHTML = line + '<br>📦 還缺 <strong>'+remaining+unit+'</strong>';
+  } else if (remaining === 0) {
+    box.style.background='#dcfce7';
+    box.style.color='#166534';
+    box.innerHTML = line + '<br>✅ 剛好滿足需求';
+  } else {
+    box.style.background='#fee2e2';
+    box.style.color='#991b1b';
+    box.innerHTML = line + '<br>⚠️ 將超出 <strong>'+Math.abs(remaining)+unit+'</strong>';
+  }
 }
 
 function addShipment() {
@@ -644,14 +701,28 @@ function renderOrder() {
   card.style.display='block';
   const total = currentOrder.reduce((a,b)=>a+b.qty,0);
   document.getElementById('order-total').textContent = total;
-  document.getElementById('order-list').innerHTML = currentOrder.map((o,i)=>`
-    <div class="order-item">
-      <div class="order-info">
-        <div class="order-name">${o.name}</div>
-        <div class="order-spec">${o.spec}・${o.thick}・數量：${o.qty}</div>
+  // 依案場分組
+  const siteMap = {};
+  currentOrder.forEach((o,i)=>{ const s=o.site||'（未指定案場）'; if(!siteMap[s]) siteMap[s]=[]; siteMap[s].push({...o,_idx:i}); });
+  document.getElementById('order-list').innerHTML = Object.keys(siteMap).map(site=>{
+    const items = siteMap[site];
+    const siteTotal = items.reduce((a,b)=>a+b.qty,0);
+    const rows = items.map((o,idx)=>`
+      <div class="order-item">
+        <div class="order-info">
+          <div class="order-name">${o.name}</div>
+          <div class="order-spec">${o.spec}・${o.thick}・${o.qty}${o.unit||''}</div>
+        </div>
+        <button class="btn-danger-sm" onclick="removeOrderItem(${o._idx})">移除</button>
+      </div>`).join('');
+    return `<div class="site-group" style="margin-bottom:12px">
+      <div class="site-group-header">
+        <div class="site-group-title">🏢 ${site}</div>
+        <div class="site-group-total">小計 ${siteTotal}</div>
       </div>
-      <button class="btn-danger-sm" onclick="removeOrderItem(${i})">移除</button>
-    </div>`).join('');
+      <div class="site-group-body">${rows}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderArrival() {
