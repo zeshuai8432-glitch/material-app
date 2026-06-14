@@ -880,7 +880,12 @@ function refreshProjectSelects() {
     const newOpt = document.createElement('option');
     newOpt.value='__new__'; newOpt.textContent='＋ 新增案件...';
     demSel.appendChild(newOpt);
-    if (demVal) demSel.value = demVal;
+    // 還原使用者原本的選擇（包含 __new__）
+    if (demVal) {
+      let exists = false;
+      for (const opt of demSel.options) { if (opt.value===demVal) { exists=true; break; } }
+      if (exists) demSel.value = demVal;
+    }
   }
 }
 
@@ -890,8 +895,12 @@ function onSelectProject() {
 }
 
 function getProjectName() {
-  const sel = document.getElementById('dem-project').value;
-  if (sel === '__new__') return document.getElementById('dem-new-project').value.trim();
+  const selEl = document.getElementById('dem-project');
+  const sel = selEl ? selEl.value : '';
+  if (sel === '__new__') {
+    const ni = document.getElementById('dem-new-project');
+    return ni ? ni.value.trim() : '';
+  }
   return sel;
 }
 
@@ -904,13 +913,26 @@ function addDemand() {
   const unit = document.getElementById('dem-unit').value.trim();
   const qty = parseInt(document.getElementById('dem-qty').value);
   const note = document.getElementById('dem-note').value.trim();
-  if (!project||!date||!name||!spec||!qty||qty<=0) { showToast('⚠️ 請填寫案件名稱、日期、材料、規格、數量'); return; }
+  if (!project) { showToast('⚠️ 請選擇或輸入案件名稱'); return; }
+  if (!date) { showToast('⚠️ 請填寫日期'); return; }
+  if (!name) { showToast('⚠️ 請填寫材料名稱'); return; }
+  if (!spec) { showToast('⚠️ 請填寫規格'); return; }
+  if (!qty||qty<=0) { showToast('⚠️ 請填寫數量'); return; }
   demands.push({project,date,name,spec,thick,unit,qty,note});
   ['dem-name','dem-spec','dem-thick','dem-unit','dem-qty','dem-note'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('dem-new-project').value='';
-  document.getElementById('dem-new-project-group').style.display='none';
+  saveLocal();
+  renderDemands();
   refreshProjectSelects();
-  renderAll(); autoSave(); showToast('✅ 需求已新增');
+  const sel = document.getElementById('dem-project');
+  if (sel) {
+    let exists = false;
+    for (const opt of sel.options) { if (opt.value===project) { exists=true; break; } }
+    if (exists) sel.value = project;
+    document.getElementById('dem-new-project').value='';
+    document.getElementById('dem-new-project-group').style.display='none';
+  }
+  autoSave();
+  showToast('✅ 需求已新增');
 }
 
 function getShippedQty(project, name, spec, thick) {
