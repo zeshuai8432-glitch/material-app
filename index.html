@@ -571,8 +571,9 @@ function renderInvStats() {
 }
 
 function renderInventory() {
-  const q = document.getElementById('inv-search').value;
-  const filtered = inventory.filter(i=>!q||i.name.includes(q)||i.spec.includes(q)||i.thick.includes(q));
+  const q = (document.getElementById('inv-search').value||'').trim().toLowerCase();
+  const txt = v => String(v==null?'':v).toLowerCase();
+  const filtered = inventory.filter(i=>!q || txt(i.name).includes(q) || txt(i.spec).includes(q) || txt(i.thick).includes(q));
   const el = document.getElementById('inv-list');
   if (!filtered.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📦</div>目前無庫存資料</div>'; return; }
   el.innerHTML = filtered.map((i,idx)=>{
