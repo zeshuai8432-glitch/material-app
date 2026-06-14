@@ -509,7 +509,8 @@ function addShipment() {
     if (!name||!spec||!thick) { showToast('⚠️ 請填寫材料名稱、規格、厚度'); return; }
   }
   // 檢查是否超出該案場的需求
-  const matchedDemands = demands.filter(d=>d.project===site && d.name===name && d.spec===spec && d.thick===thick);
+  const normM = v => String(v==null?'':v).trim();
+  const matchedDemands = demands.filter(d=>normM(d.project)===normM(site) && normM(d.name)===normM(name) && normM(d.spec)===normM(spec) && normM(d.thick)===normM(thick));
   if (matchedDemands.length > 0) {
     const totalDemand = matchedDemands.reduce((a,b)=>a+b.qty,0);
     const alreadyShipped = getShippedQty(site, name, spec, thick);
@@ -1008,9 +1009,10 @@ function addDemand() {
 }
 
 function getShippedQty(project, name, spec, thick) {
+  const norm = v => String(v==null?'':v).trim();
   return shipments
-    .filter(s=>s.site===project && s.name===name && s.spec===spec && s.thick===thick)
-    .reduce((a,b)=>a+b.qty, 0);
+    .filter(s=>norm(s.site)===norm(project) && norm(s.name)===norm(name) && norm(s.spec)===norm(spec) && norm(s.thick)===norm(thick))
+    .reduce((a,b)=>a+Number(b.qty), 0);
 }
 
 function buildDemandRow(d) {
