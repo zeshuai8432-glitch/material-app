@@ -10,7 +10,7 @@
 <title>材料管理系統</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f6f8;color:#1a1a1a;min-height:100vh;padding-bottom:80px}
@@ -288,6 +288,24 @@ async function syncNow() {
   }
 }
 
+function saveLocal() {
+  localStorage.setItem('mat_inventory', JSON.stringify(inventory));
+  localStorage.setItem('mat_productions', JSON.stringify(productions));
+  localStorage.setItem('mat_shipments', JSON.stringify(shipments));
+}
+
+function loadLocal() {
+  try {
+    const inv = localStorage.getItem('mat_inventory');
+    const pro = localStorage.getItem('mat_productions');
+    const shi = localStorage.getItem('mat_shipments');
+    if (inv) inventory = JSON.parse(inv).map(i=>({...i,qty:Number(i.qty)}));
+    if (pro) productions = JSON.parse(pro).map(p=>({...p,qty:Number(p.qty)}));
+    if (shi) shipments = JSON.parse(shi).map(s=>({...s,qty:Number(s.qty)}));
+    orderNo = shipments.length + 1;
+  } catch(e) {}
+}
+
 async function saveToSheets() {
   const res = await fetch(GAS_URL, {
     method: 'POST',
@@ -299,6 +317,9 @@ async function saveToSheets() {
 
 async function loadFromSheets() {
   setSyncState('syncing');
+  // 先從本地讀，讓畫面馬上有資料
+  loadLocal();
+  renderAll();
   try {
     const res = await fetch(GAS_URL + '?action=load');
     const data = await res.json();
@@ -307,18 +328,20 @@ async function loadFromSheets() {
       productions = (data.productions || []).map(p => ({...p, qty: Number(p.qty)}));
       shipments = (data.shipments || []).map(s => ({...s, qty: Number(s.qty)}));
       orderNo = shipments.length + 1;
+      saveLocal(); // 更新本地備份
     }
     setSyncState('ok');
     renderAll();
   } catch(e) {
     setSyncState('error');
-    showToast('⚠️ 無法連線，顯示本地資料');
+    showToast('⚠️ 雲端連線失敗，已載入本地備份');
   }
 }
 
 async function autoSave() {
+  saveLocal(); // 先存本地，確保不會丟失
   try { await saveToSheets(); setSyncState('ok'); }
-  catch(e) { setSyncState('error'); }
+  catch(e) { setSyncState('error'); showToast('⚠️ 雲端同步失敗，資料已存在本地'); }
 }
 
 // ── Data ──
@@ -518,84 +541,78 @@ function showToast(msg) {
   setTimeout(()=>t.classList.remove('show'), 2200);
 }
 
-// ── PDF ──
+// ── PDF（瀏覽器列印，支援中文）──
+function printHTML(title, tableHTML) {
+  const w = window.open('', '_blank');
+  const html = '<!DOCTYPE html><html lang="zh-TW"><head>' +
+    '<meta charset="UTF-8"><title>' + title + '</title>' +
+    '<style>' +
+    '*{box-sizing:border-box;margin:0;padding:0}' +
+    'body{font-family:-apple-system,BlinkMacSystemFont,"Microsoft JhengHei","PingFang TC",sans-serif;padding:20px;color:#1a1a1a;font-size:13px}' +
+    'h1{font-size:18px;font-weight:700;margin-bottom:4px;color:#185FA5}' +
+    'h2{font-size:14px;font-weight:700;margin:16px 0 6px;color:#185FA5}' +
+    '.meta{font-size:12px;color:#6b7280;margin-bottom:16px}' +
+    '.company{font-size:14px;font-weight:600;margin-bottom:2px}' +
+    'table{width:100%;border-collapse:collapse;margin-top:8px}' +
+    'th{background:#185FA5;color:#fff;padding:8px 10px;text-align:left;font-size:12px;font-weight:600}' +
+    'td{padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:12px}' +
+    'tr:nth-child(even) td{background:#f8fafc}' +
+    '.total{margin-top:12px;text-align:right;font-weight:700;font-size:14px}' +
+    '.footer{margin-top:24px;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:8px}' +
+    '@media print{body{padding:10px}}' +
+    '</style></head><body>' + tableHTML +
+    '<div class="footer">此文件由材料管理系統產生・' + today + '</div>' +
+    '<script>window.onload=function(){window.print()}<\/script>' +
+    '</body></html>';
+  w.document.write(html);
+  w.document.close();
+}
+
 function exportOrderPDF() {
   if (!currentOrder.length) { showToast('⚠️ 採購單是空的'); return; }
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
   const no = 'PO-' + String(orderNo).padStart(4,'0');
-  const site = document.getElementById('ship-site').value || currentOrder[0]?.site || '';
-  doc.setFontSize(18); doc.setFont('helvetica','bold');
-  doc.text('採購單', 105, 20, {align:'center'});
-  doc.setFontSize(10); doc.setFont('helvetica','normal');
-  if (company.name) { doc.setFontSize(12); doc.text(company.name, 14, 35); doc.setFontSize(10); }
-  if (company.phone) doc.text('電話：' + company.phone, 14, 42);
-  doc.text('採購單編號：' + no, 140, 35);
-  doc.text('日期：' + today, 140, 42);
-  if (site) doc.text('工地：' + site, 140, 49);
-  doc.setDrawColor(200,200,200); doc.line(14, 55, 196, 55);
-  let y = 65;
-  const headers = ['名稱','規格','厚度','數量'];
-  const colX = [14, 70, 120, 160];
-  const colW = [56, 50, 40, 36];
-  doc.setFillColor(24,95,165); doc.rect(14,y-7,182,10,'F');
-  doc.setTextColor(255,255,255); doc.setFont('helvetica','bold');
-  headers.forEach((h,i)=>doc.text(h, colX[i]+2, y));
-  doc.setTextColor(0,0,0); doc.setFont('helvetica','normal');
-  currentOrder.forEach((o,idx)=>{
-    y+=12;
-    if(idx%2===0) { doc.setFillColor(245,247,250); doc.rect(14,y-7,182,10,'F'); }
-    [o.name,o.spec,o.thick,String(o.qty)].forEach((v,i)=>doc.text(v,colX[i]+2,y));
-  });
-  y+=15;
-  const total = currentOrder.reduce((a,b)=>a+b.qty,0);
-  doc.setFont('helvetica','bold');
-  doc.text('合計數量：' + total, 140, y);
-  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(120,120,120);
-  doc.text('此採購單由材料管理系統產生', 14, 285);
-  doc.save('採購單_' + no + '_' + today + '.pdf');
+  const site = document.getElementById('ship-site').value || (currentOrder[0] && currentOrder[0].site) || '';
+  const total = currentOrder.reduce(function(a,b){return a+b.qty;},0);
+  const rows = currentOrder.map(function(o){return '<tr><td>'+o.name+'</td><td>'+o.spec+'</td><td>'+o.thick+'</td><td>'+o.qty+'</td></tr>';}).join('');
+  let html = '';
+  if (company.name) html += '<div class="company">'+company.name+'</div>';
+  if (company.phone) html += '<div class="meta">電話：'+company.phone+'</div>';
+  html += '<h1>採購單</h1>';
+  html += '<div class="meta">採購單編號：'+no+'　日期：'+today+(site?'　工地：'+site:'')+'</div>';
+  html += '<table><thead><tr><th>材料名稱</th><th>規格</th><th>厚度</th><th>數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  html += '<div class="total">合計數量：'+total+'</div>';
+  printHTML('採購單 ' + no, html);
   orderNo++;
 }
 
 function exportPDF(page) {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({orientation:'landscape'});
-  const titles = {inventory:'庫存清單',production:'生產入庫紀錄',shipment:'所有出貨紀錄',arrival:'到料紀錄'};
-  doc.setFontSize(14); doc.setFont('helvetica','bold');
-  doc.text(titles[page], 14, 18);
-  doc.setFontSize(9); doc.setFont('helvetica','normal');
-  doc.text('匯出日期：'+today, 14, 25);
-  let headers=[], rows=[], colX=[], colW=[];
+  const titles = {inventory:'庫存清單', production:'生產入庫紀錄', shipment:'所有出貨紀錄', arrival:'到料紀錄'};
+  let html = '<h1>'+titles[page]+'</h1><div class="meta">匯出日期：'+today+'</div>';
   if (page==='inventory') {
-    headers=['名稱','規格','厚度','數量','最後更新','狀態'];
-    rows=inventory.map(i=>[i.name,i.spec,i.thick,String(i.qty),i.lastUpdate,i.qty>0?'有庫存':'缺貨']);
-    colX=[14,60,105,140,165,210]; colW=[46,45,35,25,45,30];
+    if (!inventory.length) { showToast('⚠️ 目前無資料可匯出'); return; }
+    const rows = inventory.map(function(i){return '<tr><td>'+i.name+'</td><td>'+i.spec+'</td><td>'+i.thick+'</td><td>'+i.qty+'</td><td>'+i.lastUpdate+'</td><td>'+(i.qty>0?'有庫存':'缺貨')+'</td></tr>';}).join('');
+    html += '<table><thead><tr><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>最後更新</th><th>狀態</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='production') {
-    headers=['日期','名稱','規格','厚度','數量'];
-    rows=productions.map(p=>[p.date,p.name,p.spec,p.thick,String(p.qty)]);
-    colX=[14,50,110,160,200]; colW=[36,60,50,40,30];
+    if (!productions.length) { showToast('⚠️ 目前無資料可匯出'); return; }
+    const rows = productions.map(function(p){return '<tr><td>'+p.date+'</td><td>'+p.name+'</td><td>'+p.spec+'</td><td>'+p.thick+'</td><td>'+p.qty+'</td></tr>';}).join('');
+    html += '<table><thead><tr><th>日期</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='shipment') {
-    headers=['日期','工地','名稱','規格','厚度','數量','類型'];
-    rows=shipments.map(s=>[s.date,s.site,s.name,s.spec,s.thick,String(s.qty),s.type==='stock'?'庫存出':'制式材料']);
-    colX=[14,46,90,135,175,210,230]; colW=[32,44,45,40,35,20,30];
+    if (!shipments.length) { showToast('⚠️ 目前無資料可匯出'); return; }
+    const rows = shipments.map(function(s){return '<tr><td>'+s.date+'</td><td>'+s.site+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td></tr>';}).join('');
+    html += '<table><thead><tr><th>日期</th><th>工地</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='arrival') {
-    headers=['工地','日期','名稱','規格','厚度','數量','類型'];
-    rows=shipments.map(s=>[s.site,s.date,s.name,s.spec,s.thick,String(s.qty),s.type==='stock'?'庫存出':'制式材料']);
-    colX=[14,55,90,135,175,210,230]; colW=[41,35,45,40,35,20,30];
+    if (!shipments.length) { showToast('⚠️ 目前無資料可匯出'); return; }
+    const siteMap = {};
+    shipments.forEach(function(s){ if(!siteMap[s.site]) siteMap[s.site]=[]; siteMap[s.site].push(s); });
+    Object.keys(siteMap).forEach(function(site){
+      const items = siteMap[site];
+      const total = items.reduce(function(a,b){return a+b.qty;},0);
+      const rows = items.map(function(s){return '<tr><td>'+s.date+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td></tr>';}).join('');
+      html += '<h2>🏗️ '+site+'　<span style="font-weight:400;font-size:12px;color:#6b7280">合計 '+total+' 件</span></h2>';
+      html += '<table><thead><tr><th>日期</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    });
   }
-  if (!rows.length) { showToast('⚠️ 目前無資料可匯出'); return; }
-  let y=35;
-  doc.setFillColor(24,95,165); doc.rect(14,y-7,269,10,'F');
-  doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(9);
-  headers.forEach((h,i)=>doc.text(h,colX[i]+2,y));
-  doc.setTextColor(0,0,0); doc.setFont('helvetica','normal');
-  rows.forEach((row,idx)=>{
-    y+=11;
-    if(y>195){doc.addPage();y=20;}
-    if(idx%2===0){doc.setFillColor(245,247,250);doc.rect(14,y-7,269,10,'F');}
-    row.forEach((cell,i)=>doc.text(String(cell),colX[i]+2,y));
-  });
-  doc.save(titles[page]+'_'+today+'.pdf');
+  printHTML(titles[page], html);
 }
 
 // ── Init ──
