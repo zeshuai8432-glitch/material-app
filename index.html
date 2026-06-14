@@ -163,7 +163,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <button class="btn-sm" onclick="showCompanyModal()">⚙️ 公司設定</button>
     </div>
     <div class="form-group"><label>日期</label><input type="date" id="ship-date"></div>
-    <div class="form-group"><label>工地名稱</label><input type="text" id="ship-site" placeholder="例：北區工地A"></div>
+    <div class="form-group">
+      <label>工地／案件名稱</label>
+      <select id="ship-site">
+        <option value="">-- 請選擇案件 --</option>
+      </select>
+    </div>
     <div class="form-group">
       <label>出貨類型</label>
       <div class="radio-group">
@@ -232,23 +237,64 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div id="arrival-list"></div>
 </div>
 
+<!-- 需求單 -->
+<div class="page" id="page-demand">
+  <div class="card">
+    <div class="card-title">新增需求</div>
+    <div class="form-group">
+      <label>案件名稱</label>
+      <select id="dem-project" onchange="onSelectProject()">
+        <option value="">-- 選擇現有案件或新增 --</option>
+        <option value="__new__">＋ 新增案件...</option>
+      </select>
+    </div>
+    <div class="form-group" id="dem-new-project-group" style="display:none">
+      <label>新案件名稱</label>
+      <input type="text" id="dem-new-project" placeholder="例：元利四季12F">
+    </div>
+    <div class="form-group"><label>日期</label><input type="date" id="dem-date"></div>
+    <div class="form-row">
+      <div class="form-group"><label>材料名稱</label><input type="text" id="dem-name" placeholder="例：C65"></div>
+      <div class="form-group"><label>規格</label><input type="text" id="dem-spec" placeholder="例：2700"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>厚度</label><input type="text" id="dem-thick" placeholder="例：3mm"></div>
+      <div class="form-group"><label>單位</label><input type="text" id="dem-unit" placeholder="例：支"></div>
+    </div>
+    <div class="form-group"><label>需求數量</label><input type="number" id="dem-qty" placeholder="0" min="1"></div>
+    <div class="form-group"><label>備註</label><input type="text" id="dem-note" placeholder="選填"></div>
+    <button class="btn-primary" onclick="addDemand()">新增需求</button>
+  </div>
+  <div class="card">
+    <div class="card-title">
+      需求清單
+      <button class="btn-outline" onclick="exportPDF('demand')" style="font-size:12px;padding:5px 10px">匯出 PDF</button>
+    </div>
+    <div id="demand-list"></div>
+  </div>
+</div>
+
 <!-- Bottom Nav -->
 <nav class="bottom-nav">
   <button class="nav-item active" onclick="showPage('inventory',this)">
     <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-    庫存清單
+    庫存
   </button>
   <button class="nav-item" onclick="showPage('production',this)">
     <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-    生產入庫
+    入庫
   </button>
   <button class="nav-item" onclick="showPage('shipment',this)">
     <svg viewBox="0 0 24 24"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect x="9" y="11" width="14" height="10" rx="1"/><circle cx="12" cy="21" r="1"/><circle cx="20" cy="21" r="1"/></svg>
-    出貨輸入
+    出貨
   </button>
   <button class="nav-item" onclick="showPage('arrival',this)">
     <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-    到料紀錄
+    到料
+  </button>
+  <button class="nav-item" onclick="showPage('demand',this)">
+    <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    需求單
   </button>
 </nav>
 
@@ -279,6 +325,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbzSthEhKNcLeld5oDKl5pEQgBvU0zpJZRza68IzzYI_yNNhG0dXSWmjHz_APTRuUqcj/exec';
 
 let inventory = [];
+let demands = [];
 let productions = [];
 let shipments = [];
 let currentOrder = [];
@@ -288,6 +335,7 @@ let orderNo = 1;
 const today = new Date().toISOString().slice(0,10);
 document.getElementById('prod-date').value = today;
 document.getElementById('ship-date').value = today;
+document.getElementById('dem-date').value = today;
 
 // Load company info
 let company = JSON.parse(localStorage.getItem('company') || '{"name":"","phone":""}');
@@ -318,6 +366,7 @@ function saveLocal() {
   localStorage.setItem('mat_inventory', JSON.stringify(inventory));
   localStorage.setItem('mat_productions', JSON.stringify(productions));
   localStorage.setItem('mat_shipments', JSON.stringify(shipments));
+  localStorage.setItem('mat_demands', JSON.stringify(demands));
 }
 
 function loadLocal() {
@@ -328,6 +377,8 @@ function loadLocal() {
     if (inv) inventory = JSON.parse(inv).map(i=>({...i,qty:Number(i.qty)}));
     if (pro) productions = JSON.parse(pro).map(p=>({...p,qty:Number(p.qty)}));
     if (shi) shipments = JSON.parse(shi).map(s=>({...s,qty:Number(s.qty)}));
+    const dem = localStorage.getItem('mat_demands');
+    if (dem) demands = JSON.parse(dem).map(d=>({...d,qty:Number(d.qty)}));
     orderNo = shipments.length + 1;
   } catch(e) {}
 }
@@ -335,7 +386,7 @@ function loadLocal() {
 async function saveToSheets() {
   const res = await fetch(GAS_URL, {
     method: 'POST',
-    body: JSON.stringify({ action: 'save', inventory, productions, shipments })
+    body: JSON.stringify({ action: 'save', inventory, productions, shipments, demands })
   });
   const data = await res.json();
   if (data.status !== 'ok') throw new Error(data.message);
@@ -353,6 +404,7 @@ async function loadFromSheets() {
       inventory = (data.inventory || []).map(i => ({...i, qty: Number(i.qty)}));
       productions = (data.productions || []).map(p => ({...p, qty: Number(p.qty)}));
       shipments = (data.shipments || []).map(s => ({...s, qty: Number(s.qty)}));
+      demands = (data.demands || []).map(d => ({...d, qty: Number(d.qty)}));
       orderNo = shipments.length + 1;
       saveLocal(); // 更新本地備份
     }
@@ -426,7 +478,7 @@ function onSelectInventory() {
 
 function addShipment() {
   const date = document.getElementById('ship-date').value;
-  const site = document.getElementById('ship-site').value.trim();
+  const site = document.getElementById('ship-site').value;
   const qty = parseInt(document.getElementById('ship-qty').value);
   let name='', spec='', thick='';
   if (!date||!site||!qty||qty<=0) { showToast('⚠️ 請填寫所有欄位'); return; }
@@ -473,8 +525,8 @@ function removeOrderItem(idx) {
 
 // ── Render ──
 function renderAll() {
-  renderInventory(); renderProductions(); renderShipments(); renderArrival(); renderOrder();
-  renderInvStats();
+  renderInventory(); renderProductions(); renderShipments(); renderArrival(); renderOrder(); renderDemands();
+  renderInvStats(); refreshProjectSelects();
 }
 
 function renderInvStats() {
@@ -670,7 +722,7 @@ function exportOrderPDF() {
 }
 
 function exportPDF(page) {
-  const titles = {inventory:'庫存清單', production:'生產入庫紀錄', shipment:'所有出貨紀錄', arrival:'到料紀錄'};
+  const titles = {inventory:'庫存清單', production:'生產入庫紀錄', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
   let html = '<h1>'+titles[page]+'</h1><div class="meta">匯出日期：'+today+'</div>';
   if (page==='inventory') {
     if (!inventory.length) { showToast('⚠️ 目前無資料可匯出'); return; }
@@ -695,6 +747,21 @@ function exportPDF(page) {
       html += '<h2>🏗️ '+site+'　<span style="font-weight:400;font-size:12px;color:#6b7280">合計 '+total+' 件</span></h2>';
       html += '<table><thead><tr><th>日期</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
     });
+  }
+  } else if (page==='demand') {
+    if (!demands.length) { showToast('⚠️ 目前無資料可匯出'); return; }
+    const projectMap = {};
+    demands.forEach(d=>{ if(!projectMap[d.project]) projectMap[d.project]=[]; projectMap[d.project].push(d); });
+    html += Object.keys(projectMap).map(project=>{
+      const items = projectMap[project];
+      const rows = items.map(function(d){
+        const shipped = getShippedQty(d.project,d.name,d.spec,d.thick);
+        const remaining = d.qty - shipped;
+        const unit = d.unit||'';
+        return '<tr><td>'+d.date+'</td><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+shipped+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
+      }).join('');
+      return '<h2>🏢 '+project+'</h2><table><thead><tr><th>日期</th><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已出</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    }).join('');
   }
   printHTML(titles[page], html);
 }
@@ -785,6 +852,144 @@ function editShipment(idx) {
 function deleteShipment(idx) {
   if (!confirm('確定刪除此出貨紀錄？')) return;
   shipments.splice(idx,1);
+  renderAll(); autoSave(); showToast('🗑️ 已刪除');
+}
+
+// ── Demand ──
+function getProjects() {
+  const set = new Set();
+  demands.forEach(d=>{ if(d.project) set.add(d.project); });
+  return Array.from(set).sort();
+}
+
+function refreshProjectSelects() {
+  const projects = getProjects();
+  // Update ship-site select
+  const shipSel = document.getElementById('ship-site');
+  const shipVal = shipSel ? shipSel.value : '';
+  if (shipSel) {
+    shipSel.innerHTML = '<option value="">-- 請選擇案件 --</option>';
+    projects.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; shipSel.appendChild(o); });
+    if (shipVal) shipSel.value = shipVal;
+  }
+  // Update dem-project select
+  const demSel = document.getElementById('dem-project');
+  const demVal = demSel ? demSel.value : '';
+  if (demSel) {
+    demSel.innerHTML = '<option value="">-- 選擇現有案件或新增 --</option>';
+    projects.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; demSel.appendChild(o); });
+    const newOpt = document.createElement('option');
+    newOpt.value='__new__'; newOpt.textContent='＋ 新增案件...';
+    demSel.appendChild(newOpt);
+    if (demVal) demSel.value = demVal;
+  }
+}
+
+function onSelectProject() {
+  const val = document.getElementById('dem-project').value;
+  document.getElementById('dem-new-project-group').style.display = val==='__new__' ? 'block' : 'none';
+}
+
+function getProjectName() {
+  const sel = document.getElementById('dem-project').value;
+  if (sel === '__new__') return document.getElementById('dem-new-project').value.trim();
+  return sel;
+}
+
+function addDemand() {
+  const project = getProjectName();
+  const date = document.getElementById('dem-date').value;
+  const name = document.getElementById('dem-name').value.trim();
+  const spec = document.getElementById('dem-spec').value.trim();
+  const thick = document.getElementById('dem-thick').value.trim();
+  const unit = document.getElementById('dem-unit').value.trim();
+  const qty = parseInt(document.getElementById('dem-qty').value);
+  const note = document.getElementById('dem-note').value.trim();
+  if (!project||!date||!name||!spec||!qty||qty<=0) { showToast('⚠️ 請填寫案件名稱、日期、材料、規格、數量'); return; }
+  demands.push({project,date,name,spec,thick,unit,qty,note});
+  ['dem-name','dem-spec','dem-thick','dem-unit','dem-qty','dem-note'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('dem-new-project').value='';
+  document.getElementById('dem-new-project-group').style.display='none';
+  refreshProjectSelects();
+  renderAll(); autoSave(); showToast('✅ 需求已新增');
+}
+
+function getShippedQty(project, name, spec, thick) {
+  return shipments
+    .filter(s=>s.site===project && s.name===name && s.spec===spec && s.thick===thick)
+    .reduce((a,b)=>a+b.qty, 0);
+}
+
+function renderDemands() {
+  const el = document.getElementById('demand-list');
+  if (!el) return;
+  if (!demands.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>尚無需求紀錄</div>'; return; }
+  const projectMap = {};
+  demands.forEach((d,i)=>{ if(!projectMap[d.project]) projectMap[d.project]=[]; projectMap[d.project].push({...d,_idx:i}); });
+  el.innerHTML = Object.keys(projectMap).map(project=>{
+    const items = projectMap[project];
+    const rows = items.map(d=>{
+      const shipped = getShippedQty(d.project, d.name, d.spec, d.thick);
+      const remaining = d.qty - shipped;
+      const unit = d.unit||'';
+      const statusColor = remaining<=0?'badge-green':remaining<d.qty?'badge-amber':'badge-red';
+      const statusText = remaining<=0?'已完成':remaining<d.qty?'部分到貨':'未出貨';
+      return `<div class="list-item">
+        <div style="flex:1">
+          <div class="list-main">${d.name}</div>
+          <div class="list-sub">${d.spec}${d.thick?'・'+d.thick:''}${d.note?'・'+d.note:''}</div>
+          <div style="margin-top:4px;font-size:12px;color:#374151">
+            需求：<strong>${d.qty}${unit}</strong>　已出：<strong style="color:#185FA5">${shipped}${unit}</strong>　
+            差額：<strong style="color:${remaining>0?'#dc2626':'#166534'}">${remaining>0?'-'+remaining:0}${unit}</strong>
+          </div>
+          <span class="badge ${statusColor}" style="margin-top:4px">${statusText}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;margin-left:8px">
+          <div class="list-date">${d.date}</div>
+          <button class="btn-sm" onclick="editDemand(${d._idx})">編輯</button>
+          <button class="btn-danger-sm" onclick="deleteDemand(${d._idx})">刪除</button>
+        </div>
+      </div>`;
+    }).join('');
+    const totalNeeded = items.reduce((a,b)=>a+b.qty,0);
+    const totalShipped = items.reduce((a,b)=>a+getShippedQty(b.project,b.name,b.spec,b.thick),0);
+    return `<div class="site-group" style="margin-bottom:12px">
+      <div class="site-group-header">
+        <div class="site-group-title">🏢 ${project}</div>
+        <div class="site-group-total">需${totalNeeded} 出${totalShipped}</div>
+      </div>
+      <div class="site-group-body">${rows}</div>
+    </div>`;
+  }).join('');
+}
+
+function editDemand(idx) {
+  const d = demands[idx];
+  const body = `
+    <div class="form-group"><label>案件名稱</label><input type="text" id="ed-project" value="${d.project}"></div>
+    <div class="form-group"><label>日期</label><input type="date" id="ed-date" value="${d.date}"></div>
+    <div class="form-group"><label>材料名稱</label><input type="text" id="ed-name" value="${d.name}"></div>
+    <div class="form-group"><label>規格</label><input type="text" id="ed-spec" value="${d.spec}"></div>
+    <div class="form-group"><label>厚度</label><input type="text" id="ed-thick" value="${d.thick||''}"></div>
+    <div class="form-group"><label>單位</label><input type="text" id="ed-unit" value="${d.unit||''}"></div>
+    <div class="form-group"><label>需求數量</label><input type="number" id="ed-qty" value="${d.qty}" min="1"></div>
+    <div class="form-group"><label>備註</label><input type="text" id="ed-note" value="${d.note||''}"></div>`;
+  showEditModal('編輯需求', body, ()=>{
+    demands[idx].project = document.getElementById('ed-project').value.trim();
+    demands[idx].date = document.getElementById('ed-date').value;
+    demands[idx].name = document.getElementById('ed-name').value.trim();
+    demands[idx].spec = document.getElementById('ed-spec').value.trim();
+    demands[idx].thick = document.getElementById('ed-thick').value.trim();
+    demands[idx].unit = document.getElementById('ed-unit').value.trim();
+    demands[idx].qty = parseInt(document.getElementById('ed-qty').value)||0;
+    demands[idx].note = document.getElementById('ed-note').value.trim();
+    hideEditModal(); renderAll(); autoSave(); showToast('✅ 需求已更新');
+  });
+}
+
+function deleteDemand(idx) {
+  if (!confirm('確定刪除此需求？')) return;
+  demands.splice(idx,1);
   renderAll(); autoSave(); showToast('🗑️ 已刪除');
 }
 
