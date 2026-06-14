@@ -278,6 +278,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="form-group"><label>備註</label><input type="text" id="dem-note" placeholder="選填"></div>
     <button class="btn-primary" onclick="addDemand()">新增需求</button>
   </div>
+  <button class="btn-outline" onclick="showArchiveManager()" style="width:100%;margin-bottom:10px">📦 封存管理（已完工案場）</button>
   <div id="demand-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;flex-wrap:nowrap"></div>
   <div id="demand-floor-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;flex-wrap:nowrap"></div>
   <div id="demand-list"></div>
@@ -309,6 +310,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <option value="天花板">天花板</option>
       </select>
     </div>
+    <div class="form-group"><label>分配日期</label><input type="date" id="alloc-date"></div>
     <div class="form-group"><label>數量</label><input type="number" id="alloc-qty" placeholder="0" min="1" oninput="updateAllocGap()"></div>
     <div id="alloc-gap-box" style="display:none;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
     <button class="btn-primary" onclick="addAllocation()">分配</button>
@@ -377,6 +379,7 @@ let demands = [];
 let activeProject = null;
 let activeFloor = null;
 let allocations = [];
+let archivedProjects = [];
 let allocActiveProject = null;
 let allocActiveFloor = null;
 let productions = [];
@@ -389,6 +392,7 @@ const today = new Date().toISOString().slice(0,10);
 document.getElementById('prod-date').value = today;
 document.getElementById('ship-date').value = today;
 document.getElementById('dem-date').value = today;
+document.getElementById('alloc-date').value = today;
 
 // Load company info
 let company = JSON.parse(localStorage.getItem('company') || '{"name":"","phone":""}');
@@ -421,6 +425,7 @@ function saveLocal() {
   localStorage.setItem('mat_shipments', JSON.stringify(shipments));
   localStorage.setItem('mat_demands', JSON.stringify(demands));
   localStorage.setItem('mat_allocations', JSON.stringify(allocations));
+  localStorage.setItem('mat_archived', JSON.stringify(archivedProjects));
 }
 
 function loadLocal() {
@@ -435,6 +440,8 @@ function loadLocal() {
     if (dem) demands = JSON.parse(dem).map(d=>({...d,qty:Number(d.qty)}));
     const alc = localStorage.getItem('mat_allocations');
     if (alc) allocations = JSON.parse(alc).map(a=>({...a,qty:Number(a.qty)}));
+    const arch = localStorage.getItem('mat_archived');
+    if (arch) archivedProjects = JSON.parse(arch);
     orderNo = shipments.length + 1;
   } catch(e) {}
 }
@@ -1299,9 +1306,15 @@ function renderDemands() {
     el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>尚無需求紀錄</div>';
     return;
   }
-  // 取得所有案場
+  // 取得所有案場（排除已封存）
   const projects = [];
-  demands.forEach(d=>{ if(!projects.includes(d.project)) projects.push(d.project); });
+  demands.forEach(d=>{ if(!projects.includes(d.project) && !archivedProjects.includes(d.project)) projects.push(d.project); });
+  if (!projects.length) {
+    if (tabsEl) tabsEl.innerHTML = '';
+    if (floorTabsEl) floorTabsEl.innerHTML = '';
+    el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>目前沒有進行中的案場</div>';
+    return;
+  }
   if (!activeProject || !projects.includes(activeProject)) { activeProject = projects[0]; activeFloor = null; }
   // 第一層：案場頁籤
   if (tabsEl) {
@@ -1330,6 +1343,7 @@ function renderDemands() {
         <span class="site-group-total">需${totalNeeded} 配${totalAlloc}</span>
         <button onclick="copyFloor('${activeProject.replace(/'/g,"\\'")}','${activeFloor.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">複製此樓層</button>
         <button onclick="exportProjectPDF('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出整個案場</button>
+        <button onclick="archiveProject('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">📦 封存</button>
       </div>
     </div>
     <div class="site-group-body">`;
@@ -1473,6 +1487,53 @@ function editDemand(idx) {
   });
 }
 
+function archiveProject(project) {
+  if (!confirm('確定封存「'+project+'」？\n\n封存後會從頁籤收起來（資料保留），需要時可在「封存管理」還原。')) return;
+  if (!archivedProjects.includes(project)) archivedProjects.push(project);
+  activeProject = null; activeFloor = null;
+  allocActiveProject = null; allocActiveFloor = null;
+  renderAll(); autoSave(); showToast('📦 已封存「'+project+'」');
+}
+
+function unarchiveProject(project) {
+  archivedProjects = archivedProjects.filter(p=>p!==project);
+  renderAll(); autoSave(); showToast('✅ 已還原「'+project+'」');
+  showArchiveManager();
+}
+
+function deleteProjectPermanently(project) {
+  if (!confirm('⚠️ 永久刪除「'+project+'」？\n\n這會刪掉該案場的所有需求、出貨、分配紀錄，無法復原！')) return;
+  if (!confirm('再次確認：真的要永久刪除「'+project+'」的全部資料嗎？')) return;
+  const n = v => String(v==null?'':v).trim();
+  demands = demands.filter(d=>n(d.project)!==n(project));
+  shipments = shipments.filter(s=>n(s.site)!==n(project));
+  allocations = allocations.filter(a=>n(a.project)!==n(project));
+  archivedProjects = archivedProjects.filter(p=>p!==project);
+  renderAll(); autoSave(); showToast('🗑️ 已永久刪除「'+project+'」');
+  showArchiveManager();
+}
+
+function showArchiveManager() {
+  let body = '';
+  if (!archivedProjects.length) {
+    body = '<div style="color:#6b7280;font-size:14px;padding:10px 0">目前沒有封存的案場。<br><br>在需求單某案場標題列點「📦 封存」即可把完工案場收起來。</div>';
+  } else {
+    body = '<div style="font-size:13px;color:#6b7280;margin-bottom:10px">已封存的案場（已從主畫面隱藏）：</div>';
+    body += archivedProjects.map(p=>`
+      <div class="list-item">
+        <div style="flex:1"><div class="list-main">🏢 ${p}</div></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn-sm" onclick="unarchiveProject('${p.replace(/'/g,"\\'")}')">還原</button>
+          <button class="btn-danger-sm" onclick="deleteProjectPermanently('${p.replace(/'/g,"\\'")}')">永久刪除</button>
+        </div>
+      </div>`).join('');
+  }
+  document.getElementById('edit-modal-title').textContent = '📦 封存管理';
+  document.getElementById('edit-modal-body').innerHTML = body;
+  document.getElementById('edit-save-btn').style.display = 'none';
+  document.getElementById('edit-modal').classList.add('show');
+}
+
 function deleteDemand(idx) {
   if (!confirm('確定刪除此需求？')) return;
   demands.splice(idx,1);
@@ -1509,7 +1570,7 @@ function getStockYardMaterials(project) {
 
 function getAllocProjects() {
   const set = [];
-  shipments.forEach(s=>{ if(!set.includes(s.site)) set.push(s.site); });
+  shipments.forEach(s=>{ if(!set.includes(s.site) && !archivedProjects.includes(s.site)) set.push(s.site); });
   return set;
 }
 
@@ -1650,7 +1711,7 @@ function addAllocation() {
     project: allocActiveProject,
     floor, category,
     name: mat.name, spec: mat.spec, thick: mat.thick, unit: mat.unit||'',
-    qty, date: today
+    qty, date: document.getElementById('alloc-date').value || today
   });
   document.getElementById('alloc-qty').value='';
   renderAll(); autoSave(); showToast('✅ 已分配到 '+floor+' '+category);
