@@ -218,6 +218,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span style="font-size:13px;color:#6b7280">合計數量</span>
       <span style="font-size:18px;font-weight:700;color:#185FA5" id="order-total">0</span>
     </div>
+    <button class="btn-primary" onclick="goToAllocation()" style="margin-top:12px">✅ 出貨完成，前往分配 →</button>
   </div>
 
   <!-- 出貨紀錄 -->
@@ -228,17 +229,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
     <div id="ship-list"></div>
   </div>
-</div>
-
-<!-- 到料紀錄 -->
-<div class="page" id="page-arrival">
-  <div class="card">
-    <div class="card-title">
-      各工地到料統計
-      <button class="btn-outline" onclick="exportPDF('arrival')" style="font-size:12px;padding:5px 10px">匯出 PDF</button>
-    </div>
-  </div>
-  <div id="arrival-list"></div>
 </div>
 
 <!-- 需求單 -->
@@ -257,20 +247,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <input type="text" id="dem-new-project" placeholder="例：元利四季12F">
     </div>
     <div class="form-group"><label>日期</label><input type="date" id="dem-date"></div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>樓層</label>
-        <input type="text" id="dem-floor" placeholder="例：12F" list="floor-list">
-        <datalist id="floor-list"></datalist>
-      </div>
-      <div class="form-group">
-        <label>分類</label>
-        <select id="dem-category" onchange="onSelectCategory()">
-          <option value="隔間">隔間</option>
-          <option value="天花板">天花板</option>
-          <option value="__new__">＋ 新增分類...</option>
-        </select>
-      </div>
+    <div class="form-group">
+      <label>分類</label>
+      <select id="dem-category" onchange="onSelectCategory()">
+        <option value="隔間">隔間</option>
+        <option value="天花板">天花板</option>
+        <option value="__new__">＋ 新增分類...</option>
+      </select>
     </div>
     <div class="form-group" id="dem-new-category-group" style="display:none">
       <label>新分類名稱</label>
@@ -295,6 +278,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <!-- 分配（置料區） -->
 <div class="page" id="page-allocation">
   <div id="alloc-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 12px;flex-wrap:nowrap"></div>
+  <button class="btn-outline" onclick="showSettlement()" style="width:100%;margin-bottom:12px">📊 此案場用料結算</button>
   <div class="card">
     <div class="card-title">置料區現況</div>
     <div style="font-size:12px;color:#6b7280;margin-bottom:8px">= 已運到此案場的量 − 已分配出去的量</div>
@@ -308,26 +292,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <option value="">-- 請先選上方案場再選材料 --</option>
       </select>
     </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>分配到樓層</label>
-        <input type="text" id="alloc-floor" placeholder="例：12F" list="alloc-floor-list">
-        <datalist id="alloc-floor-list"></datalist>
-      </div>
-      <div class="form-group">
-        <label>分類</label>
-        <select id="alloc-category">
-          <option value="隔間">隔間</option>
-          <option value="天花板">天花板</option>
-        </select>
-      </div>
+    <div class="form-group">
+      <label>分配到分類</label>
+      <select id="alloc-category" onchange="updateAllocGap()">
+        <option value="隔間">隔間</option>
+        <option value="天花板">天花板</option>
+      </select>
     </div>
     <div class="form-group"><label>數量</label><input type="number" id="alloc-qty" placeholder="0" min="1" oninput="updateAllocGap()"></div>
     <div id="alloc-gap-box" style="display:none;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
     <button class="btn-primary" onclick="addAllocation()">分配</button>
   </div>
   <div class="card">
-    <div class="card-title">分配紀錄</div>
+    <div class="card-title">
+      分配紀錄
+      <button class="btn-outline" onclick="exportAllocPDF()" style="font-size:12px;padding:5px 10px">📄 匯出搬運單</button>
+    </div>
     <div id="alloc-list"></div>
   </div>
 </div>
@@ -345,10 +325,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <button class="nav-item" onclick="showPage('shipment',this)">
     <svg viewBox="0 0 24 24"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect x="9" y="11" width="14" height="10" rx="1"/><circle cx="12" cy="21" r="1"/><circle cx="20" cy="21" r="1"/></svg>
     出貨
-  </button>
-  <button class="nav-item" onclick="showPage('arrival',this)">
-    <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-    到料
   </button>
   <button class="nav-item" onclick="showPage('demand',this)">
     <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
@@ -784,6 +760,7 @@ function renderOrder() {
 
 function renderArrival() {
   const el = document.getElementById('arrival-list');
+  if (!el) return;
   if (!shipments.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📊</div>尚無出貨紀錄</div>'; return; }
   const siteMap = {};
   shipments.forEach((s,i)=>{ if(!siteMap[s.site]) siteMap[s.site]=[]; siteMap[s.site].push({...s,_idx:i}); });
@@ -821,7 +798,21 @@ function showPage(name, btn) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
+  else {
+    document.querySelectorAll('.nav-item').forEach(b=>{
+      const oc = b.getAttribute('onclick')||'';
+      if (oc.indexOf("'"+name+"'")>=0) b.classList.add('active');
+    });
+  }
+  window.scrollTo({top:0});
+}
+
+function goToAllocation() {
+  const site = document.getElementById('ship-site').value;
+  if (site) allocActiveProject = site;
+  renderAllocation();
+  showPage('allocation', null);
 }
 
 // ── Company Modal ──
@@ -930,12 +921,12 @@ function exportPDF(page) {
       let block = '<h1 style="margin-top:16px">🏢 '+project+'</h1>';
       Object.keys(catMap).forEach(function(cat){
         const rows = catMap[cat].map(function(d){
-          const shipped = getShippedQty(d.project,d.name,d.spec,d.thick);
-          const remaining = d.qty - shipped;
+          const allocated = getAllocatedQty(d.project,d.name,d.spec,d.thick);
+          const remaining = d.qty - allocated;
           const unit = d.unit||'';
-          return '<tr><td>'+d.date+'</td><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+shipped+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
+          return '<tr><td>'+d.date+'</td><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+allocated+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
         }).join('');
-        block += '<h2>'+cat+'</h2><table><thead><tr><th>日期</th><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已出</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
+        block += '<h2>'+cat+'</h2><table><thead><tr><th>日期</th><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
       });
       return block;
     }).join('');
@@ -945,13 +936,16 @@ function exportPDF(page) {
 
 // ── Edit Modal ──
 function hideEditModal(e) {
-  if (!e || e.target===document.getElementById('edit-modal'))
+  if (!e || e.target===document.getElementById('edit-modal')) {
     document.getElementById('edit-modal').classList.remove('show');
+    document.getElementById('edit-save-btn').style.display = '';
+  }
 }
 
 function showEditModal(title, bodyHTML, saveFn) {
   document.getElementById('edit-modal-title').textContent = title;
   document.getElementById('edit-modal-body').innerHTML = bodyHTML;
+  document.getElementById('edit-save-btn').style.display = '';
   document.getElementById('edit-save-btn').onclick = saveFn;
   document.getElementById('edit-modal').classList.add('show');
 }
@@ -1140,7 +1134,6 @@ function getProjectName() {
 function addDemand() {
   const project = getProjectName();
   const category = getCategoryName();
-  const floor = document.getElementById('dem-floor').value.trim();
   const date = document.getElementById('dem-date').value;
   const name = document.getElementById('dem-name').value.trim();
   const spec = document.getElementById('dem-spec').value.trim();
@@ -1154,7 +1147,7 @@ function addDemand() {
   if (!name) { showToast('⚠️ 請填寫材料名稱'); return; }
   if (!spec) { showToast('⚠️ 請填寫規格'); return; }
   if (!qty||qty<=0) { showToast('⚠️ 請填寫數量'); return; }
-  demands.push({project,floor,category,date,name,spec,thick,unit,qty,note});
+  demands.push({project,category,date,name,spec,thick,unit,qty,note});
   activeProject = project;
   ['dem-name','dem-spec','dem-thick','dem-unit','dem-qty','dem-note'].forEach(id=>document.getElementById(id).value='');
   saveLocal();
@@ -1184,25 +1177,32 @@ function getShippedQty(project, name, spec, thick) {
     .reduce((a,b)=>a+Number(b.qty), 0);
 }
 
+function getAllocatedQty(project, name, spec, thick) {
+  const n = v => String(v==null?'':v).trim();
+  return allocations
+    .filter(a=>n(a.project)===n(project) && n(a.name)===n(name) && n(a.spec)===n(spec) && n(a.thick)===n(thick))
+    .reduce((x,b)=>x+Number(b.qty), 0);
+}
+
 function buildDemandRow(d) {
-  const shipped = getShippedQty(d.project, d.name, d.spec, d.thick);
-  const remaining = d.qty - shipped;
-  const over = shipped - d.qty;
+  const allocated = getAllocatedQty(d.project, d.name, d.spec, d.thick);
+  const remaining = d.qty - allocated;
+  const over = allocated - d.qty;
   const unit = d.unit||'';
   let statusColor, statusText;
   if (over > 0) { statusColor='badge-red'; statusText='⚠️ 超出 '+over+unit; }
   else if (remaining===0) { statusColor='badge-green'; statusText='已完成'; }
-  else if (shipped>0) { statusColor='badge-amber'; statusText='部分到貨'; }
-  else { statusColor='badge-red'; statusText='未出貨'; }
+  else if (allocated>0) { statusColor='badge-amber'; statusText='部分分配'; }
+  else { statusColor='badge-red'; statusText='未分配'; }
   let diffHTML;
   if (over > 0) diffHTML = '超出：<strong style="color:#dc2626">+'+over+unit+'</strong>';
   else diffHTML = '差額：<strong style="color:'+(remaining>0?'#dc2626':'#166534')+'">'+(remaining>0?'-'+remaining:0)+unit+'</strong>';
   return `<div class="list-item">
     <div style="flex:1">
-      <div class="list-main">${d.floor?'<span style="display:inline-block;background:#e6f1fb;color:#185FA5;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">'+d.floor+'</span>':''}${d.name}</div>
+      <div class="list-main">${d.name}</div>
       <div class="list-sub">${d.spec}${d.thick?'・'+d.thick:''}${d.note?'・'+d.note:''}</div>
       <div style="margin-top:4px;font-size:12px;color:#374151">
-        需求：<strong>${d.qty}${unit}</strong>　已出：<strong style="color:#185FA5">${shipped}${unit}</strong>　
+        需求：<strong>${d.qty}${unit}</strong>　已分配：<strong style="color:#185FA5">${allocated}${unit}</strong>　
         ${diffHTML}
       </div>
       <span class="badge ${statusColor}" style="margin-top:4px">${statusText}</span>
@@ -1307,12 +1307,12 @@ function exportProjectPDF(project) {
   Object.keys(catMap).forEach(function(cat){
     const catItems = catMap[cat];
     const rows = catItems.map(function(d){
-      const shipped = getShippedQty(d.project,d.name,d.spec,d.thick);
-      const remaining = d.qty - shipped;
+      const allocated = getAllocatedQty(d.project,d.name,d.spec,d.thick);
+      const remaining = d.qty - allocated;
       const unit = d.unit||'';
-      return '<tr><td>'+d.date+'</td><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+shipped+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
+      return '<tr><td>'+d.date+'</td><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+allocated+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
     }).join('');
-    html += '<h2>'+cat+'</h2><table><thead><tr><th>日期</th><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已出</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    html += '<h2>'+cat+'</h2><table><thead><tr><th>日期</th><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
   });
   printHTML('需求單 ' + project, html);
 }
@@ -1334,7 +1334,7 @@ function copyDemand(idx) {
   document.getElementById('dem-unit').value = d.unit||'';
   document.getElementById('dem-qty').value = d.qty;
   document.getElementById('dem-note').value = d.note||'';
-  document.getElementById('dem-floor').value = d.floor||'';
+  // 案件名稱預設選同一個（方便改成新樓層時用新增）
   // 案件名稱預設選同一個（方便改成新樓層時用新增）
   const sel = document.getElementById('dem-project');
   if (sel) {
@@ -1352,7 +1352,6 @@ function editDemand(idx) {
   const d = demands[idx];
   const body = `
     <div class="form-group"><label>案件名稱</label><input type="text" id="ed-project" value="${d.project}"></div>
-    <div class="form-group"><label>樓層</label><input type="text" id="ed-floor" value="${d.floor||''}" placeholder="例：12F"></div>
     <div class="form-group"><label>分類</label><input type="text" id="ed-category" value="${d.category||'隔間'}"></div>
     <div class="form-group"><label>日期</label><input type="date" id="ed-date" value="${d.date}"></div>
     <div class="form-group"><label>材料名稱</label><input type="text" id="ed-name" value="${d.name}"></div>
@@ -1363,7 +1362,6 @@ function editDemand(idx) {
     <div class="form-group"><label>備註</label><input type="text" id="ed-note" value="${d.note||''}"></div>`;
   showEditModal('編輯需求', body, ()=>{
     demands[idx].project = document.getElementById('ed-project').value.trim();
-    demands[idx].floor = document.getElementById('ed-floor').value.trim();
     demands[idx].category = document.getElementById('ed-category').value.trim()||'隔間';
     demands[idx].date = document.getElementById('ed-date').value;
     demands[idx].name = document.getElementById('ed-name').value.trim();
@@ -1469,13 +1467,6 @@ function renderAllocation() {
     matSel.appendChild(o);
   });
   if (prevMat) matSel.value = prevMat;
-  // 樓層 datalist（此案場需求單的樓層）
-  const dl = document.getElementById('alloc-floor-list');
-  if (dl) {
-    const floors = new Set();
-    demands.filter(d=>allocNorm(d.project)===allocNorm(allocActiveProject)).forEach(d=>{ if(d.floor) floors.add(d.floor); });
-    dl.innerHTML = Array.from(floors).map(f=>'<option value="'+f+'">').join('');
-  }
   // 分配紀錄
   renderAllocList();
   updateAllocGap();
@@ -1494,25 +1485,24 @@ function updateAllocGap() {
   const box = document.getElementById('alloc-gap-box');
   if (!box) return;
   const mat = getAllocCurrentMat();
-  const floor = document.getElementById('alloc-floor').value.trim();
   const category = document.getElementById('alloc-category').value;
-  if (!mat || !floor) { box.style.display='none'; return; }
-  // 此樓層+分類+材料的需求
-  const matched = demands.filter(d=>allocNorm(d.project)===allocNorm(allocActiveProject) && allocNorm(d.floor)===allocNorm(floor) && allocNorm(d.category)===allocNorm(category) && allocNorm(d.name)===allocNorm(mat.name) && allocNorm(d.spec)===allocNorm(mat.spec) && allocNorm(d.thick)===allocNorm(mat.thick));
+  if (!mat) { box.style.display='none'; return; }
+  // 此分類+材料的需求
+  const matched = demands.filter(d=>allocNorm(d.project)===allocNorm(allocActiveProject) && allocNorm(d.category)===allocNorm(category) && allocNorm(d.name)===allocNorm(mat.name) && allocNorm(d.spec)===allocNorm(mat.spec) && allocNorm(d.thick)===allocNorm(mat.thick));
   const unit = mat.unit||'';
   if (!matched.length) {
     box.style.display='block';
     box.style.background='#f1efe8'; box.style.color='#5f5e5a';
-    box.innerHTML='ℹ️ '+floor+' '+category+' 沒有「'+mat.name+'」的需求紀錄';
+    box.innerHTML='ℹ️ '+category+' 沒有「'+mat.name+'」的需求紀錄';
     return;
   }
   const totalDemand = matched.reduce((a,b)=>a+Number(b.qty),0);
-  const alreadyAlloc = allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject) && allocNorm(a.floor)===allocNorm(floor) && allocNorm(a.category)===allocNorm(category) && allocNorm(a.name)===allocNorm(mat.name) && allocNorm(a.spec)===allocNorm(mat.spec) && allocNorm(a.thick)===allocNorm(mat.thick)).reduce((a,b)=>a+Number(b.qty),0);
+  const alreadyAlloc = allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject) && allocNorm(a.category)===allocNorm(category) && allocNorm(a.name)===allocNorm(mat.name) && allocNorm(a.spec)===allocNorm(mat.spec) && allocNorm(a.thick)===allocNorm(mat.thick)).reduce((a,b)=>a+Number(b.qty),0);
   const inputQty = parseInt(document.getElementById('alloc-qty').value)||0;
   const after = alreadyAlloc + inputQty;
   const remaining = totalDemand - after;
   box.style.display='block';
-  let line = floor+' '+category+'　需求 <strong>'+totalDemand+unit+'</strong>　已配 <strong>'+alreadyAlloc+unit+'</strong>';
+  let line = category+'　需求 <strong>'+totalDemand+unit+'</strong>　已配 <strong>'+alreadyAlloc+unit+'</strong>';
   if (inputQty>0) line += '　本次 <strong>'+inputQty+unit+'</strong>';
   if (remaining>0) { box.style.background='#fef3c7'; box.style.color='#92400e'; box.innerHTML=line+'<br>📦 還缺 <strong>'+remaining+unit+'</strong>'; }
   else if (remaining===0) { box.style.background='#dcfce7'; box.style.color='#166534'; box.innerHTML=line+'<br>✅ 剛好滿足'; }
@@ -1521,24 +1511,21 @@ function updateAllocGap() {
 
 function addAllocation() {
   const mat = getAllocCurrentMat();
-  const floor = document.getElementById('alloc-floor').value.trim();
   const category = document.getElementById('alloc-category').value;
   const qty = parseInt(document.getElementById('alloc-qty').value);
   if (!mat) { showToast('⚠️ 請選擇材料'); return; }
-  if (!floor) { showToast('⚠️ 請填寫樓層'); return; }
   if (!qty||qty<=0) { showToast('⚠️ 請填寫數量'); return; }
   if (qty > mat.remain) {
     if (!confirm('⚠️ 置料區只剩 '+mat.remain+(mat.unit||'')+'\n要分配 '+qty+(mat.unit||'')+' 會超出置料區存量。\n\n確定繼續嗎？')) return;
   }
   allocations.push({
     project: allocActiveProject,
-    floor, category,
+    category,
     name: mat.name, spec: mat.spec, thick: mat.thick, unit: mat.unit||'',
     qty, date: today
   });
   document.getElementById('alloc-qty').value='';
-  document.getElementById('alloc-floor').value='';
-  renderAll(); autoSave(); showToast('✅ 已分配到 '+floor+' '+category);
+  renderAll(); autoSave(); showToast('✅ 已分配到 '+category);
 }
 
 function renderAllocList() {
@@ -1546,14 +1533,14 @@ function renderAllocList() {
   if (!el) return;
   const items = allocations.map((a,i)=>({...a,_idx:i})).filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject));
   if (!items.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>尚無分配紀錄</div>'; return; }
-  // 依樓層分組
-  const floorMap = {};
-  items.forEach(a=>{ const f=a.floor||'未指定'; if(!floorMap[f]) floorMap[f]=[]; floorMap[f].push(a); });
-  el.innerHTML = Object.keys(floorMap).map(floor=>{
-    const rows = floorMap[floor].map(a=>`
+  // 依分類分組
+  const catMap = {};
+  items.forEach(a=>{ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
+  el.innerHTML = Object.keys(catMap).map(cat=>{
+    const rows = catMap[cat].map(a=>`
       <div class="list-item">
         <div style="flex:1">
-          <div class="list-main"><span style="display:inline-block;background:#e6f1fb;color:#185FA5;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">${a.category}</span>${a.name}</div>
+          <div class="list-main">${a.name}</div>
           <div class="list-sub">${a.spec}${a.thick?'・'+a.thick:''}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:8px">
@@ -1562,15 +1549,93 @@ function renderAllocList() {
           <button class="btn-danger-sm" onclick="deleteAllocation(${a._idx})">刪除</button>
         </div>
       </div>`).join('');
-    const ftotal = floorMap[floor].reduce((x,y)=>x+Number(y.qty),0);
+    const ctotal = catMap[cat].reduce((x,y)=>x+Number(y.qty),0);
     return `<div class="site-group" style="margin-bottom:12px">
       <div class="site-group-header">
-        <div class="site-group-title">🏢 ${floor}</div>
-        <div class="site-group-total">合計 ${ftotal}</div>
+        <div class="site-group-title">📐 ${cat}</div>
+        <div class="site-group-total">合計 ${ctotal}</div>
       </div>
       <div class="site-group-body">${rows}</div>
     </div>`;
   }).join('');
+}
+
+function exportAllocPDF() {
+  if (!allocActiveProject) { showToast('⚠️ 請先選案場'); return; }
+  const items = allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject));
+  if (!items.length) { showToast('⚠️ 此案場尚無分配紀錄'); return; }
+  let html = '';
+  if (company.name) html += '<div class="company">'+company.name+'</div>';
+  html += '<h1>材料搬運單</h1>';
+  html += '<div class="meta">案場：'+allocActiveProject+'　日期：'+today+'</div>';
+  const catMap = {};
+  items.forEach(function(a){ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
+  Object.keys(catMap).forEach(function(cat){
+    const rows = catMap[cat].map(function(a){
+      return '<tr><td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
+    }).join('');
+    const ctotal = catMap[cat].reduce(function(x,y){return x+Number(y.qty);},0);
+    html += '<h2>📐 '+cat+'</h2>';
+    html += '<table><thead><tr><th>材料名稱</th><th>規格</th><th>厚度</th><th>搬運數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    html += '<div style="text-align:right;font-size:12px;color:#6b7280;margin-top:4px">'+cat+' 小計：'+ctotal+'</div>';
+  });
+  printHTML('搬運單 '+allocActiveProject, html);
+}
+
+function getSettlementData(project) {
+  // 依「材料+規格+厚度」彙總實際分配量
+  const items = allocations.filter(a=>allocNorm(a.project)===allocNorm(project));
+  const map = {};
+  items.forEach(a=>{
+    const key = a.name+'|'+a.spec+'|'+a.thick;
+    if (!map[key]) map[key] = { name:a.name, spec:a.spec, thick:a.thick, unit:a.unit||'', total:0, byCat:{} };
+    map[key].total += Number(a.qty);
+    const c = a.category||'未分類';
+    map[key].byCat[c] = (map[key].byCat[c]||0) + Number(a.qty);
+  });
+  return Object.values(map);
+}
+
+function showSettlement() {
+  if (!allocActiveProject) { showToast('⚠️ 請先選案場'); return; }
+  const data = getSettlementData(allocActiveProject);
+  if (!data.length) { showToast('⚠️ 此案場尚無分配紀錄'); return; }
+  let body = '<div style="font-size:13px;color:#6b7280;margin-bottom:10px">案場：'+allocActiveProject+'（依實際分配統計，各骨架分開計算）</div>';
+  body += data.map(m=>{
+    const catLine = Object.keys(m.byCat).map(c=>c+' '+m.byCat[c]+m.unit).join('、');
+    return `<div class="list-item">
+      <div style="flex:1">
+        <div class="list-main">${m.name}　${m.spec}${m.thick?'・'+m.thick:''}</div>
+        <div style="font-size:11px;color:#9ca3af;margin-top:2px">${catLine}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:17px;font-weight:700;color:#185FA5">${m.total}${m.unit}</div>
+      </div>
+    </div>`;
+  }).join('');
+  body += '<button class="btn-primary" onclick="exportSettlementPDF()" style="margin-top:12px">📄 匯出結算單 PDF</button>';
+  document.getElementById('edit-modal-title').textContent = '📊 ' + allocActiveProject + ' 用料結算';
+  document.getElementById('edit-modal-body').innerHTML = body;
+  document.getElementById('edit-save-btn').style.display = 'none';
+  document.getElementById('edit-modal').classList.add('show');
+}
+
+function exportSettlementPDF() {
+  const project = allocActiveProject;
+  const data = getSettlementData(project);
+  if (!data.length) { showToast('⚠️ 無資料'); return; }
+  let html = '';
+  if (company.name) html += '<div class="company">'+company.name+'</div>';
+  html += '<h1>用料結算單</h1>';
+  html += '<div class="meta">案場：'+project+'　結算日期：'+today+'</div>';
+  const rows = data.map(function(m){
+    const catLine = Object.keys(m.byCat).map(function(c){return c+' '+m.byCat[c]+m.unit;}).join('、');
+    return '<tr><td>'+m.name+'</td><td>'+m.spec+'</td><td>'+(m.thick||'')+'</td><td>'+catLine+'</td><td style="font-weight:700">'+m.total+m.unit+'</td></tr>';
+  }).join('');
+  html += '<table><thead><tr><th>材料名稱</th><th>規格</th><th>厚度</th><th>分類明細</th><th>總用量</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  document.getElementById('edit-modal').classList.remove('show');
+  document.getElementById('edit-save-btn').style.display = '';
+  printHTML('用料結算 '+project, html);
 }
 
 function deleteAllocation(idx) {
