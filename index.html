@@ -747,7 +747,6 @@ function exportPDF(page) {
       html += '<h2>🏗️ '+site+'　<span style="font-weight:400;font-size:12px;color:#6b7280">合計 '+total+' 件</span></h2>';
       html += '<table><thead><tr><th>日期</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
     });
-  }
   } else if (page==='demand') {
     if (!demands.length) { showToast('⚠️ 目前無資料可匯出'); return; }
     const projectMap = {};
