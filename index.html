@@ -93,6 +93,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* Empty state */
 .empty{text-align:center;padding:40px 20px;color:#9ca3af;font-size:14px}
 .empty-icon{font-size:40px;margin-bottom:8px}
+.edit-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:300;display:none;align-items:flex-end}
+.edit-modal-bg.show{display:flex}
+.edit-modal{background:#fff;border-radius:20px 20px 0 0;padding:24px 20px;width:100%;padding-bottom:calc(24px + env(safe-area-inset-bottom));max-height:85vh;overflow-y:auto}
 /* Site group */
 .site-group{background:#fff;border-radius:14px;margin-bottom:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
 .site-group-header{padding:12px 16px;background:#185FA5;color:#fff;display:flex;justify-content:space-between;align-items:center}
@@ -238,6 +241,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+
+<!-- Edit Modal -->
+<div class="edit-modal-bg" id="edit-modal" onclick="hideEditModal(event)">
+  <div class="edit-modal">
+    <div class="modal-title" id="edit-modal-title">編輯</div>
+    <div id="edit-modal-body"></div>
+    <button class="btn-primary" id="edit-save-btn" style="margin-top:8px">儲存</button>
+    <button class="btn-sm" onclick="hideEditModal()" style="width:100%;margin-top:8px;padding:10px;text-align:center">取消</button>
+  </div>
+</div>
 
 <!-- Company Modal -->
 <div class="modal-bg" id="company-modal" onclick="hideCompanyModal(event)">
@@ -424,31 +437,42 @@ function renderInventory() {
   const filtered = inventory.filter(i=>!q||i.name.includes(q)||i.spec.includes(q)||i.thick.includes(q));
   const el = document.getElementById('inv-list');
   if (!filtered.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📦</div>目前無庫存資料</div>'; return; }
-  el.innerHTML = filtered.map(i=>`
-    <div class="list-item">
-      <div>
+  el.innerHTML = filtered.map((i,idx)=>{
+    const realIdx = inventory.indexOf(i);
+    return `<div class="list-item">
+      <div style="flex:1">
         <div class="list-main">${i.name}</div>
         <div class="list-sub">${i.spec}・${i.thick}・更新：${i.lastUpdate}</div>
       </div>
-      <div class="list-right">
+      <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
         <div class="list-qty">${i.qty}</div>
         <span class="badge ${i.qty>0?'badge-green':'badge-red'}">${i.qty>0?'有庫存':'缺貨'}</span>
+        <div style="display:flex;gap:4px;margin-top:2px">
+          <button class="btn-sm" onclick="editInventory(${realIdx})">編輯</button>
+          <button class="btn-danger-sm" onclick="deleteInventory(${realIdx})">刪除</button>
+        </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function renderProductions() {
   const el = document.getElementById('prod-list');
   if (!productions.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>尚無入庫紀錄</div>'; return; }
-  el.innerHTML = [...productions].reverse().map(p=>`
+  const reversed = [...productions].map((p,i)=>({...p,_idx:i})).reverse();
+  el.innerHTML = reversed.map(p=>`
     <div class="list-item">
-      <div>
+      <div style="flex:1">
         <div class="list-main">${p.name}</div>
         <div class="list-sub">${p.spec}・${p.thick}</div>
       </div>
-      <div class="list-right">
+      <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
         <div class="list-qty">+${p.qty}</div>
         <div class="list-date">${p.date}</div>
+        <div style="display:flex;gap:4px;margin-top:2px">
+          <button class="btn-sm" onclick="editProduction(${p._idx})">編輯</button>
+          <button class="btn-danger-sm" onclick="deleteProduction(${p._idx})">刪除</button>
+        </div>
       </div>
     </div>`).join('');
 }
@@ -456,16 +480,21 @@ function renderProductions() {
 function renderShipments() {
   const el = document.getElementById('ship-list');
   if (!shipments.length) { el.innerHTML='<div class="empty"><div class="empty-icon">🚛</div>尚無出貨紀錄</div>'; return; }
-  el.innerHTML = [...shipments].reverse().map(s=>`
+  const reversed = [...shipments].map((s,i)=>({...s,_idx:i})).reverse();
+  el.innerHTML = reversed.map(s=>`
     <div class="list-item">
-      <div>
+      <div style="flex:1">
         <div class="list-main">${s.name}</div>
         <div class="list-sub">${s.site}・${s.spec}・${s.thick}</div>
         <span class="badge ${s.type==='stock'?'badge-blue':'badge-amber'}" style="margin-top:4px">${s.type==='stock'?'庫存出':'制式材料'}</span>
       </div>
-      <div class="list-right">
+      <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
         <div class="list-qty">${s.qty}</div>
         <div class="list-date">${s.date}</div>
+        <div style="display:flex;gap:4px;margin-top:2px">
+          <button class="btn-sm" onclick="editShipment(${s._idx})">編輯</button>
+          <button class="btn-danger-sm" onclick="deleteShipment(${s._idx})">刪除</button>
+        </div>
       </div>
     </div>`).join('');
 }
@@ -613,6 +642,95 @@ function exportPDF(page) {
     });
   }
   printHTML(titles[page], html);
+}
+
+// ── Edit Modal ──
+function hideEditModal(e) {
+  if (!e || e.target===document.getElementById('edit-modal'))
+    document.getElementById('edit-modal').classList.remove('show');
+}
+
+function showEditModal(title, bodyHTML, saveFn) {
+  document.getElementById('edit-modal-title').textContent = title;
+  document.getElementById('edit-modal-body').innerHTML = bodyHTML;
+  document.getElementById('edit-save-btn').onclick = saveFn;
+  document.getElementById('edit-modal').classList.add('show');
+}
+
+// ── Inventory Edit/Delete ──
+function editInventory(idx) {
+  const i = inventory[idx];
+  const body = `
+    <div class="form-group"><label>材料名稱</label><input type="text" id="ei-name" value="${i.name}"></div>
+    <div class="form-group"><label>規格</label><input type="text" id="ei-spec" value="${i.spec}"></div>
+    <div class="form-group"><label>厚度</label><input type="text" id="ei-thick" value="${i.thick}"></div>
+    <div class="form-group"><label>數量</label><input type="number" id="ei-qty" value="${i.qty}" min="0"></div>`;
+  showEditModal('編輯庫存', body, ()=>{
+    inventory[idx].name = document.getElementById('ei-name').value.trim();
+    inventory[idx].spec = document.getElementById('ei-spec').value.trim();
+    inventory[idx].thick = document.getElementById('ei-thick').value.trim();
+    inventory[idx].qty = parseInt(document.getElementById('ei-qty').value)||0;
+    inventory[idx].lastUpdate = today;
+    hideEditModal(); renderAll(); autoSave(); showToast('✅ 庫存已更新');
+  });
+}
+
+function deleteInventory(idx) {
+  if (!confirm('確定刪除「'+inventory[idx].name+'」？')) return;
+  inventory.splice(idx,1);
+  renderAll(); autoSave(); showToast('🗑️ 已刪除');
+}
+
+// ── Production Edit/Delete ──
+function editProduction(idx) {
+  const p = productions[idx];
+  const body = `
+    <div class="form-group"><label>日期</label><input type="date" id="ep-date" value="${p.date}"></div>
+    <div class="form-group"><label>材料名稱</label><input type="text" id="ep-name" value="${p.name}"></div>
+    <div class="form-group"><label>規格</label><input type="text" id="ep-spec" value="${p.spec}"></div>
+    <div class="form-group"><label>厚度</label><input type="text" id="ep-thick" value="${p.thick}"></div>
+    <div class="form-group"><label>數量</label><input type="number" id="ep-qty" value="${p.qty}" min="1"></div>`;
+  showEditModal('編輯入庫紀錄', body, ()=>{
+    productions[idx].date = document.getElementById('ep-date').value;
+    productions[idx].name = document.getElementById('ep-name').value.trim();
+    productions[idx].spec = document.getElementById('ep-spec').value.trim();
+    productions[idx].thick = document.getElementById('ep-thick').value.trim();
+    productions[idx].qty = parseInt(document.getElementById('ep-qty').value)||0;
+    hideEditModal(); renderAll(); autoSave(); showToast('✅ 入庫紀錄已更新');
+  });
+}
+
+function deleteProduction(idx) {
+  if (!confirm('確定刪除此入庫紀錄？')) return;
+  productions.splice(idx,1);
+  renderAll(); autoSave(); showToast('🗑️ 已刪除');
+}
+
+// ── Shipment Edit/Delete ──
+function editShipment(idx) {
+  const s = shipments[idx];
+  const body = `
+    <div class="form-group"><label>日期</label><input type="date" id="es-date" value="${s.date}"></div>
+    <div class="form-group"><label>工地名稱</label><input type="text" id="es-site" value="${s.site}"></div>
+    <div class="form-group"><label>材料名稱</label><input type="text" id="es-name" value="${s.name}"></div>
+    <div class="form-group"><label>規格</label><input type="text" id="es-spec" value="${s.spec}"></div>
+    <div class="form-group"><label>厚度</label><input type="text" id="es-thick" value="${s.thick}"></div>
+    <div class="form-group"><label>數量</label><input type="number" id="es-qty" value="${s.qty}" min="1"></div>`;
+  showEditModal('編輯出貨紀錄', body, ()=>{
+    shipments[idx].date = document.getElementById('es-date').value;
+    shipments[idx].site = document.getElementById('es-site').value.trim();
+    shipments[idx].name = document.getElementById('es-name').value.trim();
+    shipments[idx].spec = document.getElementById('es-spec').value.trim();
+    shipments[idx].thick = document.getElementById('es-thick').value.trim();
+    shipments[idx].qty = parseInt(document.getElementById('es-qty').value)||0;
+    hideEditModal(); renderAll(); autoSave(); showToast('✅ 出貨紀錄已更新');
+  });
+}
+
+function deleteShipment(idx) {
+  if (!confirm('確定刪除此出貨紀錄？')) return;
+  shipments.splice(idx,1);
+  renderAll(); autoSave(); showToast('🗑️ 已刪除');
 }
 
 // ── Init ──
