@@ -721,23 +721,38 @@ function renderProductions() {
 function renderShipments() {
   const el = document.getElementById('ship-list');
   if (!shipments.length) { el.innerHTML='<div class="empty"><div class="empty-icon">🚛</div>尚無出貨紀錄</div>'; return; }
-  const reversed = [...shipments].map((s,i)=>({...s,_idx:i})).reverse();
-  el.innerHTML = reversed.map(s=>`
-    <div class="list-item">
-      <div style="flex:1">
-        <div class="list-main">${s.name}</div>
-        <div class="list-sub">${s.site}・${s.spec}・${s.thick}</div>
-        <span class="badge ${s.type==='stock'?'badge-blue':'badge-amber'}" style="margin-top:4px">${s.type==='stock'?'庫存出':'制式材料'}</span>
-      </div>
-      <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-        <div class="list-qty">${s.qty}</div>
-        <div class="list-date">${s.date}</div>
-        <div style="display:flex;gap:4px;margin-top:2px">
-          <button class="btn-sm" onclick="editShipment(${s._idx})">編輯</button>
-          <button class="btn-danger-sm" onclick="deleteShipment(${s._idx})">刪除</button>
+  const withIdx = shipments.map((s,i)=>({...s,_idx:i}));
+  // 依日期分組
+  const dateMap = {};
+  withIdx.forEach(s=>{ const d=s.date||'（無日期）'; if(!dateMap[d]) dateMap[d]=[]; dateMap[d].push(s); });
+  // 日期由新到舊
+  const dates = Object.keys(dateMap).sort((a,b)=>b.localeCompare(a));
+  el.innerHTML = dates.map(date=>{
+    const items = dateMap[date];
+    const dayTotal = items.reduce((a,b)=>a+Number(b.qty),0);
+    const rows = items.map(s=>`
+      <div class="list-item">
+        <div style="flex:1">
+          <div class="list-main">${s.name}</div>
+          <div class="list-sub">${s.site}・${s.spec}・${s.thick}</div>
+          <span class="badge ${s.type==='stock'?'badge-blue':'badge-amber'}" style="margin-top:4px">${s.type==='stock'?'庫存出':'制式材料'}</span>
         </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <div class="list-qty">${s.qty}</div>
+          <div style="display:flex;gap:4px;margin-top:2px">
+            <button class="btn-sm" onclick="editShipment(${s._idx})">編輯</button>
+            <button class="btn-danger-sm" onclick="deleteShipment(${s._idx})">刪除</button>
+          </div>
+        </div>
+      </div>`).join('');
+    return `<div class="site-group" style="margin-bottom:12px">
+      <div class="site-group-header">
+        <div class="site-group-title">📅 ${date}</div>
+        <div class="site-group-total">合計 ${dayTotal}</div>
       </div>
-    </div>`).join('');
+      <div class="site-group-body">${rows}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderOrder() {
@@ -1623,27 +1638,27 @@ function renderAllocList() {
   if (!el) return;
   const items = allocations.map((a,i)=>({...a,_idx:i})).filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject) && allocNorm(a.floor)===allocNorm(allocActiveFloor));
   if (!items.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>此樓層尚無分配紀錄</div>'; return; }
-  // 依分類分組
-  const catMap = {};
-  items.forEach(a=>{ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
-  el.innerHTML = Object.keys(catMap).map(cat=>{
-    const rows = catMap[cat].map(a=>`
+  // 依日期分組（新到舊）
+  const dateMap = {};
+  items.forEach(a=>{ const d=a.date||'（無日期）'; if(!dateMap[d]) dateMap[d]=[]; dateMap[d].push(a); });
+  const dates = Object.keys(dateMap).sort((a,b)=>b.localeCompare(a));
+  el.innerHTML = dates.map(date=>{
+    const rows = dateMap[date].map(a=>`
       <div class="list-item">
         <div style="flex:1">
-          <div class="list-main">${a.name}</div>
+          <div class="list-main"><span style="display:inline-block;background:#e6f1fb;color:#185FA5;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">${a.category}</span>${a.name}</div>
           <div class="list-sub">${a.spec}${a.thick?'・'+a.thick:''}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:8px">
           <div class="list-qty">${a.qty}${a.unit||''}</div>
-          <div class="list-date">${a.date}</div>
           <button class="btn-danger-sm" onclick="deleteAllocation(${a._idx})">刪除</button>
         </div>
       </div>`).join('');
-    const ctotal = catMap[cat].reduce((x,y)=>x+Number(y.qty),0);
+    const dtotal = dateMap[date].reduce((x,y)=>x+Number(y.qty),0);
     return `<div class="site-group" style="margin-bottom:12px">
       <div class="site-group-header">
-        <div class="site-group-title">📐 ${cat}</div>
-        <div class="site-group-total">合計 ${ctotal}</div>
+        <div class="site-group-title">📅 ${date}</div>
+        <div class="site-group-total">合計 ${dtotal}</div>
       </div>
       <div class="site-group-body">${rows}</div>
     </div>`;
