@@ -743,16 +743,24 @@ function printHTML(title, tableHTML) {
 function exportOrderPDF() {
   if (!currentOrder.length) { showToast('⚠️ 採購單是空的'); return; }
   const no = 'PO-' + String(orderNo).padStart(4,'0');
-  const site = document.getElementById('ship-site').value || (currentOrder[0] && currentOrder[0].site) || '';
   const total = currentOrder.reduce(function(a,b){return a+b.qty;},0);
-  const rows = currentOrder.map(function(o){return '<tr><td>'+o.name+'</td><td>'+o.spec+'</td><td>'+o.thick+'</td><td>'+o.qty+'</td></tr>';}).join('');
   let html = '';
   if (company.name) html += '<div class="company">'+company.name+'</div>';
   if (company.phone) html += '<div class="meta">電話：'+company.phone+'</div>';
   html += '<h1>採購單</h1>';
-  html += '<div class="meta">採購單編號：'+no+'　日期：'+today+(site?'　工地：'+site:'')+'</div>';
-  html += '<table><thead><tr><th>材料名稱</th><th>規格</th><th>厚度</th><th>數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
-  html += '<div class="total">合計數量：'+total+'</div>';
+  html += '<div class="meta">採購單編號：'+no+'　日期：'+today+'</div>';
+  // 依案場分組
+  const siteMap = {};
+  currentOrder.forEach(function(o){ const s=o.site||'（未指定案場）'; if(!siteMap[s]) siteMap[s]=[]; siteMap[s].push(o); });
+  Object.keys(siteMap).forEach(function(site){
+    const items = siteMap[site];
+    const siteTotal = items.reduce(function(a,b){return a+b.qty;},0);
+    const rows = items.map(function(o){return '<tr><td>'+o.name+'</td><td>'+o.spec+'</td><td>'+o.thick+'</td><td>'+o.qty+'</td></tr>';}).join('');
+    html += '<h2>🏢 '+site+'</h2>';
+    html += '<table><thead><tr><th>材料名稱</th><th>規格</th><th>厚度</th><th>數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    html += '<div style="text-align:right;font-size:12px;color:#6b7280;margin-top:4px">此案場小計：'+siteTotal+'</div>';
+  });
+  html += '<div class="total">總合計數量：'+total+'</div>';
   printHTML('採購單 ' + no, html);
   orderNo++;
 }
