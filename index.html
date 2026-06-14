@@ -164,14 +164,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
     <div class="form-group"><label>日期</label><input type="date" id="ship-date"></div>
     <div class="form-group"><label>工地名稱</label><input type="text" id="ship-site" placeholder="例：北區工地A"></div>
-    <div class="form-row">
-      <div class="form-group"><label>材料名稱</label><input type="text" id="ship-name" placeholder="例：鍍鋅管"></div>
-      <div class="form-group"><label>規格</label><input type="text" id="ship-spec" placeholder="例：DN100"></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group"><label>厚度</label><input type="text" id="ship-thick" placeholder="例：3mm"></div>
-      <div class="form-group"><label>數量</label><input type="number" id="ship-qty" placeholder="0" min="1"></div>
-    </div>
     <div class="form-group">
       <label>出貨類型</label>
       <div class="radio-group">
@@ -179,6 +171,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <button class="radio-opt" id="opt-standard" onclick="setShipType('standard')">制式材料</button>
       </div>
     </div>
+    <!-- 從庫存出：下拉選單 -->
+    <div id="ship-stock-fields">
+      <div class="form-group">
+        <label>選擇材料</label>
+        <select id="ship-inv-select" onchange="onSelectInventory()">
+          <option value="">-- 請選擇庫存材料 --</option>
+        </select>
+      </div>
+      <div id="ship-stock-info" style="display:none;background:#f0f7ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#374151">
+        <span id="ship-stock-detail"></span>
+      </div>
+    </div>
+    <!-- 制式材料：手動輸入 -->
+    <div id="ship-manual-fields" style="display:none">
+      <div class="form-row">
+        <div class="form-group"><label>材料名稱</label><input type="text" id="ship-name" placeholder="例：鍍鋅管"></div>
+        <div class="form-group"><label>規格</label><input type="text" id="ship-spec" placeholder="例：DN100"></div>
+      </div>
+      <div class="form-group"><label>厚度</label><input type="text" id="ship-thick" placeholder="例：3mm"></div>
+    </div>
+    <div class="form-group"><label>數量</label><input type="number" id="ship-qty" placeholder="0" min="1"></div>
     <button class="btn-primary" onclick="addShipment()">加入採購單</button>
   </div>
 
@@ -381,26 +394,68 @@ function setShipType(t) {
   shipType = t;
   document.getElementById('opt-stock').className = 'radio-opt' + (t==='stock'?' active':'');
   document.getElementById('opt-standard').className = 'radio-opt' + (t==='standard'?' active':'');
+  document.getElementById('ship-stock-fields').style.display = t==='stock'?'block':'none';
+  document.getElementById('ship-manual-fields').style.display = t==='standard'?'block':'none';
+  if (t==='stock') refreshInvSelect();
+}
+
+function refreshInvSelect() {
+  const sel = document.getElementById('ship-inv-select');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">-- 請選擇庫存材料 --</option>';
+  inventory.filter(i=>i.qty>0).forEach((i,idx)=>{
+    const opt = document.createElement('option');
+    opt.value = idx;
+    opt.textContent = i.name + '　' + i.spec + '　' + i.thick + '　（庫存：' + i.qty + '）';
+    sel.appendChild(opt);
+  });
+  if (prev) sel.value = prev;
+  onSelectInventory();
+}
+
+function onSelectInventory() {
+  const sel = document.getElementById('ship-inv-select');
+  const info = document.getElementById('ship-stock-info');
+  const detail = document.getElementById('ship-stock-detail');
+  if (!sel.value && sel.value !== 0) { info.style.display='none'; return; }
+  const i = inventory.filter(i=>i.qty>0)[parseInt(sel.value)];
+  if (!i) { info.style.display='none'; return; }
+  info.style.display='block';
+  detail.textContent = '名稱：'+i.name+'　規格：'+i.spec+'　厚度：'+i.thick+'　庫存：'+i.qty;
 }
 
 function addShipment() {
   const date = document.getElementById('ship-date').value;
   const site = document.getElementById('ship-site').value.trim();
-  const name = document.getElementById('ship-name').value.trim();
-  const spec = document.getElementById('ship-spec').value.trim();
-  const thick = document.getElementById('ship-thick').value.trim();
   const qty = parseInt(document.getElementById('ship-qty').value);
-  if (!date||!site||!name||!spec||!thick||!qty||qty<=0) { showToast('⚠️ 請填寫所有欄位'); return; }
+  let name='', spec='', thick='';
+  if (!date||!site||!qty||qty<=0) { showToast('⚠️ 請填寫所有欄位'); return; }
   if (shipType==='stock') {
-    const inv = findInventory(name,spec,thick);
-    if (!inv) { showToast('❌ 庫存中找不到此材料'); return; }
+    const sel = document.getElementById('ship-inv-select');
+    if (!sel.value && sel.value!==0) { showToast('⚠️ 請選擇庫存材料'); return; }
+    const invList = inventory.filter(i=>i.qty>0);
+    const inv = invList[parseInt(sel.value)];
+    if (!inv) { showToast('❌ 找不到此材料'); return; }
     if (inv.qty<qty) { showToast('❌ 庫存不足！目前：'+inv.qty); return; }
+    name=inv.name; spec=inv.spec; thick=inv.thick;
     inv.qty-=qty; inv.lastUpdate=date;
+  } else {
+    name = document.getElementById('ship-name').value.trim();
+    spec = document.getElementById('ship-spec').value.trim();
+    thick = document.getElementById('ship-thick').value.trim();
+    if (!name||!spec||!thick) { showToast('⚠️ 請填寫材料名稱、規格、厚度'); return; }
   }
   const record = {date,site,name,spec,thick,qty,type:shipType};
   shipments.push(record);
   currentOrder.push(record);
-  ['ship-name','ship-spec','ship-thick','ship-qty'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('ship-qty').value='';
+  if (shipType==='standard') {
+    ['ship-name','ship-spec','ship-thick'].forEach(id=>document.getElementById(id).value='');
+  } else {
+    document.getElementById('ship-inv-select').value='';
+    document.getElementById('ship-stock-info').style.display='none';
+    refreshInvSelect();
+  }
   renderAll(); autoSave();
   showToast(shipType==='stock'?'✅ 已出貨，庫存已扣減':'✅ 已新增制式材料');
 }
