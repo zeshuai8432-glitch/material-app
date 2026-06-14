@@ -1081,8 +1081,9 @@ function renderDemands() {
   let html = `<div class="site-group" style="margin-bottom:12px">
     <div class="site-group-header">
       <div class="site-group-title">🏢 ${activeProject}</div>
-      <div style="display:flex;align-items:center;gap:8px">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
         <span class="site-group-total">需${totalNeeded} 出${totalShipped}</span>
+        <button onclick="copyProject('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">複製整個案場</button>
         <button onclick="exportProjectPDF('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出此案場</button>
       </div>
     </div>
@@ -1095,6 +1096,37 @@ function renderDemands() {
   });
   html += `</div></div>`;
   el.innerHTML = html;
+}
+
+function copyProject(project) {
+  const items = demands.filter(d=>d.project===project);
+  if (!items.length) { showToast('⚠️ 此案場無需求'); return; }
+  const newName = prompt('請輸入新案場名稱（會複製「'+project+'」的所有需求）：', project + ' 複製');
+  if (!newName) return;
+  const trimmed = newName.trim();
+  if (!trimmed) { showToast('⚠️ 名稱不可空白'); return; }
+  // 檢查是否已存在
+  const exists = demands.some(d=>d.project===trimmed);
+  if (exists) {
+    if (!confirm('案場「'+trimmed+'」已存在，仍要把需求加進去嗎？')) return;
+  }
+  // 複製每一筆需求（日期改成今天，不帶出貨紀錄）
+  items.forEach(d=>{
+    demands.push({
+      project: trimmed,
+      category: d.category||'隔間',
+      date: today,
+      name: d.name,
+      spec: d.spec,
+      thick: d.thick,
+      unit: d.unit,
+      qty: d.qty,
+      note: d.note
+    });
+  });
+  activeProject = trimmed;
+  renderAll(); autoSave();
+  showToast('✅ 已複製到「'+trimmed+'」（'+items.length+'筆）');
 }
 
 function exportProjectPDF(project) {
