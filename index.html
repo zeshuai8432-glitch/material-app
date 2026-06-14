@@ -978,11 +978,28 @@ function renderDemands() {
     return `<div class="site-group" style="margin-bottom:12px">
       <div class="site-group-header">
         <div class="site-group-title">🏢 ${project}</div>
-        <div class="site-group-total">需${totalNeeded} 出${totalShipped}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="site-group-total">需${totalNeeded} 出${totalShipped}</span>
+          <button onclick="exportProjectPDF('${project.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出此案場</button>
+        </div>
       </div>
       <div class="site-group-body">${rows}</div>
     </div>`;
   }).join('');
+}
+
+function exportProjectPDF(project) {
+  const items = demands.filter(d=>d.project===project);
+  if (!items.length) { showToast('⚠️ 此案場無需求'); return; }
+  let html = '<h1>需求單 - ' + project + '</h1><div class="meta">匯出日期：' + today + '</div>';
+  const rows = items.map(function(d){
+    const shipped = getShippedQty(d.project,d.name,d.spec,d.thick);
+    const remaining = d.qty - shipped;
+    const unit = d.unit||'';
+    return '<tr><td>'+d.date+'</td><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+shipped+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
+  }).join('');
+  html += '<table><thead><tr><th>日期</th><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已出</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  printHTML('需求單 ' + project, html);
 }
 
 function copyDemand(idx) {
