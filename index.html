@@ -657,20 +657,24 @@ function renderArrival() {
   const el = document.getElementById('arrival-list');
   if (!shipments.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📊</div>尚無出貨紀錄</div>'; return; }
   const siteMap = {};
-  shipments.forEach(s=>{ if(!siteMap[s.site]) siteMap[s.site]=[]; siteMap[s.site].push(s); });
+  shipments.forEach((s,i)=>{ if(!siteMap[s.site]) siteMap[s.site]=[]; siteMap[s.site].push({...s,_idx:i}); });
   el.innerHTML = Object.keys(siteMap).map(site=>{
     const items = siteMap[site];
     const total = items.reduce((a,b)=>a+b.qty,0);
     const rows = [...items].reverse().map(s=>`
       <div class="list-item">
-        <div>
+        <div style="flex:1">
           <div class="list-main">${s.name}</div>
           <div class="list-sub">${s.spec}・${s.thick}</div>
           <span class="badge ${s.type==='stock'?'badge-blue':'badge-amber'}" style="margin-top:3px">${s.type==='stock'?'庫存出':'制式材料'}</span>
         </div>
-        <div class="list-right">
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:8px">
           <div class="list-qty">${s.qty}</div>
           <div class="list-date">${s.date}</div>
+          <div style="display:flex;gap:4px;margin-top:2px">
+            <button class="btn-sm" onclick="editShipment(${s._idx})">編輯</button>
+            <button class="btn-danger-sm" onclick="deleteShipment(${s._idx})">刪除</button>
+          </div>
         </div>
       </div>`).join('');
     return `<div class="site-group">
@@ -875,20 +879,39 @@ function editShipment(idx) {
     <div class="form-group"><label>厚度</label><input type="text" id="es-thick" value="${s.thick}"></div>
     <div class="form-group"><label>數量</label><input type="number" id="es-qty" value="${s.qty}" min="1"></div>`;
   showEditModal('編輯出貨紀錄', body, ()=>{
+    const oldQty = Number(s.qty);
+    const newQty = parseInt(document.getElementById('es-qty').value)||0;
+    // 若是庫存出，且數量有變，調整庫存
+    if (s.type==='stock' && newQty!==oldQty) {
+      const inv = findInventory(s.name, s.spec, s.thick);
+      if (inv) {
+        const diff = newQty - oldQty; // 多出的部分要再扣
+        if (diff > 0 && inv.qty < diff) {
+          showToast('❌ 庫存不足，無法增加出貨量（剩'+inv.qty+'）'); return;
+        }
+        inv.qty -= diff;
+      }
+    }
     shipments[idx].date = document.getElementById('es-date').value;
     shipments[idx].site = document.getElementById('es-site').value.trim();
     shipments[idx].name = document.getElementById('es-name').value.trim();
     shipments[idx].spec = document.getElementById('es-spec').value.trim();
     shipments[idx].thick = document.getElementById('es-thick').value.trim();
-    shipments[idx].qty = parseInt(document.getElementById('es-qty').value)||0;
+    shipments[idx].qty = newQty;
     hideEditModal(); renderAll(); autoSave(); showToast('✅ 出貨紀錄已更新');
   });
 }
 
 function deleteShipment(idx) {
+  const s = shipments[idx];
   if (!confirm('確定刪除此出貨紀錄？')) return;
+  // 若是庫存出，刪除時把數量加回庫存
+  if (s.type==='stock') {
+    const inv = findInventory(s.name, s.spec, s.thick);
+    if (inv) { inv.qty += Number(s.qty); inv.lastUpdate = today; }
+  }
   shipments.splice(idx,1);
-  renderAll(); autoSave(); showToast('🗑️ 已刪除');
+  renderAll(); autoSave(); showToast('🗑️ 已刪除，庫存已還原');
 }
 
 // ── Demand ──
