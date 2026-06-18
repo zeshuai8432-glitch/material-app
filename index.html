@@ -225,7 +225,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="card">
     <div class="card-title">
       所有出貨紀錄
-      <button class="btn-outline" onclick="exportPDF('shipment')" style="font-size:12px;padding:5px 10px">匯出 PDF</button>
+      <button class="btn-outline" onclick="mergeShipByRange()" style="font-size:12px;padding:5px 10px">📅 合併匯出</button>
     </div>
     <div id="ship-list"></div>
   </div>
@@ -278,7 +278,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="form-group"><label>備註</label><input type="text" id="dem-note" placeholder="選填"></div>
     <button class="btn-primary" onclick="addDemand()">新增需求</button>
   </div>
-  <button class="btn-outline" onclick="showArchiveManager()" style="width:100%;margin-bottom:10px">📦 封存管理（已完工案場）</button>
+  <button class="btn-outline" onclick="showArchiveManager()" style="width:100%;margin-bottom:6px">📦 封存管理（已完工案場）</button>
+  <button class="btn-outline" onclick="mergeDemandProjects()" style="width:100%;margin-bottom:10px">📄 合併匯出多個案場需求單</button>
   <div id="demand-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;flex-wrap:nowrap"></div>
   <div id="demand-floor-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;flex-wrap:nowrap"></div>
   <div id="demand-list"></div>
@@ -288,7 +289,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div class="page" id="page-allocation">
   <div id="alloc-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;flex-wrap:nowrap"></div>
   <div id="alloc-floor-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;flex-wrap:nowrap"></div>
-  <button class="btn-outline" onclick="showSettlement()" style="width:100%;margin-bottom:12px">📊 此案場用料結算</button>
+  <button class="btn-outline" onclick="showSettlement()" style="width:100%;margin-bottom:8px">📊 此案場用料結算</button>
+  <button class="btn-outline" onclick="mergeAllocByDate()" style="width:100%;margin-bottom:12px">📅 合併匯出某一天（全樓層搬運單）</button>
   <div class="card">
     <div class="card-title">置料區現況</div>
     <div style="font-size:12px;color:#6b7280;margin-bottom:8px">= 已運到此案場的量 − 已分配出去的量</div>
@@ -763,6 +765,35 @@ function renderShipments() {
       <div class="site-group-body">${rows}</div>
     </div>`;
   }).join('');
+}
+
+function mergeShipByRange() {
+  if (!shipments.length) { showToast('⚠️ 尚無出貨紀錄'); return; }
+  const from = prompt('合併匯出出貨紀錄\n\n起始日期（格式 '+today+'）：', today);
+  if (!from) return;
+  const to = prompt('結束日期（格式 '+today+'）：', today);
+  if (!to) return;
+  const f = from.trim(), t = to.trim();
+  const items = shipments.filter(s=>{ const d=s.date||''; return d>=f && d<=t; });
+  if (!items.length) { showToast('⚠️ 此區間無出貨紀錄'); return; }
+  let html = '';
+  if (company.name) html += '<div class="company">'+company.name+'</div>';
+  html += '<h1>出貨單（合併）</h1><div class="meta">期間：'+f+' ~ '+t+'</div>';
+  // 依日期（新到舊）> 案場
+  const dateMap = {};
+  items.forEach(function(s){ const d=s.date||'（無日期）'; if(!dateMap[d]) dateMap[d]=[]; dateMap[d].push(s); });
+  Object.keys(dateMap).sort((a,b)=>b.localeCompare(a)).forEach(function(date){
+    html += '<h2 style="background:#185FA5;color:#fff;padding:6px 10px;border-radius:6px">📅 '+date+'</h2>';
+    const siteMap = {};
+    dateMap[date].forEach(function(s){ const k=s.site||'（未指定）'; if(!siteMap[k]) siteMap[k]=[]; siteMap[k].push(s); });
+    Object.keys(siteMap).forEach(function(site){
+      const rows = siteMap[site].map(function(s){
+        return '<tr><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+(s.thick||'')+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式')+'</td></tr>';
+      }).join('');
+      html += '<h3 style="margin:8px 0 4px">🏢 '+site+'</h3><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    });
+  });
+  printHTML('出貨單合併 '+f+'_'+t, html);
 }
 
 function exportShipDatePDF(date) {
@@ -1246,27 +1277,39 @@ function getAllocatedQty(project, floor, name, spec, thick) {
     .reduce((x,b)=>x+Number(b.qty), 0);
 }
 
+function getTotalDemandForMaterial(project, floor, category, name, spec, thick) {
+  const n = v => String(v==null?'':v).trim();
+  return demands
+    .filter(d=>n(d.project)===n(project) && n(d.floor)===n(floor) && n(d.category)===n(category) && n(d.name)===n(name) && n(d.spec)===n(spec) && n(d.thick)===n(thick))
+    .reduce((x,b)=>x+Number(b.qty), 0);
+}
+
 function buildDemandRow(d) {
-  const allocated = getAllocatedQty(d.project, d.floor, d.name, d.spec, d.thick);
-  const remaining = d.qty - allocated;
-  const over = allocated - d.qty;
   const unit = d.unit||'';
+  // 同材料（同案場+樓層+分類+材料規格厚度）合併計算缺口，避免追加需求重複算
+  const totalDemand = getTotalDemandForMaterial(d.project, d.floor, d.category, d.name, d.spec, d.thick);
+  const totalAlloc = getAllocatedQty(d.project, d.floor, d.name, d.spec, d.thick);
+  const remaining = totalDemand - totalAlloc;
+  const over = totalAlloc - totalDemand;
   let statusColor, statusText;
   if (over > 0) { statusColor='badge-red'; statusText='⚠️ 超出 '+over+unit; }
   else if (remaining===0) { statusColor='badge-green'; statusText='已完成'; }
-  else if (allocated>0) { statusColor='badge-amber'; statusText='部分分配'; }
+  else if (totalAlloc>0) { statusColor='badge-amber'; statusText='部分分配'; }
   else { statusColor='badge-red'; statusText='未分配'; }
   let diffHTML;
   if (over > 0) diffHTML = '超出：<strong style="color:#dc2626">+'+over+unit+'</strong>';
   else diffHTML = '差額：<strong style="color:'+(remaining>0?'#dc2626':'#166534')+'">'+(remaining>0?'-'+remaining:0)+unit+'</strong>';
+  // 提示：若同材料有多筆需求，標明缺口是合併計算
+  const multiNote = (totalDemand !== Number(d.qty)) ? '<span style="font-size:11px;color:#9ca3af">（此材料總需求 '+totalDemand+unit+'，缺口合併計算）</span>' : '';
   return `<div class="list-item">
     <div style="flex:1">
       <div class="list-main">${d.name}</div>
       <div class="list-sub">${d.spec}${d.thick?'・'+d.thick:''}${d.note?'・'+d.note:''}</div>
       <div style="margin-top:4px;font-size:12px;color:#374151">
-        需求：<strong>${d.qty}${unit}</strong>　已分配：<strong style="color:#185FA5">${allocated}${unit}</strong>　
+        本筆需求：<strong>${d.qty}${unit}</strong>　此材料已分配：<strong style="color:#185FA5">${totalAlloc}${unit}</strong>　
         ${diffHTML}
       </div>
+      <div>${multiNote}</div>
       <span class="badge ${statusColor}" style="margin-top:4px">${statusText}</span>
     </div>
     <div style="display:flex;flex-direction:column;gap:4px;margin-left:8px">
@@ -1532,6 +1575,40 @@ function showArchiveManager() {
   document.getElementById('edit-modal-body').innerHTML = body;
   document.getElementById('edit-save-btn').style.display = 'none';
   document.getElementById('edit-modal').classList.add('show');
+}
+
+function mergeDemandProjects() {
+  const projects = [];
+  demands.forEach(d=>{ if(!projects.includes(d.project) && !archivedProjects.includes(d.project)) projects.push(d.project); });
+  if (!projects.length) { showToast('⚠️ 尚無案場'); return; }
+  const input = prompt('合併匯出需求單\n\n要哪些案場？用逗號分隔，或輸入 all 全部：\n\n'+projects.join('\n'), 'all');
+  if (!input) return;
+  let chosen;
+  if (input.trim().toLowerCase()==='all') chosen = projects;
+  else chosen = input.split(/[,，]/).map(s=>s.trim()).filter(s=>projects.includes(s));
+  if (!chosen.length) { showToast('⚠️ 沒有對應的案場（名稱要完全一樣）'); return; }
+  let html = '<h1>需求單（合併）</h1><div class="meta">匯出日期：'+today+'</div>';
+  chosen.forEach(function(project){
+    html += '<h1 style="margin-top:16px;border-top:2px solid #185FA5;padding-top:10px">🏢 '+project+'</h1>';
+    const items = demands.filter(d=>d.project===project);
+    const floorMap = {};
+    items.forEach(function(d){ const f=d.floor||'（未分樓層）'; if(!floorMap[f]) floorMap[f]=[]; floorMap[f].push(d); });
+    Object.keys(floorMap).forEach(function(floor){
+      html += '<h2 style="background:#185FA5;color:#fff;padding:6px 10px;border-radius:6px">'+floor+'</h2>';
+      const catMap = {};
+      floorMap[floor].forEach(function(d){ const c=d.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(d); });
+      Object.keys(catMap).forEach(function(cat){
+        const rows = catMap[cat].map(function(d){
+          const allocated = getAllocatedQty(d.project,d.floor,d.name,d.spec,d.thick);
+          const remaining = d.qty - allocated;
+          const unit = d.unit||'';
+          return '<tr><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+allocated+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td></tr>';
+        }).join('');
+        html += '<h3 style="margin:8px 0 4px">📐 '+cat+'</h3><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      });
+    });
+  });
+  printHTML('需求單合併', html);
 }
 
 function deleteDemand(idx) {
@@ -1848,6 +1925,38 @@ function exportAllocDatePDF(date) {
       return '<tr><td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
     }).join('');
     html += '<h2>📐 '+cat+'</h2><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>搬運數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  });
+  printHTML('搬運單 '+allocActiveProject+' '+date, html);
+}
+
+function mergeAllocByDate() {
+  if (!allocActiveProject) { showToast('⚠️ 請先選案場'); return; }
+  // 此案場所有分配日期
+  const dates = Array.from(new Set(allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject)).map(a=>a.date||'（無日期）'))).sort((a,b)=>b.localeCompare(a));
+  if (!dates.length) { showToast('⚠️ 此案場尚無分配紀錄'); return; }
+  const def = dates[0];
+  const input = prompt('要合併匯出哪一天的搬運單？（全樓層）\n\n可用日期：\n'+dates.join('\n')+'\n\n請輸入日期（格式 '+def+'）：', def);
+  if (!input) return;
+  const date = input.trim();
+  const items = allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject) && (a.date||'（無日期）')===date);
+  if (!items.length) { showToast('⚠️ 該日期無分配紀錄'); return; }
+  let html = '';
+  if (company.name) html += '<div class="company">'+company.name+'</div>';
+  html += '<h1>材料搬運單（當日全樓層）</h1>';
+  html += '<div class="meta">案場：'+allocActiveProject+'　日期：'+date+'</div>';
+  // 依樓層 > 分類
+  const floorMap = {};
+  items.forEach(function(a){ const f=a.floor||'（未分樓層）'; if(!floorMap[f]) floorMap[f]=[]; floorMap[f].push(a); });
+  Object.keys(floorMap).forEach(function(floor){
+    html += '<h2 style="background:#185FA5;color:#fff;padding:6px 10px;border-radius:6px">🏢 '+floor+'</h2>';
+    const catMap = {};
+    floorMap[floor].forEach(function(a){ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
+    Object.keys(catMap).forEach(function(cat){
+      const rows = catMap[cat].map(function(a){
+        return '<tr><td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
+      }).join('');
+      html += '<h3 style="margin:8px 0 4px">📐 '+cat+'</h3><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>搬運數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    });
   });
   printHTML('搬運單 '+allocActiveProject+' '+date, html);
 }
