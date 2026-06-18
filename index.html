@@ -449,10 +449,30 @@ function loadLocal() {
   } catch(e) {}
 }
 
+// 確保同一類資料每筆都有相同欄位（補空字串），避免雲端表頭只抓第一筆而漏存欄位
+function normalizeRecords(arr) {
+  if (!arr || !arr.length) return arr;
+  const allKeys = new Set();
+  arr.forEach(o => Object.keys(o).forEach(k => allKeys.add(k)));
+  return arr.map(o => {
+    const filled = {};
+    allKeys.forEach(k => { filled[k] = (o[k] != null ? o[k] : ''); });
+    return filled;
+  });
+}
+
 async function saveToSheets() {
+  const payload = {
+    action: 'save',
+    inventory: normalizeRecords(inventory),
+    productions: normalizeRecords(productions),
+    shipments: normalizeRecords(shipments),
+    demands: normalizeRecords(demands),
+    allocations: normalizeRecords(allocations)
+  };
   const res = await fetch(GAS_URL, {
     method: 'POST',
-    body: JSON.stringify({ action: 'save', inventory, productions, shipments, demands, allocations })
+    body: JSON.stringify(payload)
   });
   const data = await res.json();
   if (data.status !== 'ok') throw new Error(data.message);
