@@ -1839,7 +1839,10 @@ function renderAllocList() {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:8px">
           <div class="list-qty">${a.qty}${a.unit||''}</div>
-          <button class="btn-danger-sm" onclick="deleteAllocation(${a._idx})">刪除</button>
+          <div style="display:flex;gap:4px">
+            <button class="btn-sm" onclick="editAllocation(${a._idx})">編輯</button>
+            <button class="btn-danger-sm" onclick="deleteAllocation(${a._idx})">刪除</button>
+          </div>
         </div>
       </div>`).join('');
     const dtotal = dateMap[date].reduce((x,y)=>x+Number(y.qty),0);
@@ -1991,6 +1994,28 @@ function mergeAllocByDate() {
       });
     });
     printHTML('搬運單合併 '+allocActiveProject, html);
+  });
+}
+
+function editAllocation(idx) {
+  const a = allocations[idx];
+  const body = `
+    <div class="form-group"><label>樓層</label><input type="text" id="ea-floor" value="${a.floor||''}"></div>
+    <div class="form-group"><label>分類</label><input type="text" id="ea-category" value="${a.category||'隔間'}"></div>
+    <div class="form-group"><label>材料名稱</label><input type="text" id="ea-name" value="${a.name}"></div>
+    <div class="form-group"><label>規格</label><input type="text" id="ea-spec" value="${a.spec}"></div>
+    <div class="form-group"><label>厚度</label><input type="text" id="ea-thick" value="${a.thick||''}"></div>
+    <div class="form-group"><label>數量</label><input type="number" id="ea-qty" value="${a.qty}" min="1"></div>
+    <div class="form-group"><label>日期</label><input type="date" id="ea-date" value="${a.date||today}"></div>`;
+  showEditModal('編輯分配紀錄', body, ()=>{
+    allocations[idx].floor = document.getElementById('ea-floor').value.trim();
+    allocations[idx].category = document.getElementById('ea-category').value.trim()||'隔間';
+    allocations[idx].name = document.getElementById('ea-name').value.trim();
+    allocations[idx].spec = document.getElementById('ea-spec').value.trim();
+    allocations[idx].thick = document.getElementById('ea-thick').value.trim();
+    allocations[idx].qty = parseInt(document.getElementById('ea-qty').value)||0;
+    allocations[idx].date = document.getElementById('ea-date').value;
+    hideEditModal(); renderAll(); autoSave(); showToast('✅ 分配紀錄已更新');
   });
 }
 
