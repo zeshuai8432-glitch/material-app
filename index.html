@@ -2061,9 +2061,10 @@ function getStockYardMaterials(project) {
     const key = s.name+'|'+s.spec+'|'+s.thick;
     if (!map[key]) map[key] = { name:s.name, spec:s.spec, thick:s.thick, unit:'' };
   });
-  // 補單位＋分類（從需求單抓）
+  // 補單位＋分類（從需求單抓，先精確比對，比不到就只用名稱比）
   Object.values(map).forEach(m=>{
-    const d = demands.find(d=>allocNorm(d.project)===allocNorm(project) && allocNorm(d.name)===allocNorm(m.name) && allocNorm(d.spec)===allocNorm(m.spec) && allocNorm(d.thick)===allocNorm(m.thick));
+    let d = demands.find(d=>allocNorm(d.project)===allocNorm(project) && allocNorm(d.name)===allocNorm(m.name) && allocNorm(d.spec)===allocNorm(m.spec) && allocNorm(d.thick)===allocNorm(m.thick));
+    if (!d) d = demands.find(d=>allocNorm(d.project)===allocNorm(project) && allocNorm(d.name)===allocNorm(m.name));
     if (d) { if (d.unit) m.unit = d.unit; m.category = d.category || '未分類'; }
     else { m.category = '未分類'; }
     m.remain = getStockYardQty(project, m.name, m.spec, m.thick);
