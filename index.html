@@ -629,7 +629,7 @@ async function saveToSheets() {
     body: JSON.stringify(payload)
   });
   const data = await res.json();
-  if (data.status !== 'ok') throw new Error(data.message);
+  if (data.status !== 'ok' && data.ok !== true) throw new Error(data.message || 'sync error');
 }
 
 async function loadFromSheets() {
@@ -640,14 +640,23 @@ async function loadFromSheets() {
   try {
     const res = await fetch(GAS_URL + '?action=load');
     const data = await res.json();
+    // 支援兩種 GAS 回傳格式：
+    //   新格式: { status:'ok', inventory:[], ... }
+    //   舊格式: { ok:true, data:'{"inventory":[...],...}' }
+    let parsed = null;
     if (data.status === 'ok') {
-      inventory = (data.inventory || []).map(i => ({...i, qty: Number(i.qty)}));
-      productions = (data.productions || []).map(p => ({...p, qty: Number(p.qty)}));
-      shipments = (data.shipments || []).map(s => ({...s, qty: Number(s.qty)}));
-      demands = (data.demands || []).map(d => ({...d, qty: Number(d.qty)}));
-      allocations = (data.allocations || []).map(a => ({...a, qty: Number(a.qty)}));
-      if (data.materialTags && typeof data.materialTags === 'object' && !Array.isArray(data.materialTags)) materialTags = data.materialTags;
-      if (Array.isArray(data.archivedProjects)) archivedProjects = data.archivedProjects;
+      parsed = data;
+    } else if (data.ok === true && data.data) {
+      try { parsed = typeof data.data === 'string' ? JSON.parse(data.data) : data.data; } catch(e) {}
+    }
+    if (parsed) {
+      inventory    = (parsed.inventory    || []).map(i => ({...i, qty: Number(i.qty)}));
+      productions  = (parsed.productions  || []).map(p => ({...p, qty: Number(p.qty)}));
+      shipments    = (parsed.shipments    || []).map(s => ({...s, qty: Number(s.qty)}));
+      demands      = (parsed.demands      || []).map(d => ({...d, qty: Number(d.qty)}));
+      allocations  = (parsed.allocations  || []).map(a => ({...a, qty: Number(a.qty)}));
+      if (parsed.materialTags && typeof parsed.materialTags === 'object' && !Array.isArray(parsed.materialTags)) materialTags = parsed.materialTags;
+      if (Array.isArray(parsed.archivedProjects)) archivedProjects = parsed.archivedProjects;
       orderNo = shipments.length + 1;
       saveLocal(); // 更新本地備份
     }
