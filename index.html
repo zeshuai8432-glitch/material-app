@@ -139,6 +139,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* ── Flow Hint ── */
 .flow-hint{background:linear-gradient(135deg,rgba(37,99,235,0.07),rgba(124,58,237,0.07));border:1px solid rgba(37,99,235,0.16);border-radius:14px;padding:11px 14px;font-size:13px;color:#1e40af;margin-bottom:14px;line-height:1.6;font-weight:500}
 
+/* ── Spec / Thick Tags ── */
+.spec-tag{display:inline-block;background:#eff6ff;color:#1d4ed8;border:1.5px solid #bfdbfe;border-radius:6px;padding:2px 9px;font-size:12px;font-weight:700;margin-right:4px;margin-top:3px;letter-spacing:0.01em}
+.thick-tag{display:inline-block;background:#f0fdf4;color:#15803d;border:1.5px solid #bbf7d0;border-radius:6px;padding:2px 9px;font-size:12px;font-weight:700;margin-right:4px;margin-top:3px}
+.site-tag{display:inline-block;background:#fef3c7;color:#92400e;border:1.5px solid #fde68a;border-radius:6px;padding:2px 9px;font-size:12px;font-weight:600;margin-right:4px;margin-top:3px}
+
 /* ── Material Accordion ── */
 .acc-series{margin-bottom:14px}
 .acc-series-label{font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:0.08em;padding:8px 4px 5px;display:flex;align-items:center;gap:8px}
@@ -456,6 +461,10 @@ function toggleGroup(id) {
   body.style.display=wasOpen?'none':'block';
   document.querySelectorAll('[data-arrow="'+id+'"]').forEach(a=>a.classList.toggle('open',!wasOpen));
 }
+function specBadge(spec, thick) {
+  return (spec?`<span class="spec-tag">${spec}</span>`:'')+(thick?`<span class="thick-tag">${thick}</span>`:'');
+}
+
 // 依 materialTags 分系列，再依名稱分組
 function groupBySeriesName(items, getNameFn) {
   const sm = {};
@@ -814,7 +823,10 @@ function renderInventory() {
       const isOpen = expandedGroups.has(gid);
       const rows = items.map(i=>`
         <div class="list-item">
-          <div style="flex:1"><div class="list-sub">${i.spec}・${i.thick}・更新：${i.lastUpdate}</div></div>
+          <div style="flex:1">
+            <div>${specBadge(i.spec,i.thick)}</div>
+            <div style="font-size:11px;color:#94a3b8;margin-top:4px">更新：${i.lastUpdate}</div>
+          </div>
           <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
             <div class="list-qty">${i.qty}</div>
             <span class="badge ${i.qty>0?'badge-green':'badge-red'}">${i.qty>0?'有庫存':'缺貨'}</span>
@@ -849,7 +861,7 @@ function renderProductions() {
       const isOpen = expandedGroups.has(gid);
       const rows = items.map(p=>`
         <div class="list-item">
-          <div style="flex:1"><div class="list-sub">${p.spec}・${p.thick}</div></div>
+          <div style="flex:1"><div>${specBadge(p.spec,p.thick)}</div></div>
           <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
             <div class="list-qty">+${p.qty}</div>
             <div class="list-date">${p.date}</div>
@@ -893,8 +905,8 @@ function renderShipments() {
         const rows = ni.map(s=>`
           <div class="list-item">
             <div style="flex:1">
-              <div class="list-sub">${s.site}・${s.spec}・${s.thick}</div>
-              <span class="badge ${s.type==='stock'?'badge-blue':'badge-amber'}" style="margin-top:4px">${s.type==='stock'?'庫存出':'制式材料'}</span>
+              <div>${specBadge(s.spec,s.thick)}<span class="site-tag">${s.site}</span></div>
+              <span class="badge ${s.type==='stock'?'badge-blue':'badge-amber'}" style="margin-top:5px">${s.type==='stock'?'庫存出':'制式材料'}</span>
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
               <div class="list-qty">${s.qty}</div>
@@ -1499,7 +1511,7 @@ function buildDemandRow(d) {
   return `<div class="list-item">
     <div style="flex:1">
       <div class="list-main">${d.name}</div>
-      <div class="list-sub">${d.spec}${d.thick?'・'+d.thick:''}${d.note?'・'+d.note:''}</div>
+      <div style="margin-top:2px">${specBadge(d.spec,d.thick)}${d.note?`<span style="font-size:12px;color:#94a3b8;margin-left:2px">${d.note}</span>`:''}</div>
       <div style="margin-top:4px;font-size:12px;color:#374151">
         本筆需求：<strong>${d.qty}${unit}</strong>　此材料已分配：<strong style="color:#185FA5">${totalAlloc}${unit}</strong>　
         ${diffHTML}
@@ -1869,8 +1881,8 @@ function showInventoryGap() {
       body += `<div class="list-item">
         <div style="flex:1">
           <div class="list-main">${r.name}</div>
-          <div class="list-sub">${r.spec}${r.thick?'・'+r.thick:''}</div>
-          <div style="font-size:12px;color:#374151;margin-top:4px;line-height:1.7">
+          <div style="margin-top:3px">${specBadge(r.spec,r.thick)}</div>
+          <div style="font-size:12px;color:#374151;margin-top:5px;line-height:1.7">
             總需求 <strong>${r.qty}${r.unit}</strong>　已出貨 <strong>${r.shipped}${r.unit}</strong>　現有庫存 <strong>${r.inStock}${r.unit}</strong>
           </div>
         </div>
@@ -2010,7 +2022,7 @@ function renderAllocation() {
       return `<div class="list-item">
         <div style="flex:1">
           <div class="list-main">${m.name}</div>
-          <div class="list-sub">${m.spec}${m.thick?'・'+m.thick:''}</div>
+          <div style="margin-top:3px">${specBadge(m.spec,m.thick)}</div>
         </div>
         <div style="text-align:right">
           <div style="font-size:18px;font-weight:700;color:${color}">${m.remain}${m.unit}</div>
@@ -2126,7 +2138,8 @@ function renderAllocList() {
           const editBtn = a.transferId ? '' : `<button class="btn-sm" onclick="editAllocation(${a._idx})">編輯</button>`;
           return `<div class="list-item">
             <div style="flex:1">
-              <div class="list-main">${catBadge}${a.spec}${a.thick?'・'+a.thick:''}</div>
+              <div style="margin-bottom:2px">${catBadge}</div>
+              <div>${specBadge(a.spec,a.thick)}</div>
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:8px">
               <div style="font-size:18px;font-weight:800;color:${qtyColor}">${qtyDisplay}</div>
