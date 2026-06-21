@@ -333,8 +333,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="form-group">
         <label>分類</label>
         <select id="dem-category" onchange="onSelectCategory()">
-          <option value="隔間">隔間</option>
-          <option value="天花板">天花板</option>
           <option value="__new__">＋ 新增分類...</option>
         </select>
       </div>
@@ -401,7 +399,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="form-group">
       <label>分配到分類</label>
       <select id="alloc-category" onchange="updateAllocGap()">
-        <option value="隔間">隔間</option>
       </select>
     </div>
     <div class="form-group"><label>分配日期</label><input type="date" id="alloc-date"></div>
@@ -1475,11 +1472,11 @@ function getCategoryName() {
     const ni = document.getElementById('dem-new-category');
     return ni ? ni.value.trim() : '';
   }
-  return sel || '隔間';
+  return sel || '';
 }
 
 function refreshCategorySelect() {
-  const cats = new Set(['隔間','天花板']);
+  const cats = new Set();
   demands.forEach(d=>{ if(d.category) cats.add(d.category); });
   const sel = document.getElementById('dem-category');
   if (!sel) return;
@@ -1739,7 +1736,7 @@ function copyFloor(project, floor) {
   const trimmed = newFloor.trim();
   if (!trimmed) { showToast('⚠️ 樓層不可空白'); return; }
   items.forEach(d=>{
-    demands.push({ project:d.project, floor:trimmed, category:d.category||'隔間', date:today, name:d.name, spec:d.spec, thick:d.thick, unit:d.unit, qty:d.qty, note:d.note });
+    demands.push({ project:d.project, floor:trimmed, category:d.category||'', date:today, name:d.name, spec:d.spec, thick:d.thick, unit:d.unit, qty:d.qty, note:d.note });
   });
   activeProject = project;
   activeFloor = trimmed;
@@ -1763,7 +1760,7 @@ function copyProject(project) {
   items.forEach(d=>{
     demands.push({
       project: trimmed,
-      category: d.category||'隔間',
+      category: d.category||'',
       date: today,
       name: d.name,
       spec: d.spec,
@@ -1837,7 +1834,7 @@ function editDemand(idx) {
   const body = `
     <div class="form-group"><label>案件名稱</label><input type="text" id="ed-project" value="${d.project}"></div>
     <div class="form-group"><label>樓層</label><input type="text" id="ed-floor" value="${d.floor||''}" placeholder="例：12F"></div>
-    <div class="form-group"><label>分類</label><input type="text" id="ed-category" value="${d.category||'隔間'}"></div>
+    <div class="form-group"><label>分類</label><input type="text" id="ed-category" value="${d.category||''}"></div>
     <div class="form-group"><label>日期</label><input type="date" id="ed-date" value="${d.date}"></div>
     <div class="form-group"><label>材料名稱</label><input type="text" id="ed-name" value="${d.name}"></div>
     <div class="form-group"><label>規格</label><input type="text" id="ed-spec" value="${d.spec}"></div>
@@ -1849,7 +1846,7 @@ function editDemand(idx) {
     const edRaw = document.getElementById('ed-qty').value.trim();
     demands[idx].project = document.getElementById('ed-project').value.trim();
     demands[idx].floor = document.getElementById('ed-floor').value.trim();
-    demands[idx].category = document.getElementById('ed-category').value.trim()||'隔間';
+    demands[idx].category = document.getElementById('ed-category').value.trim()||'';
     demands[idx].date = document.getElementById('ed-date').value;
     demands[idx].name = document.getElementById('ed-name').value.trim();
     demands[idx].spec = document.getElementById('ed-spec').value.trim();
@@ -2247,7 +2244,7 @@ function renderAllocation() {
   const catSel = document.getElementById('alloc-category');
   if (catSel) {
     const prev = catSel.value;
-    const cats = new Set(['隔間', '天花板']);
+    const cats = new Set();
     demands.filter(d => allocNorm(d.project) === allocNorm(allocActiveProject)).forEach(d => { if (d.category) cats.add(d.category); });
     catSel.innerHTML = '';
     Array.from(cats).forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; catSel.appendChild(o); });
@@ -2529,7 +2526,7 @@ function allocAllToFloor() {
       allocNorm(d.spec) === allocNorm(m.spec) &&
       allocNorm(d.thick) === allocNorm(m.thick)
     );
-    const category = demRecord ? (demRecord.category || '隔間') : '隔間';
+    const category = demRecord ? (demRecord.category || '') : '';
     allocations.push({
       project: allocActiveProject,
       floor: allocActiveFloor,
@@ -2577,7 +2574,7 @@ function editAllocation(idx) {
   const a = allocations[idx];
   const body = `
     <div class="form-group"><label>樓層</label><input type="text" id="ea-floor" value="${a.floor||''}"></div>
-    <div class="form-group"><label>分類</label><input type="text" id="ea-category" value="${a.category||'隔間'}"></div>
+    <div class="form-group"><label>分類</label><input type="text" id="ea-category" value="${a.category||''}"></div>
     <div class="form-group"><label>材料名稱</label><input type="text" id="ea-name" value="${a.name}"></div>
     <div class="form-group"><label>規格</label><input type="text" id="ea-spec" value="${a.spec}"></div>
     <div class="form-group"><label>厚度</label><input type="text" id="ea-thick" value="${a.thick||''}"></div>
@@ -2586,7 +2583,7 @@ function editAllocation(idx) {
   showEditModal('編輯分配紀錄', body, ()=>{
     const eaRaw = document.getElementById('ea-qty').value.trim();
     allocations[idx].floor = document.getElementById('ea-floor').value.trim();
-    allocations[idx].category = document.getElementById('ea-category').value.trim()||'隔間';
+    allocations[idx].category = document.getElementById('ea-category').value.trim()||'';
     allocations[idx].name = document.getElementById('ea-name').value.trim();
     allocations[idx].spec = document.getElementById('ea-spec').value.trim();
     allocations[idx].thick = document.getElementById('ea-thick').value.trim();
@@ -2617,7 +2614,7 @@ function showTransferForm() {
   const floors = getAllocFloors(allocActiveProject);
   if (floors.length < 2) { showToast('⚠️ 此案場至少需要兩個樓層才能調撥'); return; }
   const floorOpts = floors.map(f=>`<option value="${f}">${f}</option>`).join('');
-  const cats = new Set(['隔間','天花板']);
+  const cats = new Set();
   demands.filter(d=>allocNorm(d.project)===allocNorm(allocActiveProject)).forEach(d=>{ if(d.category) cats.add(d.category); });
   allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject)).forEach(a=>{ if(a.category && !a.transferId) cats.add(a.category); });
   const catOpts = Array.from(cats).map(c=>`<option value="${c}">${c}</option>`).join('');
