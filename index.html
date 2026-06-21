@@ -620,7 +620,9 @@ async function saveToSheets() {
     productions: normalizeRecords(productions),
     shipments: normalizeRecords(shipments),
     demands: normalizeRecords(demands),
-    allocations: normalizeRecords(allocations)
+    allocations: normalizeRecords(allocations),
+    materialTags: materialTags,
+    archivedProjects: archivedProjects
   };
   const res = await fetch(GAS_URL, {
     method: 'POST',
@@ -644,6 +646,8 @@ async function loadFromSheets() {
       shipments = (data.shipments || []).map(s => ({...s, qty: Number(s.qty)}));
       demands = (data.demands || []).map(d => ({...d, qty: Number(d.qty)}));
       allocations = (data.allocations || []).map(a => ({...a, qty: Number(a.qty)}));
+      if (data.materialTags && typeof data.materialTags === 'object' && !Array.isArray(data.materialTags)) materialTags = data.materialTags;
+      if (Array.isArray(data.archivedProjects)) archivedProjects = data.archivedProjects;
       orderNo = shipments.length + 1;
       saveLocal(); // 更新本地備份
     }
