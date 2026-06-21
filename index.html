@@ -2197,30 +2197,39 @@ function renderAllocation() {
   }
   const fl = document.getElementById('alloc-current-floor');
   if (fl) fl.textContent = '分配到：' + allocActiveProject + '　' + (allocActiveFloor||'（請先在需求單建立樓層）');
-  // 置料區現況（整個案場共用置料區）
-  const mats = getStockYardMaterials(allocActiveProject);
+  // 置料區現況：從需求單出發（分類直接從需求單來），查各材料的置料區剩餘量
   const stockEl = document.getElementById('alloc-stock-list');
-  if (!mats.length) {
-    stockEl.innerHTML='<div class="empty"><div class="empty-icon">📦</div>此案場置料區無材料</div>';
-  } else {
+  {
     const catMap = {};
-    mats.forEach(m=>{ const c=m.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(m); });
-    stockEl.innerHTML = Object.keys(catMap).map(cat=>{
-      const rows = catMap[cat].map(m=>{
-        const color = m.remain>0?'#166534':(m.remain<0?'#dc2626':'#6b7280');
-        return `<div class="list-item">
+    const seen = new Set();
+    demands.filter(d=>allocNorm(d.project)===allocNorm(allocActiveProject)).forEach(d=>{
+      const key = allocNorm(d.name)+'|'+allocNorm(d.spec)+'|'+allocNorm(d.thick||'');
+      if (seen.has(key)) return;
+      seen.add(key);
+      const remain = getStockYardQty(allocActiveProject, d.name, d.spec, d.thick);
+      if (remain <= 0) return;
+      const cat = d.category || '未分類';
+      if (!catMap[cat]) catMap[cat] = [];
+      catMap[cat].push({ name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||'', remain });
+    });
+    const cats = Object.keys(catMap);
+    if (!cats.length) {
+      stockEl.innerHTML='<div class="empty"><div class="empty-icon">📦</div>此案場置料區無材料</div>';
+    } else {
+      stockEl.innerHTML = cats.map(cat=>{
+        const rows = catMap[cat].map(m=>`<div class="list-item">
           <div style="flex:1">
             <div class="list-main">${m.name}</div>
             <div style="margin-top:3px">${specBadge(m.spec,m.thick)}</div>
           </div>
           <div style="text-align:right">
-            <div style="font-size:18px;font-weight:700;color:${color}">${m.remain}${m.unit}</div>
+            <div style="font-size:18px;font-weight:700;color:#166534">${m.remain}${m.unit}</div>
             <div style="font-size:11px;color:#9ca3af">置料區剩餘</div>
           </div>
-        </div>`;
+        </div>`).join('');
+        return `<div class="cat-header">${cat}</div>${rows}`;
       }).join('');
-      return `<div class="cat-header">${cat}</div>${rows}`;
-    }).join('');
+    }
   }
   // 材料下拉
   const matSel = document.getElementById('alloc-mat-select');
