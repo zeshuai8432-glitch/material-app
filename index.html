@@ -2061,15 +2061,20 @@ function getStockYardMaterials(project) {
     const key = s.name+'|'+s.spec+'|'+s.thick;
     if (!map[key]) map[key] = { name:s.name, spec:s.spec, thick:s.thick, unit:'' };
   });
-  // 補單位＋分類（從需求單抓，先精確比對，比不到就只用名稱比）
   Object.values(map).forEach(m=>{
-    let d = demands.find(d=>allocNorm(d.project)===allocNorm(project) && allocNorm(d.name)===allocNorm(m.name) && allocNorm(d.spec)===allocNorm(m.spec) && allocNorm(d.thick)===allocNorm(m.thick));
-    if (!d) d = demands.find(d=>allocNorm(d.project)===allocNorm(project) && allocNorm(d.name)===allocNorm(m.name));
-    if (d) { if (d.unit) m.unit = d.unit; m.category = d.category || '未分類'; }
-    else { m.category = '未分類'; }
     m.remain = getStockYardQty(project, m.name, m.spec, m.thick);
+    // 分類：優先從分配紀錄抓（同專案同材料規格），再從需求單抓（寬鬆比對），最後預設未分類
+    const a = allocations.find(a=>allocNorm(a.project)===allocNorm(project) && allocNorm(a.name)===allocNorm(m.name) && allocNorm(a.spec)===allocNorm(m.spec) && allocNorm(a.thick)===allocNorm(m.thick));
+    if (a) { m.category = a.category || '未分類'; if (a.unit) m.unit = a.unit; }
+    else {
+      const d = demands.find(d=>allocNorm(d.project)===allocNorm(project) && allocNorm(d.name)===allocNorm(m.name))
+             || demands.find(d=>allocNorm(d.name)===allocNorm(m.name));
+      if (d) { m.category = d.category || '未分類'; if (d.unit) m.unit = d.unit; }
+      else { m.category = '未分類'; }
+    }
   });
-  return Object.values(map);
+  // 只回傳置料區還有剩的材料
+  return Object.values(map).filter(m=>m.remain > 0);
 }
 
 function getFloorExcessItems(project) {
