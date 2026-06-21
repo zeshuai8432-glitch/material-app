@@ -360,6 +360,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div style="font-size:12px;color:#6b7280;margin-bottom:8px">= 已運到此案場的量 − 已分配出去的量</div>
     <div id="alloc-stock-list"></div>
   </div>
+  <div class="card" id="floor-excess-card">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;-webkit-user-select:none" onclick="toggleFloorExcessCard()">
+      <span>📍 各樓層餘料</span>
+      <span id="floor-excess-arrow" class="acc-arrow open">▶</span>
+    </div>
+    <div id="floor-excess-body">
+      <div style="font-size:12px;color:#6b7280;margin-bottom:8px">分配量超出需求的材料，實際仍在各樓層</div>
+      <div id="alloc-floor-excess"></div>
+    </div>
+  </div>
   <div class="card">
     <div class="card-title">分配材料</div>
     <div id="alloc-current-floor" style="font-size:13px;color:#185FA5;font-weight:600;margin-bottom:10px;padding:6px 10px;background:#e6f1fb;border-radius:8px">分配到：請先選上方樓層</div>
@@ -2015,6 +2025,72 @@ function getStockYardMaterials(project) {
   return Object.values(map);
 }
 
+function getFloorExcessItems(project) {
+  const n = allocNorm;
+  const keySet = {};
+  allocations.filter(a=>n(a.project)===n(project) && !a.transferId).forEach(a=>{
+    const floor = a.floor||'（未分樓層）';
+    const key = floor+'||'+a.name+'||'+a.spec+'||'+(a.thick||'');
+    if (!keySet[key]) keySet[key] = {floor, name:a.name, spec:a.spec, thick:a.thick||'', unit:a.unit||''};
+  });
+  const result = [];
+  Object.values(keySet).forEach(m=>{
+    const allocated = getAllocatedQty(project, m.floor, m.name, m.spec, m.thick);
+    const demanded = demands.filter(d=>n(d.project)===n(project) && n(d.floor)===n(m.floor) && n(d.name)===n(m.name) && n(d.spec)===n(m.spec) && n(d.thick)===n(m.thick)).reduce((x,b)=>x+Number(b.qty),0);
+    const excess = allocated - demanded;
+    if (excess > 0) {
+      let unit = m.unit;
+      if (!unit) { const d = demands.find(d=>n(d.project)===n(project) && n(d.name)===n(m.name) && n(d.spec)===n(m.spec) && n(d.thick)===n(m.thick)); if (d) unit = d.unit||''; }
+      result.push({floor:m.floor, name:m.name, spec:m.spec, thick:m.thick, unit, allocated, demanded, excess});
+    }
+  });
+  return result;
+}
+
+function renderFloorExcess() {
+  const el = document.getElementById('alloc-floor-excess');
+  if (!el || !allocActiveProject) return;
+  const items = getFloorExcessItems(allocActiveProject);
+  const card = document.getElementById('floor-excess-card');
+  if (card) card.style.display = '';
+  if (!items.length) {
+    el.innerHTML = '<div style="color:#6b7280;font-size:13px;padding:4px 0">各樓層目前無餘料 ✅</div>';
+    return;
+  }
+  const floorMap = {};
+  items.forEach(it=>{ if(!floorMap[it.floor]) floorMap[it.floor]=[]; floorMap[it.floor].push(it); });
+  const floors = Object.keys(floorMap).sort((a,b)=>a.localeCompare(b,'zh-TW'));
+  el.innerHTML = floors.map(floor=>{
+    const fi = floorMap[floor];
+    const rows = fi.map(it=>`
+      <div class="list-item" style="padding:8px 10px">
+        <div style="flex:1">
+          <div style="font-weight:600;font-size:13px;color:#0f172a">${it.name}</div>
+          <div style="margin-top:3px">${specBadge(it.spec,it.thick)}</div>
+          <div style="font-size:12px;color:#64748b;margin-top:3px">已分配 ${it.allocated}${it.unit}　需求 ${it.demanded}${it.unit}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:17px;font-weight:800;color:#d97706">+${it.excess}${it.unit}</div>
+          <div style="font-size:11px;color:#9ca3af">樓層餘料</div>
+        </div>
+      </div>`).join('');
+    return `<div style="margin-bottom:10px">
+      <div style="font-size:12px;font-weight:700;color:#7c3aed;padding:5px 4px 4px;border-bottom:1.5px solid #e9d5ff;margin-bottom:5px;display:flex;justify-content:space-between;align-items:center">
+        <span>📍 ${floor}</span>
+        <span style="color:#d97706;font-weight:600">${fi.reduce((a,b)=>a+b.excess,0)} 件餘料</span>
+      </div>${rows}</div>`;
+  }).join('');
+}
+
+function toggleFloorExcessCard() {
+  const body = document.getElementById('floor-excess-body');
+  const arrow = document.getElementById('floor-excess-arrow');
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  if (arrow) arrow.classList.toggle('open', !isOpen);
+}
+
 function getAllocProjects() {
   const set = [];
   shipments.forEach(s=>{ if(!set.includes(s.site) && !archivedProjects.includes(s.site)) set.push(s.site); });
@@ -2100,6 +2176,8 @@ function renderAllocation() {
     matSel.appendChild(o);
   });
   if (prevMat) matSel.value = prevMat;
+  // 各樓層餘料
+  renderFloorExcess();
   // 分配紀錄
   renderAllocList();
   updateAllocGap();
