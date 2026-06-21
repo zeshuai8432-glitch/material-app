@@ -1680,6 +1680,7 @@ function renderDemands() {
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
         <span class="site-group-total">需${totalNeeded} 配${totalAlloc}</span>
         <button onclick="copyFloor('${activeProject.replace(/'/g,"\\'")}','${activeFloor.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">複製此樓層</button>
+        <button onclick="deleteFloor('${activeProject.replace(/'/g,"\\'")}','${activeFloor.replace(/'/g,"\\'")}')" style="background:rgba(220,38,38,0.75);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">🗑️ 刪除此樓層</button>
         <button onclick="exportProjectPDF('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出整個案場</button>
         <button onclick="archiveProject('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">📦 封存</button>
       </div>
@@ -1715,6 +1716,18 @@ function renderDemands() {
   });
   html += `</div></div>`;
   el.innerHTML = html;
+}
+
+function deleteFloor(project, floor) {
+  const realFloor = floor==='（未分樓層）' ? '' : floor;
+  const count = demands.filter(d=>d.project===project && (d.floor||'')===realFloor).length;
+  if (!count) { showToast('⚠️ 此樓層無需求'); return; }
+  if (!confirm(`確定刪除「${project}」的「${floor}」樓層？\n共 ${count} 筆需求將全部刪除，此動作無法復原。`)) return;
+  demands = demands.filter(d=>!(d.project===project && (d.floor||'')===realFloor));
+  allocations = allocations.filter(a=>!(a.project===project && (a.floor||'')===realFloor));
+  activeFloor = null;
+  renderAll(); autoSave();
+  showToast('🗑️ 已刪除「'+floor+'」的所有需求');
 }
 
 function copyFloor(project, floor) {
