@@ -138,6 +138,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 /* ── Flow Hint ── */
 .flow-hint{background:linear-gradient(135deg,rgba(37,99,235,0.07),rgba(124,58,237,0.07));border:1px solid rgba(37,99,235,0.16);border-radius:14px;padding:11px 14px;font-size:13px;color:#1e40af;margin-bottom:14px;line-height:1.6;font-weight:500}
+
+/* ── Material Accordion ── */
+.acc-series{margin-bottom:14px}
+.acc-series-label{font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:0.08em;padding:8px 4px 5px;display:flex;align-items:center;gap:8px}
+.acc-series-label::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,#ddd6fe,transparent)}
+.acc-name-header{display:flex;align-items:center;padding:10px 12px;cursor:pointer;border-radius:12px;background:#f8fafc;margin-bottom:3px;border:1px solid #e2e8f0;transition:background 0.15s;gap:8px;user-select:none;-webkit-user-select:none}
+.acc-name-header:active{background:#f0f9ff}
+.acc-name-header .acc-name{font-size:14px;font-weight:700;color:#0f172a;flex:1}
+.acc-name-header .acc-count{font-size:12px;color:#94a3b8;font-weight:500;text-align:right}
+.acc-arrow{font-size:11px;color:#94a3b8;transition:transform 0.2s;display:inline-block;flex-shrink:0}
+.acc-arrow.open{transform:rotate(90deg)}
+.acc-body{display:none;padding-left:8px;border-left:2px solid #e0e7ff;margin:0 0 6px 6px}
 </style>
 </head>
 <body>
@@ -430,6 +442,19 @@ let currentOrder = [];
 let shipType = 'stock';
 let orderNo = 1;
 let transferCounter = 0;
+let materialTags = {}; // { [materialName]: seriesLabel }
+const expandedGroups = new Set();
+
+function hashStr(s) {
+  let h=0; for(let i=0;i<s.length;i++) h=Math.imul(31,h)+s.charCodeAt(i)|0; return Math.abs(h).toString(36);
+}
+function toggleGroup(id) {
+  const body=document.getElementById(id); if(!body) return;
+  const wasOpen=expandedGroups.has(id);
+  wasOpen?expandedGroups.delete(id):expandedGroups.add(id);
+  body.style.display=wasOpen?'none':'block';
+  document.querySelectorAll('[data-arrow="'+id+'"]').forEach(a=>a.classList.toggle('open',!wasOpen));
+}
 
 const today = new Date().toISOString().slice(0,10);
 document.getElementById('prod-date').value = today;
@@ -469,6 +494,7 @@ function saveLocal() {
   localStorage.setItem('mat_demands', JSON.stringify(demands));
   localStorage.setItem('mat_allocations', JSON.stringify(allocations));
   localStorage.setItem('mat_archived', JSON.stringify(archivedProjects));
+  localStorage.setItem('mat_tags', JSON.stringify(materialTags));
 }
 
 function loadLocal() {
@@ -485,6 +511,8 @@ function loadLocal() {
     if (alc) allocations = JSON.parse(alc).map(a=>({...a,qty:Number(a.qty)}));
     const arch = localStorage.getItem('mat_archived');
     if (arch) archivedProjects = JSON.parse(arch);
+    const tags = localStorage.getItem('mat_tags');
+    if (tags) materialTags = JSON.parse(tags);
     orderNo = shipments.length + 1;
   } catch(e) {}
 }
@@ -748,22 +776,46 @@ function renderInventory() {
   const filtered = inventory.filter(i=>!q || txt(i.name).includes(q) || txt(i.spec).includes(q) || txt(i.thick).includes(q));
   const el = document.getElementById('inv-list');
   if (!filtered.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📦</div>目前無庫存資料</div>'; return; }
-  el.innerHTML = filtered.map((i,idx)=>{
-    const realIdx = inventory.indexOf(i);
-    return `<div class="list-item">
-      <div style="flex:1">
-        <div class="list-main">${i.name}</div>
-        <div class="list-sub">${i.spec}・${i.thick}・更新：${i.lastUpdate}</div>
-      </div>
-      <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-        <div class="list-qty">${i.qty}</div>
-        <span class="badge ${i.qty>0?'badge-green':'badge-red'}">${i.qty>0?'有庫存':'缺貨'}</span>
-        <div style="display:flex;gap:4px;margin-top:2px">
-          <button class="btn-sm" onclick="editInventory(${realIdx})">編輯</button>
-          <button class="btn-danger-sm" onclick="deleteInventory(${realIdx})">刪除</button>
+  // Group by series then by name
+  const seriesMap = {};
+  filtered.forEach(i=>{
+    const series = materialTags[i.name] || '未設定系列';
+    if (!seriesMap[series]) seriesMap[series] = {};
+    if (!seriesMap[series][i.name]) seriesMap[series][i.name] = [];
+    seriesMap[series][i.name].push({...i, _idx: inventory.indexOf(i)});
+  });
+  const seriesKeys = Object.keys(seriesMap).sort((a,b)=>{
+    if (a==='未設定系列') return 1; if (b==='未設定系列') return -1;
+    return a.localeCompare(b,'zh-TW');
+  });
+  el.innerHTML = seriesKeys.map(series=>{
+    const nameMap = seriesMap[series];
+    const names = Object.keys(nameMap).sort((a,b)=>a.localeCompare(b,'zh-TW'));
+    const blocks = names.map(name=>{
+      const items = nameMap[name];
+      const totalQty = items.reduce((a,b)=>a+b.qty,0);
+      const gid = 'inv-g-'+hashStr(series+name);
+      const isOpen = expandedGroups.has(gid);
+      const rows = items.map(i=>`
+        <div class="list-item">
+          <div style="flex:1"><div class="list-sub">${i.spec}・${i.thick}・更新：${i.lastUpdate}</div></div>
+          <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+            <div class="list-qty">${i.qty}</div>
+            <span class="badge ${i.qty>0?'badge-green':'badge-red'}">${i.qty>0?'有庫存':'缺貨'}</span>
+            <div style="display:flex;gap:4px;margin-top:2px">
+              <button class="btn-sm" onclick="editInventory(${i._idx})">編輯</button>
+              <button class="btn-danger-sm" onclick="deleteInventory(${i._idx})">刪除</button>
+            </div>
+          </div>
+        </div>`).join('');
+      return `<div class="acc-name-header" onclick="toggleGroup('${gid}')">
+          <span class="acc-arrow${isOpen?' open':''}" data-arrow="${gid}">▶</span>
+          <span class="acc-name">${name}</span>
+          <span class="acc-count">${items.length}規格・庫存${totalQty}</span>
         </div>
-      </div>
-    </div>`;
+        <div class="acc-body" id="${gid}" style="display:${isOpen?'block':'none'}">${rows}</div>`;
+    }).join('');
+    return `<div class="acc-series"><div class="acc-series-label">📁 ${series}</div>${blocks}</div>`;
   }).join('');
 }
 
@@ -771,21 +823,33 @@ function renderProductions() {
   const el = document.getElementById('prod-list');
   if (!productions.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>尚無入庫紀錄</div>'; return; }
   const reversed = [...productions].map((p,i)=>({...p,_idx:i})).reverse();
-  el.innerHTML = reversed.map(p=>`
-    <div class="list-item">
-      <div style="flex:1">
-        <div class="list-main">${p.name}</div>
-        <div class="list-sub">${p.spec}・${p.thick}</div>
-      </div>
-      <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-        <div class="list-qty">+${p.qty}</div>
-        <div class="list-date">${p.date}</div>
-        <div style="display:flex;gap:4px;margin-top:2px">
-          <button class="btn-sm" onclick="editProduction(${p._idx})">編輯</button>
-          <button class="btn-danger-sm" onclick="deleteProduction(${p._idx})">刪除</button>
+  // Group by name
+  const nameMap = {};
+  reversed.forEach(p=>{ const n=p.name||'（未命名）'; if(!nameMap[n]) nameMap[n]=[]; nameMap[n].push(p); });
+  el.innerHTML = Object.keys(nameMap).map(name=>{
+    const items = nameMap[name];
+    const totalQty = items.reduce((a,b)=>a+b.qty,0);
+    const gid = 'prod-g-'+hashStr(name);
+    const isOpen = expandedGroups.has(gid);
+    const rows = items.map(p=>`
+      <div class="list-item">
+        <div style="flex:1"><div class="list-sub">${p.spec}・${p.thick}</div></div>
+        <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <div class="list-qty">+${p.qty}</div>
+          <div class="list-date">${p.date}</div>
+          <div style="display:flex;gap:4px;margin-top:2px">
+            <button class="btn-sm" onclick="editProduction(${p._idx})">編輯</button>
+            <button class="btn-danger-sm" onclick="deleteProduction(${p._idx})">刪除</button>
+          </div>
         </div>
+      </div>`).join('');
+    return `<div class="acc-name-header" onclick="toggleGroup('${gid}')">
+        <span class="acc-arrow${isOpen?' open':''}" data-arrow="${gid}">▶</span>
+        <span class="acc-name">${name}</span>
+        <span class="acc-count">${items.length}筆・合計+${totalQty}</span>
       </div>
-    </div>`).join('');
+      <div class="acc-body" id="${gid}" style="display:${isOpen?'block':'none'}">${rows}</div>`;
+  }).join('');
 }
 
 function renderShipments() {
@@ -800,21 +864,35 @@ function renderShipments() {
   el.innerHTML = dates.map(date=>{
     const items = dateMap[date];
     const dayTotal = items.reduce((a,b)=>a+Number(b.qty),0);
-    const rows = items.map(s=>`
-      <div class="list-item">
-        <div style="flex:1">
-          <div class="list-main">${s.name}</div>
-          <div class="list-sub">${s.site}・${s.spec}・${s.thick}</div>
-          <span class="badge ${s.type==='stock'?'badge-blue':'badge-amber'}" style="margin-top:4px">${s.type==='stock'?'庫存出':'制式材料'}</span>
-        </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-          <div class="list-qty">${s.qty}</div>
-          <div style="display:flex;gap:4px;margin-top:2px">
-            <button class="btn-sm" onclick="editShipment(${s._idx})">編輯</button>
-            <button class="btn-danger-sm" onclick="deleteShipment(${s._idx})">刪除</button>
+    // Group items by name within this date
+    const nameMap = {};
+    items.forEach(s=>{ const n=s.name||'（未命名）'; if(!nameMap[n]) nameMap[n]=[]; nameMap[n].push(s); });
+    const nameBlocks = Object.keys(nameMap).map(name=>{
+      const ni = nameMap[name];
+      const nameQty = ni.reduce((a,b)=>a+Number(b.qty),0);
+      const gid = 'ship-g-'+hashStr(date+name);
+      const isOpen = expandedGroups.has(gid);
+      const rows = ni.map(s=>`
+        <div class="list-item">
+          <div style="flex:1">
+            <div class="list-sub">${s.site}・${s.spec}・${s.thick}</div>
+            <span class="badge ${s.type==='stock'?'badge-blue':'badge-amber'}" style="margin-top:4px">${s.type==='stock'?'庫存出':'制式材料'}</span>
           </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+            <div class="list-qty">${s.qty}</div>
+            <div style="display:flex;gap:4px;margin-top:2px">
+              <button class="btn-sm" onclick="editShipment(${s._idx})">編輯</button>
+              <button class="btn-danger-sm" onclick="deleteShipment(${s._idx})">刪除</button>
+            </div>
+          </div>
+        </div>`).join('');
+      return `<div class="acc-name-header" onclick="toggleGroup('${gid}')">
+          <span class="acc-arrow${isOpen?' open':''}" data-arrow="${gid}">▶</span>
+          <span class="acc-name">${name}</span>
+          <span class="acc-count">${ni.length}筆・${nameQty}</span>
         </div>
-      </div>`).join('');
+        <div class="acc-body" id="${gid}" style="display:${isOpen?'block':'none'}">${rows}</div>`;
+    }).join('');
     return `<div class="site-group" style="margin-bottom:12px">
       <div class="site-group-header">
         <div class="site-group-title">📅 ${date}</div>
@@ -823,7 +901,7 @@ function renderShipments() {
           <button onclick="exportShipDatePDF('${date}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
         </div>
       </div>
-      <div class="site-group-body">${rows}</div>
+      <div class="site-group-body">${nameBlocks}</div>
     </div>`;
   }).join('');
 }
@@ -1136,13 +1214,19 @@ function editInventory(idx) {
     <div class="form-group"><label>材料名稱</label><input type="text" id="ei-name" value="${i.name}"></div>
     <div class="form-group"><label>規格</label><input type="text" id="ei-spec" value="${i.spec}"></div>
     <div class="form-group"><label>厚度</label><input type="text" id="ei-thick" value="${i.thick}"></div>
-    <div class="form-group"><label>數量</label><input type="number" id="ei-qty" value="${i.qty}" min="0"></div>`;
+    <div class="form-group"><label>數量</label><input type="number" id="ei-qty" value="${i.qty}" min="0"></div>
+    <div class="form-group"><label>系列標籤</label><input type="text" id="ei-tag" value="${materialTags[i.name]||''}" placeholder="例：隔間骨架、天花板系統"></div>`;
   showEditModal('編輯庫存', body, ()=>{
-    inventory[idx].name = document.getElementById('ei-name').value.trim();
+    const oldName = inventory[idx].name;
+    const newName = document.getElementById('ei-name').value.trim();
+    inventory[idx].name = newName;
     inventory[idx].spec = document.getElementById('ei-spec').value.trim();
     inventory[idx].thick = document.getElementById('ei-thick').value.trim();
     inventory[idx].qty = parseInt(document.getElementById('ei-qty').value)||0;
     inventory[idx].lastUpdate = today;
+    const newTag = document.getElementById('ei-tag').value.trim();
+    if (oldName !== newName) delete materialTags[oldName];
+    if (newTag) materialTags[newName] = newTag; else delete materialTags[newName];
     hideEditModal(); renderAll(); autoSave(); showToast('✅ 庫存已更新');
   });
 }
@@ -1485,7 +1569,26 @@ function renderDemands() {
     const catItems = catMap[cat];
     const catNeeded = catItems.reduce((a,b)=>a+b.qty,0);
     html += `<div class="cat-header">${cat}　<span style="font-weight:400;color:#6b7280;font-size:12px">需求 ${catNeeded}</span></div>`;
-    html += catItems.map(d=>buildDemandRow(d)).join('');
+    // Group by name within category
+    const dNameMap = {};
+    catItems.forEach(d=>{ const n=d.name||'（未命名）'; if(!dNameMap[n]) dNameMap[n]=[]; dNameMap[n].push(d); });
+    Object.keys(dNameMap).forEach(name=>{
+      const di = dNameMap[name];
+      const gid = 'dem-g-'+hashStr(activeProject+activeFloor+cat+name);
+      const isOpen = expandedGroups.has(gid);
+      const totalDemandForName = di.reduce((a,b)=>a+b.qty,0);
+      const uniqueKeys = [...new Set(di.map(d=>d.spec+'||'+(d.thick||'')))];
+      const totalAllocForName = uniqueKeys.reduce((sum,k)=>{ const [sp,th]=k.split('||'); return sum+getAllocatedQty(di[0].project,di[0].floor,name,sp,th); },0);
+      const remaining = totalDemandForName - totalAllocForName;
+      const statusColor = remaining<=0 ? '#059669' : totalAllocForName>0 ? '#d97706' : '#dc2626';
+      const unit = di[0].unit||'';
+      html += `<div class="acc-name-header" onclick="toggleGroup('${gid}')">
+        <span class="acc-arrow${isOpen?' open':''}" data-arrow="${gid}">▶</span>
+        <span class="acc-name">${name}</span>
+        <span class="acc-count" style="color:${statusColor}">${di.length}筆・需${totalDemandForName}${unit}・配${totalAllocForName}${unit}</span>
+      </div>
+      <div class="acc-body" id="${gid}" style="display:${isOpen?'block':'none'}">${di.map(d=>buildDemandRow(d)).join('')}</div>`;
+    });
   });
   html += `</div></div>`;
   el.innerHTML = html;
@@ -1891,29 +1994,44 @@ function renderAllocList() {
   items.forEach(a=>{ const d=a.date||'（無日期）'; if(!dateMap[d]) dateMap[d]=[]; dateMap[d].push(a); });
   const dates = Object.keys(dateMap).sort((a,b)=>b.localeCompare(a));
   el.innerHTML = dates.map(date=>{
-    const rows = dateMap[date].map(a=>{
-      const isOut = a.transferId && Number(a.qty) < 0;
-      const isIn  = a.transferId && Number(a.qty) > 0;
-      const catBadge = isOut
-        ? '<span style="display:inline-block;background:#fef2f2;color:#dc2626;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">↑ 調出</span>'
-        : isIn
-        ? '<span style="display:inline-block;background:#d1fae5;color:#059669;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">↓ 調入</span>'
-        : `<span style="display:inline-block;background:#dbeafe;color:#1e40af;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">${a.category}</span>`;
-      const qtyColor  = isOut ? '#dc2626' : isIn ? '#059669' : '#2563eb';
-      const qtyDisplay = (isIn ? '+' : '') + a.qty + (a.unit||'');
-      const editBtn = a.transferId ? '' : `<button class="btn-sm" onclick="editAllocation(${a._idx})">編輯</button>`;
-      return `<div class="list-item">
-        <div style="flex:1">
-          <div class="list-main">${catBadge}${a.name}</div>
-          <div class="list-sub">${a.spec}${a.thick?'・'+a.thick:''}</div>
+    const dateItems = dateMap[date];
+    const dtotal = dateItems.filter(y=>!y.transferId).reduce((x,y)=>x+Number(y.qty),0);
+    // Group by name within date
+    const aNameMap = {};
+    dateItems.forEach(a=>{ const n=a.name||'（未命名）'; if(!aNameMap[n]) aNameMap[n]=[]; aNameMap[n].push(a); });
+    const nameBlocks = Object.keys(aNameMap).map(name=>{
+      const ai = aNameMap[name];
+      const gid = 'alloc-g-'+hashStr(date+(allocActiveProject||'')+(allocActiveFloor||'')+name);
+      const isOpen = expandedGroups.has(gid);
+      const nameQty = ai.filter(y=>!y.transferId).reduce((x,y)=>x+Number(y.qty),0);
+      const rows = ai.map(a=>{
+        const isOut = a.transferId && Number(a.qty) < 0;
+        const isIn  = a.transferId && Number(a.qty) > 0;
+        const catBadge = isOut
+          ? '<span style="display:inline-block;background:#fef2f2;color:#dc2626;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">↑ 調出</span>'
+          : isIn
+          ? '<span style="display:inline-block;background:#d1fae5;color:#059669;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">↓ 調入</span>'
+          : `<span style="display:inline-block;background:#dbeafe;color:#1e40af;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">${a.category}</span>`;
+        const qtyColor  = isOut ? '#dc2626' : isIn ? '#059669' : '#2563eb';
+        const qtyDisplay = (isIn ? '+' : '') + a.qty + (a.unit||'');
+        const editBtn = a.transferId ? '' : `<button class="btn-sm" onclick="editAllocation(${a._idx})">編輯</button>`;
+        return `<div class="list-item">
+          <div style="flex:1">
+            <div class="list-main">${catBadge}${a.spec}${a.thick?'・'+a.thick:''}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:8px">
+            <div style="font-size:18px;font-weight:800;color:${qtyColor}">${qtyDisplay}</div>
+            <div style="display:flex;gap:4px">${editBtn}<button class="btn-danger-sm" onclick="deleteAllocation(${a._idx})">刪除</button></div>
+          </div>
+        </div>`;
+      }).join('');
+      return `<div class="acc-name-header" onclick="toggleGroup('${gid}')">
+          <span class="acc-arrow${isOpen?' open':''}" data-arrow="${gid}">▶</span>
+          <span class="acc-name">${name}</span>
+          <span class="acc-count">${ai.length}筆・${nameQty}${ai[0]&&ai[0].unit||''}</span>
         </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:8px">
-          <div style="font-size:18px;font-weight:800;color:${qtyColor}">${qtyDisplay}</div>
-          <div style="display:flex;gap:4px">${editBtn}<button class="btn-danger-sm" onclick="deleteAllocation(${a._idx})">刪除</button></div>
-        </div>
-      </div>`;
+        <div class="acc-body" id="${gid}" style="display:${isOpen?'block':'none'}">${rows}</div>`;
     }).join('');
-    const dtotal = dateMap[date].filter(y=>!y.transferId).reduce((x,y)=>x+Number(y.qty),0);
     return `<div class="site-group" style="margin-bottom:12px">
       <div class="site-group-header">
         <div class="site-group-title">📅 ${date}</div>
@@ -1922,7 +2040,7 @@ function renderAllocList() {
           <button onclick="exportAllocDatePDF('${date}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
         </div>
       </div>
-      <div class="site-group-body">${rows}</div>
+      <div class="site-group-body">${nameBlocks}</div>
     </div>`;
   }).join('');
 }
