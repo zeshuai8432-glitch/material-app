@@ -1860,24 +1860,32 @@ function showInventoryGap() {
     const invItem = inventory.find(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||''));
     const inStock = invItem ? Number(invItem.qty) : 0;
     const shipped = getShippedQty(activeProject, m.name, m.spec, m.thick);
-    const need = Math.max(0, m.qty - shipped - inStock);
-    return {...m, inStock, shipped, need};
+    const net = m.qty - shipped - inStock; // 正=缺，負=溢出，0=剛好
+    return {...m, inStock, shipped, net};
   });
-  rows.sort((a,b)=>(b.need>0?1:0)-(a.need>0?1:0)||(materialTags[a.name]||'').localeCompare(materialTags[b.name]||'')||(a.name.localeCompare(b.name,'zh-TW')));
-  const lackCount = rows.filter(r=>r.need>0).length;
+  // 排序：缺貨 → 溢出 → 足夠，同類別內按系列/名稱
+  const netOrder = r => r.net>0?0:r.net<0?1:2;
+  rows.sort((a,b)=>netOrder(a)-netOrder(b)||(materialTags[a.name]||'').localeCompare(materialTags[b.name]||'')||(a.name.localeCompare(b.name,'zh-TW')));
+  const lackCount = rows.filter(r=>r.net>0).length;
+  const overCount = rows.filter(r=>r.net<0).length;
+  const okCount   = rows.length - lackCount - overCount;
   // 依系列分組
   const sm = {};
   rows.forEach(r=>{ const s=materialTags[r.name]||'未設定系列'; if(!sm[s]) sm[s]=[]; sm[s].push(r); });
   let body = `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">案場：${activeProject}　公式：總需求 − 已出貨 − 現有庫存</div>`;
   body += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-    <span class="badge badge-red">⚠️ ${lackCount} 種缺貨</span>
-    <span class="badge badge-green">✅ ${rows.length-lackCount} 種充足</span>
+    ${lackCount?`<span class="badge badge-red">⚠️ ${lackCount} 種缺貨</span>`:''}
+    ${overCount?`<span class="badge badge-amber">↑ ${overCount} 種溢出</span>`:''}
+    ${okCount?`<span class="badge badge-green">✅ ${okCount} 種足夠</span>`:''}
   </div>`;
   sortedSeriesKeys(sm).forEach(series=>{
     body += `<div class="acc-series-label" style="margin-top:8px">📁 ${series}</div>`;
     sm[series].forEach(r=>{
-      const lacking = r.need > 0;
-      const statusColor = lacking ? '#dc2626' : '#059669';
+      const isLack = r.net > 0;
+      const isOver = r.net < 0;
+      const statusColor = isLack?'#dc2626':isOver?'#d97706':'#059669';
+      const statusText  = isLack?`缺 ${r.net}${r.unit}`:isOver?`溢出 ${-r.net}${r.unit}`:'足夠';
+      const statusSub   = isLack?'需生產':isOver?'庫存過剩':'';
       body += `<div class="list-item">
         <div style="flex:1">
           <div class="list-main">${r.name}</div>
@@ -1887,8 +1895,8 @@ function showInventoryGap() {
           </div>
         </div>
         <div style="text-align:right;margin-left:12px;flex-shrink:0">
-          <div style="font-size:16px;font-weight:800;color:${statusColor}">${lacking?'缺 '+r.need+r.unit:'足夠'}</div>
-          ${lacking?`<div style="font-size:11px;color:#dc2626;margin-top:2px">需生產</div>`:''}
+          <div style="font-size:16px;font-weight:800;color:${statusColor}">${statusText}</div>
+          ${statusSub?`<div style="font-size:11px;color:${statusColor};margin-top:2px">${statusSub}</div>`:''}
         </div>
       </div>`;
     });
@@ -1909,21 +1917,23 @@ function exportGapPDF() {
     if (!demandMap[key]) demandMap[key]={name:d.name,spec:d.spec,thick:d.thick||'',unit:d.unit||'',qty:0};
     demandMap[key].qty += Number(d.qty);
   });
+  const netOrder = r => r.net>0?0:r.net<0?1:2;
   const rows = Object.values(demandMap).map(m=>{
     const invItem = inventory.find(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||''));
     const inStock = invItem ? Number(invItem.qty) : 0;
     const shipped = getShippedQty(activeProject, m.name, m.spec, m.thick);
-    const need = Math.max(0, m.qty - shipped - inStock);
-    return {...m, inStock, shipped, need};
-  }).sort((a,b)=>(b.need>0?1:0)-(a.need>0?1:0)||(a.name.localeCompare(b.name,'zh-TW')));
+    const net = m.qty - shipped - inStock;
+    return {...m, inStock, shipped, net};
+  }).sort((a,b)=>netOrder(a)-netOrder(b)||(a.name.localeCompare(b.name,'zh-TW')));
   let html = '';
   if (company.name) html += '<div class="company">'+company.name+'</div>';
   html += '<h1>生產需求單</h1><div class="meta">案場：'+activeProject+'　日期：'+today+'</div>';
   const tableRows = rows.map(function(r){
-    const needColor = r.need>0?'color:#dc2626;font-weight:700':'color:#166534';
-    return '<tr><td>'+(materialTags[r.name]||'—')+'</td><td>'+r.name+'</td><td>'+r.spec+'</td><td>'+(r.thick||'')+'</td><td>'+r.qty+r.unit+'</td><td>'+r.shipped+r.unit+'</td><td>'+r.inStock+r.unit+'</td><td style="'+needColor+'">'+(r.need>0?r.need+r.unit:'✅')+'</td></tr>';
+    const col = r.net>0?'color:#dc2626;font-weight:700':r.net<0?'color:#d97706;font-weight:700':'color:#166534';
+    const label = r.net>0?('缺 '+r.net+r.unit):r.net<0?('溢出 '+(-r.net)+r.unit):'✅';
+    return '<tr><td>'+(materialTags[r.name]||'—')+'</td><td>'+r.name+'</td><td>'+r.spec+'</td><td>'+(r.thick||'')+'</td><td>'+r.qty+r.unit+'</td><td>'+r.shipped+r.unit+'</td><td>'+r.inStock+r.unit+'</td><td style="'+col+'">'+label+'</td></tr>';
   }).join('');
-  html += '<table><thead><tr><th>系列</th><th>材料</th><th>規格</th><th>厚度</th><th>總需求</th><th>已出貨</th><th>現有庫存</th><th>需生產</th></tr></thead><tbody>'+tableRows+'</tbody></table>';
+  html += '<table><thead><tr><th>系列</th><th>材料</th><th>規格</th><th>厚度</th><th>總需求</th><th>已出貨</th><th>現有庫存</th><th>缺／溢</th></tr></thead><tbody>'+tableRows+'</tbody></table>';
   document.getElementById('edit-modal').classList.remove('show');
   document.getElementById('edit-save-btn').style.display = '';
   printHTML('生產需求單 '+activeProject, html);
