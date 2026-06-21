@@ -327,6 +327,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="flow-hint">🏗️ 材料已到案場暫存區，在這裡把材料分配到各樓層各分區。</div>
   <div id="alloc-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;flex-wrap:nowrap"></div>
   <div id="alloc-floor-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;flex-wrap:nowrap"></div>
+  <button class="btn-outline" onclick="showTransferForm()" style="width:100%;margin-bottom:8px;border-color:#ddd6fe;color:#7c3aed;background:#f5f3ff">🔄 樓層調撥</button>
   <button class="btn-outline" onclick="showSettlement()" style="width:100%;margin-bottom:8px">📊 此案場用料結算</button>
   <button class="btn-outline" onclick="mergeAllocByDate()" style="width:100%;margin-bottom:8px">📅 依日期合併（全樓層搬運單）</button>
   <button class="btn-outline" onclick="mergeAllocByFloor()" style="width:100%;margin-bottom:12px">🏢 依樓層合併（該樓層全部）</button>
@@ -428,6 +429,7 @@ let shipments = [];
 let currentOrder = [];
 let shipType = 'stock';
 let orderNo = 1;
+let transferCounter = 0;
 
 const today = new Date().toISOString().slice(0,10);
 document.getElementById('prod-date').value = today;
@@ -1885,26 +1887,33 @@ function renderAllocList() {
   if (!el) return;
   const items = allocations.map((a,i)=>({...a,_idx:i})).filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject) && allocNorm(a.floor)===allocNorm(allocActiveFloor));
   if (!items.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>此樓層尚無分配紀錄</div>'; return; }
-  // 依日期分組（新到舊）
   const dateMap = {};
   items.forEach(a=>{ const d=a.date||'（無日期）'; if(!dateMap[d]) dateMap[d]=[]; dateMap[d].push(a); });
   const dates = Object.keys(dateMap).sort((a,b)=>b.localeCompare(a));
   el.innerHTML = dates.map(date=>{
-    const rows = dateMap[date].map(a=>`
-      <div class="list-item">
+    const rows = dateMap[date].map(a=>{
+      const isOut = a.transferId && Number(a.qty) < 0;
+      const isIn  = a.transferId && Number(a.qty) > 0;
+      const catBadge = isOut
+        ? '<span style="display:inline-block;background:#fef2f2;color:#dc2626;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">↑ 調出</span>'
+        : isIn
+        ? '<span style="display:inline-block;background:#d1fae5;color:#059669;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">↓ 調入</span>'
+        : `<span style="display:inline-block;background:#dbeafe;color:#1e40af;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">${a.category}</span>`;
+      const qtyColor  = isOut ? '#dc2626' : isIn ? '#059669' : '#2563eb';
+      const qtyDisplay = (isIn ? '+' : '') + a.qty + (a.unit||'');
+      const editBtn = a.transferId ? '' : `<button class="btn-sm" onclick="editAllocation(${a._idx})">編輯</button>`;
+      return `<div class="list-item">
         <div style="flex:1">
-          <div class="list-main"><span style="display:inline-block;background:#e6f1fb;color:#185FA5;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px">${a.category}</span>${a.name}</div>
+          <div class="list-main">${catBadge}${a.name}</div>
           <div class="list-sub">${a.spec}${a.thick?'・'+a.thick:''}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:8px">
-          <div class="list-qty">${a.qty}${a.unit||''}</div>
-          <div style="display:flex;gap:4px">
-            <button class="btn-sm" onclick="editAllocation(${a._idx})">編輯</button>
-            <button class="btn-danger-sm" onclick="deleteAllocation(${a._idx})">刪除</button>
-          </div>
+          <div style="font-size:18px;font-weight:800;color:${qtyColor}">${qtyDisplay}</div>
+          <div style="display:flex;gap:4px">${editBtn}<button class="btn-danger-sm" onclick="deleteAllocation(${a._idx})">刪除</button></div>
         </div>
-      </div>`).join('');
-    const dtotal = dateMap[date].reduce((x,y)=>x+Number(y.qty),0);
+      </div>`;
+    }).join('');
+    const dtotal = dateMap[date].filter(y=>!y.transferId).reduce((x,y)=>x+Number(y.qty),0);
     return `<div class="site-group" style="margin-bottom:12px">
       <div class="site-group-header">
         <div class="site-group-title">📅 ${date}</div>
@@ -2098,9 +2107,112 @@ function editAllocation(idx) {
 }
 
 function deleteAllocation(idx) {
+  const a = allocations[idx];
+  if (a.transferId) {
+    if (!confirm('這是調撥紀錄，確定刪除？（對應的調入／調出紀錄也會一起刪除）')) return;
+    const pairIdx = allocations.findIndex((x,i)=>i!==idx && x.transferId===a.transferId);
+    [idx, pairIdx].filter(i=>i>=0).sort((a,b)=>b-a).forEach(i=>allocations.splice(i,1));
+    renderAll(); autoSave(); showToast('🗑️ 已刪除調撥紀錄（兩筆）');
+    return;
+  }
   if (!confirm('確定刪除此分配紀錄？分配的量會回到置料區。')) return;
   allocations.splice(idx,1);
   renderAll(); autoSave(); showToast('🗑️ 已刪除，已退回置料區');
+}
+
+// ── 樓層調撥 ──
+function showTransferForm() {
+  if (!allocActiveProject) { showToast('⚠️ 請先選案場'); return; }
+  const floors = getAllocFloors(allocActiveProject);
+  if (floors.length < 2) { showToast('⚠️ 此案場至少需要兩個樓層才能調撥'); return; }
+  const floorOpts = floors.map(f=>`<option value="${f}">${f}</option>`).join('');
+  const cats = new Set(['隔間','天花板']);
+  demands.filter(d=>allocNorm(d.project)===allocNorm(allocActiveProject)).forEach(d=>{ if(d.category) cats.add(d.category); });
+  allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject)).forEach(a=>{ if(a.category && !a.transferId) cats.add(a.category); });
+  const catOpts = Array.from(cats).map(c=>`<option value="${c}">${c}</option>`).join('');
+  const body = `
+    <div class="form-group"><label>從哪個樓層調出</label>
+      <select id="tr-from-floor" onchange="updateTransferMats()">
+        <option value="">-- 選擇樓層 --</option>${floorOpts}
+      </select>
+    </div>
+    <div class="form-group"><label>調出的分類（從哪個用途扣）</label><select id="tr-from-cat">${catOpts}</select></div>
+    <div class="form-group"><label>選擇材料</label>
+      <select id="tr-mat" onchange="updateTransferQtyHint()">
+        <option value="">-- 先選樓層 --</option>
+      </select>
+    </div>
+    <div id="tr-qty-hint" style="font-size:12px;color:#64748b;margin:-4px 0 10px;display:none"></div>
+    <div class="form-group"><label>調撥數量</label><input type="number" id="tr-qty" placeholder="0" min="1"></div>
+    <div class="form-group"><label>調入哪個樓層</label>
+      <select id="tr-to-floor">
+        <option value="">-- 選擇樓層 --</option>${floorOpts}
+      </select>
+    </div>
+    <div class="form-group"><label>調入的分類（放到哪個用途）</label><select id="tr-to-cat">${catOpts}</select></div>
+    <div class="form-group"><label>日期</label><input type="date" id="tr-date" value="${today}"></div>`;
+  showEditModal('🔄 樓層調撥', body, doTransfer);
+}
+
+function updateTransferMats() {
+  const fromFloor = document.getElementById('tr-from-floor').value;
+  const sel = document.getElementById('tr-mat');
+  sel.innerHTML = '<option value="">-- 選擇材料 --</option>';
+  if (!fromFloor) return;
+  const map = {};
+  allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject) && allocNorm(a.floor)===allocNorm(fromFloor))
+    .forEach(a=>{
+      const key = a.name+'|'+a.spec+'|'+(a.thick||'');
+      if (!map[key]) map[key] = {name:a.name,spec:a.spec,thick:a.thick||'',unit:a.unit||'',qty:0};
+      map[key].qty += Number(a.qty);
+    });
+  Object.values(map).filter(m=>m.qty>0).forEach(m=>{
+    const o = document.createElement('option');
+    o.value = JSON.stringify({name:m.name,spec:m.spec,thick:m.thick,unit:m.unit});
+    o.textContent = m.name+'　'+m.spec+(m.thick?'・'+m.thick:'')+'　（'+m.qty+m.unit+'）';
+    sel.appendChild(o);
+  });
+  updateTransferQtyHint();
+}
+
+function updateTransferQtyHint() {
+  const fromFloor = document.getElementById('tr-from-floor').value;
+  const matVal = document.getElementById('tr-mat').value;
+  const hint = document.getElementById('tr-qty-hint');
+  if (!fromFloor||!matVal) { hint.style.display='none'; return; }
+  try {
+    const m = JSON.parse(matVal);
+    const qty = getAllocatedQty(allocActiveProject, fromFloor, m.name, m.spec, m.thick);
+    hint.style.display = 'block';
+    hint.textContent = fromFloor+' 此材料目前已分配 '+qty+m.unit+'，最多可調 '+qty+m.unit;
+  } catch(e) { hint.style.display='none'; }
+}
+
+function doTransfer() {
+  const fromFloor = document.getElementById('tr-from-floor').value;
+  const fromCat   = document.getElementById('tr-from-cat').value;
+  const matVal    = document.getElementById('tr-mat').value;
+  const qty       = parseInt(document.getElementById('tr-qty').value);
+  const toFloor   = document.getElementById('tr-to-floor').value;
+  const toCat     = document.getElementById('tr-to-cat').value;
+  const date      = document.getElementById('tr-date').value || today;
+  if (!fromFloor)           { showToast('⚠️ 請選擇調出樓層'); return; }
+  if (!matVal)              { showToast('⚠️ 請選擇材料'); return; }
+  if (!qty||qty<=0)         { showToast('⚠️ 請填寫數量'); return; }
+  if (!toFloor)             { showToast('⚠️ 請選擇調入樓層'); return; }
+  if (fromFloor===toFloor)  { showToast('⚠️ 調出與調入樓層不能相同'); return; }
+  let m;
+  try { m = JSON.parse(matVal); } catch(e) { showToast('❌ 材料資料錯誤'); return; }
+  const available = getAllocatedQty(allocActiveProject, fromFloor, m.name, m.spec, m.thick);
+  if (qty > available) { showToast('❌ '+fromFloor+' 只有 '+available+m.unit+'，不夠調'); return; }
+  const tid = 'TR-'+(++transferCounter)+'-'+Date.now();
+  const base = {project:allocActiveProject, name:m.name, spec:m.spec, thick:m.thick, unit:m.unit, date, transferId:tid};
+  allocations.push({...base, floor:fromFloor, category:fromCat, qty:-qty});
+  allocations.push({...base, floor:toFloor,   category:toCat,   qty:qty});
+  hideEditModal();
+  renderAll();
+  autoSave();
+  showToast('✅ 已從 '+fromFloor+' 調 '+qty+m.unit+' 到 '+toFloor);
 }
 
 // ── Init ──
