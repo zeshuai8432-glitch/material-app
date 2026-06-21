@@ -2061,10 +2061,11 @@ function getStockYardMaterials(project) {
     const key = s.name+'|'+s.spec+'|'+s.thick;
     if (!map[key]) map[key] = { name:s.name, spec:s.spec, thick:s.thick, unit:'' };
   });
-  // 補單位（從需求單抓）
+  // 補單位＋分類（從需求單抓）
   Object.values(map).forEach(m=>{
     const d = demands.find(d=>allocNorm(d.project)===allocNorm(project) && allocNorm(d.name)===allocNorm(m.name) && allocNorm(d.spec)===allocNorm(m.spec) && allocNorm(d.thick)===allocNorm(m.thick));
-    if (d && d.unit) m.unit = d.unit;
+    if (d) { if (d.unit) m.unit = d.unit; m.category = d.category || '未分類'; }
+    else { m.category = '未分類'; }
     m.remain = getStockYardQty(project, m.name, m.spec, m.thick);
   });
   return Object.values(map);
@@ -2196,18 +2197,23 @@ function renderAllocation() {
   if (!mats.length) {
     stockEl.innerHTML='<div class="empty"><div class="empty-icon">📦</div>此案場置料區無材料</div>';
   } else {
-    stockEl.innerHTML = mats.map(m=>{
-      const color = m.remain>0?'#166534':(m.remain<0?'#dc2626':'#6b7280');
-      return `<div class="list-item">
-        <div style="flex:1">
-          <div class="list-main">${m.name}</div>
-          <div style="margin-top:3px">${specBadge(m.spec,m.thick)}</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:18px;font-weight:700;color:${color}">${m.remain}${m.unit}</div>
-          <div style="font-size:11px;color:#9ca3af">置料區剩餘</div>
-        </div>
-      </div>`;
+    const catMap = {};
+    mats.forEach(m=>{ const c=m.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(m); });
+    stockEl.innerHTML = Object.keys(catMap).map(cat=>{
+      const rows = catMap[cat].map(m=>{
+        const color = m.remain>0?'#166534':(m.remain<0?'#dc2626':'#6b7280');
+        return `<div class="list-item">
+          <div style="flex:1">
+            <div class="list-main">${m.name}</div>
+            <div style="margin-top:3px">${specBadge(m.spec,m.thick)}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:18px;font-weight:700;color:${color}">${m.remain}${m.unit}</div>
+            <div style="font-size:11px;color:#9ca3af">置料區剩餘</div>
+          </div>
+        </div>`;
+      }).join('');
+      return `<div class="cat-header">${cat}</div>${rows}`;
     }).join('');
   }
   // 材料下拉
