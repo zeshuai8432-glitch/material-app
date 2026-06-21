@@ -144,6 +144,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .thick-tag{display:inline-block;background:#f0fdf4;color:#15803d;border:1.5px solid #bbf7d0;border-radius:6px;padding:2px 9px;font-size:12px;font-weight:700;margin-right:4px;margin-top:3px}
 .site-tag{display:inline-block;background:#fef3c7;color:#92400e;border:1.5px solid #fde68a;border-radius:6px;padding:2px 9px;font-size:12px;font-weight:600;margin-right:4px;margin-top:3px}
 .note-tag{display:inline-block;background:#fdf4ff;color:#7c3aed;border:1.5px solid #e9d5ff;border-radius:6px;padding:2px 9px;font-size:12px;font-weight:600;margin-right:4px;margin-top:3px}
+.qty-preview{font-size:13px;font-weight:700;color:#2563eb;background:#eff6ff;border-radius:8px;padding:4px 10px;margin-top:5px;display:none}
+.qty-expr{font-size:11px;color:#94a3b8;font-weight:400;margin-left:3px}
 
 /* ── Material Accordion ── */
 .acc-series{margin-bottom:14px}
@@ -197,7 +199,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
     <div class="form-row">
       <div class="form-group"><label>厚度</label><input type="text" id="prod-thick" placeholder="例：3mm"></div>
-      <div class="form-group"><label>數量</label><input type="number" id="prod-qty" placeholder="0" min="1"></div>
+      <div class="form-group"><label>數量</label><input type="text" id="prod-qty" placeholder="0（可輸入算式如 30+10）" oninput="previewQty(this,'prod-qty-preview')">
+      <div class="qty-preview" id="prod-qty-preview"></div></div>
     </div>
     <button class="btn-primary" onclick="addProduction()">確認入庫 → 自動更新庫存</button>
   </div>
@@ -253,7 +256,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </div>
       <div class="form-group"><label>厚度</label><input type="text" id="ship-thick" placeholder="例：3mm" oninput="updateDemandGap()"></div>
     </div>
-    <div class="form-group"><label>數量</label><input type="number" id="ship-qty" placeholder="0" min="1" oninput="updateDemandGap()"></div>
+    <div class="form-group"><label>數量</label><input type="text" id="ship-qty" placeholder="0（可輸入算式如 30+10）" oninput="previewQty(this,'ship-qty-preview');updateDemandGap()">
+    <div class="qty-preview" id="ship-qty-preview"></div></div>
     <div id="demand-gap-box" style="display:none;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
     <button class="btn-primary" onclick="addShipment()">加入出貨清單</button>
   </div>
@@ -329,7 +333,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="form-group"><label>厚度</label><input type="text" id="dem-thick" placeholder="例：3mm"></div>
       <div class="form-group"><label>單位</label><input type="text" id="dem-unit" placeholder="例：支"></div>
     </div>
-    <div class="form-group"><label>需求數量</label><input type="number" id="dem-qty" placeholder="0" min="1"></div>
+    <div class="form-group"><label>需求數量</label><input type="text" id="dem-qty" placeholder="0（可輸入算式如 30+10）" oninput="previewQty(this,'dem-qty-preview')">
+    <div class="qty-preview" id="dem-qty-preview"></div></div>
     <div class="form-group"><label>備註</label><input type="text" id="dem-note" placeholder="選填"></div>
     <button class="btn-primary" onclick="addDemand()">新增需求</button>
   </div>
@@ -372,7 +377,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </select>
     </div>
     <div class="form-group"><label>分配日期</label><input type="date" id="alloc-date"></div>
-    <div class="form-group"><label>數量</label><input type="number" id="alloc-qty" placeholder="0" min="1" oninput="updateAllocGap()"></div>
+    <div class="form-group"><label>數量</label><input type="text" id="alloc-qty" placeholder="0（可輸入算式如 30+10）" oninput="previewQty(this,'alloc-qty-preview');updateAllocGap()">
+    <div class="qty-preview" id="alloc-qty-preview"></div></div>
     <div id="alloc-gap-box" style="display:none;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
     <button class="btn-primary" onclick="addAllocation()">分配</button>
   </div>
@@ -464,6 +470,30 @@ function toggleGroup(id) {
 }
 function specBadge(spec, thick) {
   return (spec?`<span class="spec-tag">${spec}</span>`:'')+(thick?`<span class="thick-tag">${thick}</span>`:'');
+}
+
+function evalQty(str) {
+  if (str===null||str===undefined) return 0;
+  const s = String(str).trim();
+  if (s==='') return 0;
+  if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+  try { const v = new Function('return ('+s+')+(0)')(); return (typeof v==='number'&&isFinite(v)) ? Math.round(v*1000)/1000 : 0; } catch(e) { return 0; }
+}
+
+function previewQty(inputEl, previewId) {
+  const s = inputEl.value.trim();
+  const preview = document.getElementById(previewId);
+  if (!preview) return;
+  const isExpr = s && !/^-?\d+(\.\d+)?$/.test(s);
+  if (!isExpr || !s) { preview.style.display='none'; return; }
+  const v = evalQty(s);
+  preview.style.display = 'block';
+  preview.textContent = '= ' + v;
+}
+
+function qtyExprSpan(record) {
+  return (record.qtyExpr && record.qtyExpr !== String(record.qty))
+    ? `<span class="qty-expr">(${record.qtyExpr})</span>` : '';
 }
 
 // 依 materialTags 分系列，再依名稱分組
@@ -613,13 +643,17 @@ function addProduction() {
   const name = document.getElementById('prod-name').value.trim();
   const spec = document.getElementById('prod-spec').value.trim();
   const thick = document.getElementById('prod-thick').value.trim();
-  const qty = parseInt(document.getElementById('prod-qty').value);
+  const qtyRaw = document.getElementById('prod-qty').value.trim();
+  const qty = evalQty(qtyRaw);
   if (!date||!name||!spec||!thick||!qty||qty<=0) { showToast('⚠️ 請填寫所有欄位'); return; }
-  productions.push({date,name,spec,thick,qty});
+  const rec = {date,name,spec,thick,qty};
+  if (qtyRaw && qtyRaw !== String(qty)) rec.qtyExpr = qtyRaw;
+  productions.push(rec);
   const ex = findInventory(name,spec,thick);
   if (ex) { ex.qty+=qty; ex.lastUpdate=date; }
   else inventory.push({name,spec,thick,qty,lastUpdate:date});
   ['prod-name','prod-spec','prod-thick','prod-qty'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('prod-qty-preview').style.display='none';
   renderAll(); autoSave(); showToast('✅ 入庫成功，庫存已更新');
 }
 
@@ -692,7 +726,7 @@ function updateDemandGap() {
   const unit = matched[0].unit || '';
   const totalDemand = matched.reduce((a,b)=>a+Number(b.qty),0);
   const shipped = getShippedQty(site, mat.name, mat.spec, mat.thick);
-  const inputQty = parseInt(document.getElementById('ship-qty').value) || 0;
+  const inputQty = evalQty(document.getElementById('ship-qty').value) || 0;
   const afterThis = shipped + inputQty;
   const remaining = totalDemand - afterThis;
   box.style.display='block';
@@ -716,7 +750,8 @@ function updateDemandGap() {
 function addShipment() {
   const date = document.getElementById('ship-date').value;
   const site = document.getElementById('ship-site').value;
-  const qty = parseInt(document.getElementById('ship-qty').value);
+  const qtyRaw = document.getElementById('ship-qty').value.trim();
+  const qty = evalQty(qtyRaw);
   let name='', spec='', thick='';
   if (!date||!site||!qty||qty<=0) { showToast('⚠️ 請填寫所有欄位'); return; }
   if (shipType==='stock') {
@@ -755,9 +790,11 @@ function addShipment() {
     }
   }
   const record = {date,site,name,spec,thick,qty,type:shipType};
+  if (qtyRaw && qtyRaw !== String(qty)) record.qtyExpr = qtyRaw;
   shipments.push(record);
   currentOrder.push(record);
   document.getElementById('ship-qty').value='';
+  document.getElementById('ship-qty-preview').style.display='none';
   if (shipType==='standard') {
     ['ship-name','ship-spec','ship-thick'].forEach(id=>document.getElementById(id).value='');
   } else {
@@ -864,7 +901,7 @@ function renderProductions() {
         <div class="list-item">
           <div style="flex:1"><div>${specBadge(p.spec,p.thick)}</div></div>
           <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-            <div class="list-qty">+${p.qty}</div>
+            <div class="list-qty">+${p.qty}${qtyExprSpan(p)}</div>
             <div class="list-date">${p.date}</div>
             <div style="display:flex;gap:4px;margin-top:2px">
               <button class="btn-sm" onclick="editProduction(${p._idx})">編輯</button>
@@ -910,7 +947,7 @@ function renderShipments() {
               <span class="badge ${s.type==='stock'?'badge-blue':'badge-amber'}" style="margin-top:5px">${s.type==='stock'?'庫存出':'制式材料'}</span>
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-              <div class="list-qty">${s.qty}</div>
+              <div class="list-qty">${s.qty}${qtyExprSpan(s)}</div>
               <div style="display:flex;gap:4px;margin-top:2px">
                 <button class="btn-sm" onclick="editShipment(${s._idx})">編輯</button>
                 <button class="btn-danger-sm" onclick="deleteShipment(${s._idx})">刪除</button>
@@ -1247,7 +1284,7 @@ function editInventory(idx) {
     <div class="form-group"><label>材料名稱</label><input type="text" id="ei-name" value="${i.name}"></div>
     <div class="form-group"><label>規格</label><input type="text" id="ei-spec" value="${i.spec}"></div>
     <div class="form-group"><label>厚度</label><input type="text" id="ei-thick" value="${i.thick}"></div>
-    <div class="form-group"><label>數量</label><input type="number" id="ei-qty" value="${i.qty}" min="0"></div>
+    <div class="form-group"><label>數量</label><input type="text" id="ei-qty" value="${i.qty}" oninput="previewQty(this,'ei-qty-preview')"><div class="qty-preview" id="ei-qty-preview"></div></div>
     <div class="form-group"><label>系列標籤</label><input type="text" id="ei-tag" value="${materialTags[i.name]||''}" placeholder="例：隔間骨架、天花板系統"></div>`;
   showEditModal('編輯庫存', body, ()=>{
     const oldName = inventory[idx].name;
@@ -1255,7 +1292,7 @@ function editInventory(idx) {
     inventory[idx].name = newName;
     inventory[idx].spec = document.getElementById('ei-spec').value.trim();
     inventory[idx].thick = document.getElementById('ei-thick').value.trim();
-    inventory[idx].qty = parseInt(document.getElementById('ei-qty').value)||0;
+    inventory[idx].qty = evalQty(document.getElementById('ei-qty').value)||0;
     inventory[idx].lastUpdate = today;
     const newTag = document.getElementById('ei-tag').value.trim();
     if (oldName !== newName) delete materialTags[oldName];
@@ -1278,13 +1315,15 @@ function editProduction(idx) {
     <div class="form-group"><label>材料名稱</label><input type="text" id="ep-name" value="${p.name}"></div>
     <div class="form-group"><label>規格</label><input type="text" id="ep-spec" value="${p.spec}"></div>
     <div class="form-group"><label>厚度</label><input type="text" id="ep-thick" value="${p.thick}"></div>
-    <div class="form-group"><label>數量</label><input type="number" id="ep-qty" value="${p.qty}" min="1"></div>`;
+    <div class="form-group"><label>數量</label><input type="text" id="ep-qty" value="${p.qtyExpr||p.qty}" oninput="previewQty(this,'ep-qty-preview')"><div class="qty-preview" id="ep-qty-preview"></div></div>`;
   showEditModal('編輯入庫紀錄', body, ()=>{
+    const epRaw = document.getElementById('ep-qty').value.trim();
     productions[idx].date = document.getElementById('ep-date').value;
     productions[idx].name = document.getElementById('ep-name').value.trim();
     productions[idx].spec = document.getElementById('ep-spec').value.trim();
     productions[idx].thick = document.getElementById('ep-thick').value.trim();
-    productions[idx].qty = parseInt(document.getElementById('ep-qty').value)||0;
+    productions[idx].qty = evalQty(epRaw)||0;
+    if (epRaw && epRaw !== String(productions[idx].qty)) productions[idx].qtyExpr = epRaw; else delete productions[idx].qtyExpr;
     hideEditModal(); renderAll(); autoSave(); showToast('✅ 入庫紀錄已更新');
   });
 }
@@ -1304,10 +1343,11 @@ function editShipment(idx) {
     <div class="form-group"><label>材料名稱</label><input type="text" id="es-name" value="${s.name}"></div>
     <div class="form-group"><label>規格</label><input type="text" id="es-spec" value="${s.spec}"></div>
     <div class="form-group"><label>厚度</label><input type="text" id="es-thick" value="${s.thick}"></div>
-    <div class="form-group"><label>數量</label><input type="number" id="es-qty" value="${s.qty}" min="1"></div>`;
+    <div class="form-group"><label>數量</label><input type="text" id="es-qty" value="${s.qtyExpr||s.qty}" oninput="previewQty(this,'es-qty-preview')"><div class="qty-preview" id="es-qty-preview"></div></div>`;
   showEditModal('編輯出貨紀錄', body, ()=>{
+    const esRaw = document.getElementById('es-qty').value.trim();
     const oldQty = Number(s.qty);
-    const newQty = parseInt(document.getElementById('es-qty').value)||0;
+    const newQty = evalQty(esRaw)||0;
     // 若是庫存出，且數量有變，調整庫存
     if (s.type==='stock' && newQty!==oldQty) {
       const inv = findInventory(s.name, s.spec, s.thick);
@@ -1325,6 +1365,7 @@ function editShipment(idx) {
     shipments[idx].spec = document.getElementById('es-spec').value.trim();
     shipments[idx].thick = document.getElementById('es-thick').value.trim();
     shipments[idx].qty = newQty;
+    if (esRaw && esRaw !== String(newQty)) shipments[idx].qtyExpr = esRaw; else delete shipments[idx].qtyExpr;
     hideEditModal(); renderAll(); autoSave(); showToast('✅ 出貨紀錄已更新');
   });
 }
@@ -1438,7 +1479,8 @@ function addDemand() {
   const spec = document.getElementById('dem-spec').value.trim();
   const thick = document.getElementById('dem-thick').value.trim();
   const unit = document.getElementById('dem-unit').value.trim();
-  const qty = parseInt(document.getElementById('dem-qty').value);
+  const qtyRaw = document.getElementById('dem-qty').value.trim();
+  const qty = evalQty(qtyRaw);
   const note = document.getElementById('dem-note').value.trim();
   if (!project) { showToast('⚠️ 請選擇或輸入案件名稱'); return; }
   if (!floor) { showToast('⚠️ 請填寫樓層'); return; }
@@ -1447,10 +1489,13 @@ function addDemand() {
   if (!name) { showToast('⚠️ 請填寫材料名稱'); return; }
   if (!spec) { showToast('⚠️ 請填寫規格'); return; }
   if (!qty||qty<=0) { showToast('⚠️ 請填寫數量'); return; }
-  demands.push({project,floor,category,date,name,spec,thick,unit,qty,note});
+  const demRec = {project,floor,category,date,name,spec,thick,unit,qty,note};
+  if (qtyRaw && qtyRaw !== String(qty)) demRec.qtyExpr = qtyRaw;
+  demands.push(demRec);
   activeProject = project;
   activeFloor = floor;
   ['dem-name','dem-spec','dem-thick','dem-unit','dem-qty','dem-note'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('dem-qty-preview').style.display='none';
   saveLocal();
   refreshCategorySelect();
   const catSel = document.getElementById('dem-category');
@@ -1514,7 +1559,7 @@ function buildDemandRow(d) {
       <div class="list-main">${d.name}</div>
       <div style="margin-top:2px">${specBadge(d.spec,d.thick)}${d.note?`<span class="note-tag">📝 ${d.note}</span>`:''}</div>
       <div style="margin-top:4px;font-size:12px;color:#374151">
-        本筆需求：<strong>${d.qty}${unit}</strong>　此材料已分配：<strong style="color:#185FA5">${totalAlloc}${unit}</strong>　
+        本筆需求：<strong>${d.qty}${unit}</strong>${qtyExprSpan(d)}　此材料已分配：<strong style="color:#185FA5">${totalAlloc}${unit}</strong>
         ${diffHTML}
       </div>
       <div>${multiNote}</div>
@@ -1743,9 +1788,10 @@ function editDemand(idx) {
     <div class="form-group"><label>規格</label><input type="text" id="ed-spec" value="${d.spec}"></div>
     <div class="form-group"><label>厚度</label><input type="text" id="ed-thick" value="${d.thick||''}"></div>
     <div class="form-group"><label>單位</label><input type="text" id="ed-unit" value="${d.unit||''}"></div>
-    <div class="form-group"><label>需求數量</label><input type="number" id="ed-qty" value="${d.qty}" min="1"></div>
+    <div class="form-group"><label>需求數量</label><input type="text" id="ed-qty" value="${d.qtyExpr||d.qty}" oninput="previewQty(this,'ed-qty-preview')"><div class="qty-preview" id="ed-qty-preview"></div></div>
     <div class="form-group"><label>備註</label><input type="text" id="ed-note" value="${d.note||''}"></div>`;
   showEditModal('編輯需求', body, ()=>{
+    const edRaw = document.getElementById('ed-qty').value.trim();
     demands[idx].project = document.getElementById('ed-project').value.trim();
     demands[idx].floor = document.getElementById('ed-floor').value.trim();
     demands[idx].category = document.getElementById('ed-category').value.trim()||'隔間';
@@ -1754,7 +1800,8 @@ function editDemand(idx) {
     demands[idx].spec = document.getElementById('ed-spec').value.trim();
     demands[idx].thick = document.getElementById('ed-thick').value.trim();
     demands[idx].unit = document.getElementById('ed-unit').value.trim();
-    demands[idx].qty = parseInt(document.getElementById('ed-qty').value)||0;
+    demands[idx].qty = evalQty(edRaw)||0;
+    if (edRaw && edRaw !== String(demands[idx].qty)) demands[idx].qtyExpr = edRaw; else delete demands[idx].qtyExpr;
     demands[idx].note = document.getElementById('ed-note').value.trim();
     hideEditModal(); renderAll(); autoSave(); showToast('✅ 需求已更新');
   });
@@ -2085,7 +2132,7 @@ function updateAllocGap() {
   }
   const totalDemand = matched.reduce((a,b)=>a+Number(b.qty),0);
   const alreadyAlloc = allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject) && allocNorm(a.floor)===allocNorm(floor) && allocNorm(a.category)===allocNorm(category) && allocNorm(a.name)===allocNorm(mat.name) && allocNorm(a.spec)===allocNorm(mat.spec) && allocNorm(a.thick)===allocNorm(mat.thick)).reduce((a,b)=>a+Number(b.qty),0);
-  const inputQty = parseInt(document.getElementById('alloc-qty').value)||0;
+  const inputQty = evalQty(document.getElementById('alloc-qty').value)||0;
   const after = alreadyAlloc + inputQty;
   const remaining = totalDemand - after;
   box.style.display='block';
@@ -2100,20 +2147,24 @@ function addAllocation() {
   const mat = getAllocCurrentMat();
   const category = document.getElementById('alloc-category').value;
   const floor = allocActiveFloor;
-  const qty = parseInt(document.getElementById('alloc-qty').value);
+  const qtyRaw = document.getElementById('alloc-qty').value.trim();
+  const qty = evalQty(qtyRaw);
   if (!mat) { showToast('⚠️ 請選擇材料'); return; }
   if (!floor) { showToast('⚠️ 請先在上方選樓層（需先在需求單建立此案場的樓層）'); return; }
   if (!qty||qty<=0) { showToast('⚠️ 請填寫數量'); return; }
   if (qty > mat.remain) {
     if (!confirm('⚠️ 置料區只剩 '+mat.remain+(mat.unit||'')+'\n要分配 '+qty+(mat.unit||'')+' 會超出置料區存量。\n\n確定繼續嗎？')) return;
   }
-  allocations.push({
+  const allocRec = {
     project: allocActiveProject,
     floor, category,
     name: mat.name, spec: mat.spec, thick: mat.thick, unit: mat.unit||'',
     qty, date: document.getElementById('alloc-date').value || today
-  });
+  };
+  if (qtyRaw && qtyRaw !== String(qty)) allocRec.qtyExpr = qtyRaw;
+  allocations.push(allocRec);
   document.getElementById('alloc-qty').value='';
+  document.getElementById('alloc-qty-preview').style.display='none';
   renderAll(); autoSave(); showToast('✅ 已分配到 '+floor+' '+category);
 }
 
@@ -2153,7 +2204,7 @@ function renderAllocList() {
               <div>${specBadge(a.spec,a.thick)}</div>
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:8px">
-              <div style="font-size:18px;font-weight:800;color:${qtyColor}">${qtyDisplay}</div>
+              <div style="font-size:18px;font-weight:800;color:${qtyColor}">${qtyDisplay}${qtyExprSpan(a)}</div>
               <div style="display:flex;gap:4px">${editBtn}<button class="btn-danger-sm" onclick="deleteAllocation(${a._idx})">刪除</button></div>
             </div>
           </div>`;
@@ -2345,15 +2396,17 @@ function editAllocation(idx) {
     <div class="form-group"><label>材料名稱</label><input type="text" id="ea-name" value="${a.name}"></div>
     <div class="form-group"><label>規格</label><input type="text" id="ea-spec" value="${a.spec}"></div>
     <div class="form-group"><label>厚度</label><input type="text" id="ea-thick" value="${a.thick||''}"></div>
-    <div class="form-group"><label>數量</label><input type="number" id="ea-qty" value="${a.qty}" min="1"></div>
+    <div class="form-group"><label>數量</label><input type="text" id="ea-qty" value="${a.qtyExpr||a.qty}" oninput="previewQty(this,'ea-qty-preview')"><div class="qty-preview" id="ea-qty-preview"></div></div>
     <div class="form-group"><label>日期</label><input type="date" id="ea-date" value="${a.date||today}"></div>`;
   showEditModal('編輯分配紀錄', body, ()=>{
+    const eaRaw = document.getElementById('ea-qty').value.trim();
     allocations[idx].floor = document.getElementById('ea-floor').value.trim();
     allocations[idx].category = document.getElementById('ea-category').value.trim()||'隔間';
     allocations[idx].name = document.getElementById('ea-name').value.trim();
     allocations[idx].spec = document.getElementById('ea-spec').value.trim();
     allocations[idx].thick = document.getElementById('ea-thick').value.trim();
-    allocations[idx].qty = parseInt(document.getElementById('ea-qty').value)||0;
+    allocations[idx].qty = evalQty(eaRaw)||0;
+    if (eaRaw && eaRaw !== String(allocations[idx].qty)) allocations[idx].qtyExpr = eaRaw; else delete allocations[idx].qtyExpr;
     allocations[idx].date = document.getElementById('ea-date').value;
     hideEditModal(); renderAll(); autoSave(); showToast('✅ 分配紀錄已更新');
   });
@@ -2396,7 +2449,7 @@ function showTransferForm() {
       </select>
     </div>
     <div id="tr-qty-hint" style="font-size:12px;color:#64748b;margin:-4px 0 10px;display:none"></div>
-    <div class="form-group"><label>調撥數量</label><input type="number" id="tr-qty" placeholder="0" min="1"></div>
+    <div class="form-group"><label>調撥數量</label><input type="text" id="tr-qty" placeholder="0（可輸入算式如 30+10）" oninput="previewQty(this,'tr-qty-preview')"><div class="qty-preview" id="tr-qty-preview"></div></div>
     <div class="form-group"><label>調入哪個樓層</label>
       <select id="tr-to-floor">
         <option value="">-- 選擇樓層 --</option>${floorOpts}
@@ -2445,7 +2498,7 @@ function doTransfer() {
   const fromFloor = document.getElementById('tr-from-floor').value;
   const fromCat   = document.getElementById('tr-from-cat').value;
   const matVal    = document.getElementById('tr-mat').value;
-  const qty       = parseInt(document.getElementById('tr-qty').value);
+  const qty       = evalQty(document.getElementById('tr-qty').value);
   const toFloor   = document.getElementById('tr-to-floor').value;
   const toCat     = document.getElementById('tr-to-cat').value;
   const date      = document.getElementById('tr-date').value || today;
