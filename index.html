@@ -624,12 +624,13 @@ async function saveToSheets() {
     materialTags: materialTags,
     archivedProjects: archivedProjects
   };
-  const res = await fetch(GAS_URL, {
+  // GAS 會 302 轉址，轉址過程 POST body 會丟失
+  // no-cors 可以繞過這個問題，讓資料真正寫進 GAS
+  await fetch(GAS_URL, {
     method: 'POST',
+    mode: 'no-cors',
     body: JSON.stringify(payload)
   });
-  const data = await res.json();
-  if (data.status !== 'ok' && data.ok !== true) throw new Error(data.message || 'sync error');
 }
 
 async function loadFromSheets() {
