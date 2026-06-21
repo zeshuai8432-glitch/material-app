@@ -2080,7 +2080,7 @@ function getFloorExcessItems(project) {
   allocations.filter(a=>n(a.project)===n(project) && !a.transferId).forEach(a=>{
     const floor = a.floor||'（未分樓層）';
     const key = floor+'||'+a.name+'||'+a.spec+'||'+(a.thick||'');
-    if (!keySet[key]) keySet[key] = {floor, name:a.name, spec:a.spec, thick:a.thick||'', unit:a.unit||''};
+    if (!keySet[key]) keySet[key] = {floor, name:a.name, spec:a.spec, thick:a.thick||'', unit:a.unit||'', category:a.category||''};
   });
   const result = [];
   Object.values(keySet).forEach(m=>{
@@ -2089,8 +2089,9 @@ function getFloorExcessItems(project) {
     const excess = allocated - demanded;
     if (excess > 0) {
       let unit = m.unit;
-      if (!unit) { const d = demands.find(d=>n(d.project)===n(project) && n(d.name)===n(m.name) && n(d.spec)===n(m.spec) && n(d.thick)===n(m.thick)); if (d) unit = d.unit||''; }
-      result.push({floor:m.floor, name:m.name, spec:m.spec, thick:m.thick, unit, allocated, demanded, excess});
+      let category = m.category;
+      if (!unit || !category) { const d = demands.find(d=>n(d.project)===n(project) && n(d.name)===n(m.name) && n(d.spec)===n(m.spec) && n(d.thick)===n(m.thick)); if (d) { if(!unit) unit=d.unit||''; if(!category) category=d.category||''; } }
+      result.push({floor:m.floor, name:m.name, spec:m.spec, thick:m.thick, unit, category:category||'未分類', allocated, demanded, excess});
     }
   });
   return result;
@@ -2107,27 +2108,32 @@ function renderFloorExcess() {
     return;
   }
   const floorMap = {};
-  items.forEach(it=>{ if(!floorMap[it.floor]) floorMap[it.floor]=[]; floorMap[it.floor].push(it); });
+  items.forEach(it=>{ if(!floorMap[it.floor]) floorMap[it.floor]={}; const cm=floorMap[it.floor]; if(!cm[it.category]) cm[it.category]=[]; cm[it.category].push(it); });
   const floors = Object.keys(floorMap).sort((a,b)=>a.localeCompare(b,'zh-TW'));
   el.innerHTML = floors.map(floor=>{
-    const fi = floorMap[floor];
-    const rows = fi.map(it=>`
-      <div class="list-item" style="padding:8px 10px">
-        <div style="flex:1">
-          <div style="font-weight:600;font-size:13px;color:#0f172a">${it.name}</div>
-          <div style="margin-top:3px">${specBadge(it.spec,it.thick)}</div>
-          <div style="font-size:12px;color:#64748b;margin-top:3px">已分配 ${it.allocated}${it.unit}　需求 ${it.demanded}${it.unit}</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:17px;font-weight:800;color:#d97706">+${it.excess}${it.unit}</div>
-          <div style="font-size:11px;color:#9ca3af">樓層餘料</div>
-        </div>
-      </div>`).join('');
+    const catMap = floorMap[floor];
+    const allFloorItems = Object.values(catMap).flat();
+    const catBlocks = Object.keys(catMap).map(cat=>{
+      const ci = catMap[cat];
+      const rows = ci.map(it=>`
+        <div class="list-item" style="padding:8px 10px">
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:13px;color:#0f172a">${it.name}</div>
+            <div style="margin-top:3px">${specBadge(it.spec,it.thick)}</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px">已分配 ${it.allocated}${it.unit}　需求 ${it.demanded}${it.unit}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:17px;font-weight:800;color:#d97706">+${it.excess}${it.unit}</div>
+            <div style="font-size:11px;color:#9ca3af">樓層餘料</div>
+          </div>
+        </div>`).join('');
+      return `<div class="cat-header" style="margin-top:6px">${cat}</div>${rows}`;
+    }).join('');
     return `<div style="margin-bottom:10px">
       <div style="font-size:12px;font-weight:700;color:#7c3aed;padding:5px 4px 4px;border-bottom:1.5px solid #e9d5ff;margin-bottom:5px;display:flex;justify-content:space-between;align-items:center">
         <span>📍 ${floor}</span>
-        <span style="color:#d97706;font-weight:600">${fi.reduce((a,b)=>a+b.excess,0)} 件餘料</span>
-      </div>${rows}</div>`;
+        <span style="color:#d97706;font-weight:600">${allFloorItems.reduce((a,b)=>a+b.excess,0)} 件餘料</span>
+      </div>${catBlocks}</div>`;
   }).join('');
 }
 
