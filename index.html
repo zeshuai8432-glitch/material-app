@@ -328,7 +328,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <button class="btn-primary" onclick="addDemand()">新增需求</button>
   </div>
   <button class="btn-outline" onclick="showArchiveManager()" style="width:100%;margin-bottom:6px">📦 封存管理（已完工案場）</button>
-  <button class="btn-outline" onclick="mergeDemandProjects()" style="width:100%;margin-bottom:10px">📄 合併匯出多個案場需求單</button>
+  <button class="btn-outline" onclick="mergeDemandProjects()" style="width:100%;margin-bottom:6px">📄 合併匯出多個案場需求單</button>
+  <button class="btn-outline" onclick="showInventoryGap()" style="width:100%;margin-bottom:10px;border-color:#fca5a5;color:#dc2626;background:#fff5f5">📊 庫存缺口分析（需生產量）</button>
   <div id="demand-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;flex-wrap:nowrap"></div>
   <div id="demand-floor-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;flex-wrap:nowrap"></div>
   <div id="demand-list"></div>
@@ -1828,6 +1829,92 @@ function deleteDemand(idx) {
   if (!confirm('確定刪除此需求？')) return;
   demands.splice(idx,1);
   renderAll(); autoSave(); showToast('🗑️ 已刪除');
+}
+
+// ── 庫存缺口分析 ──
+function showInventoryGap() {
+  if (!activeProject) { showToast('⚠️ 請先選擇案場'); return; }
+  const projectDemands = demands.filter(d=>d.project===activeProject);
+  if (!projectDemands.length) { showToast('⚠️ 此案場尚無需求'); return; }
+  // 彙總同案場所有樓層的材料需求
+  const demandMap = {};
+  projectDemands.forEach(d=>{
+    const key = d.name+'|'+d.spec+'|'+(d.thick||'');
+    if (!demandMap[key]) demandMap[key] = {name:d.name,spec:d.spec,thick:d.thick||'',unit:d.unit||'',qty:0};
+    demandMap[key].qty += Number(d.qty);
+  });
+  // 對比庫存與已出貨
+  const rows = Object.values(demandMap).map(m=>{
+    const invItem = inventory.find(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||''));
+    const inStock = invItem ? Number(invItem.qty) : 0;
+    const shipped = getShippedQty(activeProject, m.name, m.spec, m.thick);
+    const need = Math.max(0, m.qty - shipped - inStock);
+    return {...m, inStock, shipped, need};
+  });
+  rows.sort((a,b)=>(b.need>0?1:0)-(a.need>0?1:0)||(materialTags[a.name]||'').localeCompare(materialTags[b.name]||'')||(a.name.localeCompare(b.name,'zh-TW')));
+  const lackCount = rows.filter(r=>r.need>0).length;
+  // 依系列分組
+  const sm = {};
+  rows.forEach(r=>{ const s=materialTags[r.name]||'未設定系列'; if(!sm[s]) sm[s]=[]; sm[s].push(r); });
+  let body = `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">案場：${activeProject}　公式：總需求 − 已出貨 − 現有庫存</div>`;
+  body += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    <span class="badge badge-red">⚠️ ${lackCount} 種缺貨</span>
+    <span class="badge badge-green">✅ ${rows.length-lackCount} 種充足</span>
+  </div>`;
+  sortedSeriesKeys(sm).forEach(series=>{
+    body += `<div class="acc-series-label" style="margin-top:8px">📁 ${series}</div>`;
+    sm[series].forEach(r=>{
+      const lacking = r.need > 0;
+      const statusColor = lacking ? '#dc2626' : '#059669';
+      body += `<div class="list-item">
+        <div style="flex:1">
+          <div class="list-main">${r.name}</div>
+          <div class="list-sub">${r.spec}${r.thick?'・'+r.thick:''}</div>
+          <div style="font-size:12px;color:#374151;margin-top:4px;line-height:1.7">
+            總需求 <strong>${r.qty}${r.unit}</strong>　已出貨 <strong>${r.shipped}${r.unit}</strong>　現有庫存 <strong>${r.inStock}${r.unit}</strong>
+          </div>
+        </div>
+        <div style="text-align:right;margin-left:12px;flex-shrink:0">
+          <div style="font-size:16px;font-weight:800;color:${statusColor}">${lacking?'缺 '+r.need+r.unit:'足夠'}</div>
+          ${lacking?`<div style="font-size:11px;color:#dc2626;margin-top:2px">需生產</div>`:''}
+        </div>
+      </div>`;
+    });
+  });
+  body += `<button class="btn-primary" onclick="exportGapPDF()" style="margin-top:14px">📄 匯出生產需求單</button>`;
+  document.getElementById('edit-modal-title').textContent = '📊 '+activeProject+' 庫存缺口';
+  document.getElementById('edit-modal-body').innerHTML = body;
+  document.getElementById('edit-save-btn').style.display = 'none';
+  document.getElementById('edit-modal').classList.add('show');
+}
+
+function exportGapPDF() {
+  if (!activeProject) return;
+  const projectDemands = demands.filter(d=>d.project===activeProject);
+  const demandMap = {};
+  projectDemands.forEach(d=>{
+    const key = d.name+'|'+d.spec+'|'+(d.thick||'');
+    if (!demandMap[key]) demandMap[key]={name:d.name,spec:d.spec,thick:d.thick||'',unit:d.unit||'',qty:0};
+    demandMap[key].qty += Number(d.qty);
+  });
+  const rows = Object.values(demandMap).map(m=>{
+    const invItem = inventory.find(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||''));
+    const inStock = invItem ? Number(invItem.qty) : 0;
+    const shipped = getShippedQty(activeProject, m.name, m.spec, m.thick);
+    const need = Math.max(0, m.qty - shipped - inStock);
+    return {...m, inStock, shipped, need};
+  }).sort((a,b)=>(b.need>0?1:0)-(a.need>0?1:0)||(a.name.localeCompare(b.name,'zh-TW')));
+  let html = '';
+  if (company.name) html += '<div class="company">'+company.name+'</div>';
+  html += '<h1>生產需求單</h1><div class="meta">案場：'+activeProject+'　日期：'+today+'</div>';
+  const tableRows = rows.map(function(r){
+    const needColor = r.need>0?'color:#dc2626;font-weight:700':'color:#166534';
+    return '<tr><td>'+(materialTags[r.name]||'—')+'</td><td>'+r.name+'</td><td>'+r.spec+'</td><td>'+(r.thick||'')+'</td><td>'+r.qty+r.unit+'</td><td>'+r.shipped+r.unit+'</td><td>'+r.inStock+r.unit+'</td><td style="'+needColor+'">'+(r.need>0?r.need+r.unit:'✅')+'</td></tr>';
+  }).join('');
+  html += '<table><thead><tr><th>系列</th><th>材料</th><th>規格</th><th>厚度</th><th>總需求</th><th>已出貨</th><th>現有庫存</th><th>需生產</th></tr></thead><tbody>'+tableRows+'</tbody></table>';
+  document.getElementById('edit-modal').classList.remove('show');
+  document.getElementById('edit-save-btn').style.display = '';
+  printHTML('生產需求單 '+activeProject, html);
 }
 
 // ── Allocation（置料區分配）──
