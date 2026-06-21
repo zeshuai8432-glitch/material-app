@@ -372,7 +372,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <button class="btn-outline" onclick="showTransferForm()" style="width:100%;margin-bottom:8px;border-color:#ddd6fe;color:#7c3aed;background:#f5f3ff">🔄 樓層調撥</button>
   <button class="btn-outline" onclick="showSettlement()" style="width:100%;margin-bottom:8px">📊 此案場用料結算</button>
   <button class="btn-outline" onclick="mergeAllocByDate()" style="width:100%;margin-bottom:8px">📅 依日期合併（全樓層搬運單）</button>
-  <button class="btn-outline" onclick="mergeAllocByFloor()" style="width:100%;margin-bottom:12px">🏢 依樓層合併（該樓層全部）</button>
+  <button class="btn-outline" onclick="mergeAllocByFloor()" style="width:100%;margin-bottom:8px">🏢 依樓層合併（該樓層全部）</button>
+  <button class="btn-primary" onclick="allocAllToFloor()" style="width:100%;margin-bottom:12px;background:#059669;border-color:#059669">⚡ 一鍵把全部置料區分配到此樓層</button>
   <div class="card">
     <div class="card-title">置料區現況</div>
     <div style="font-size:12px;color:#6b7280;margin-bottom:8px">= 已運到此案場的量 − 已分配出去的量</div>
@@ -2478,6 +2479,36 @@ function buildAllocHTML(items, headerMeta) {
     });
   });
   return html;
+}
+
+function allocAllToFloor() {
+  if (!allocActiveProject) { showToast('⚠️ 請先選案場'); return; }
+  if (!allocActiveFloor) { showToast('⚠️ 請先選樓層'); return; }
+  const mats = getStockYardMaterials(allocActiveProject).filter(m => m.remain > 0);
+  if (!mats.length) { showToast('⚠️ 置料區目前無材料可分配'); return; }
+  const lines = mats.map(m => `・${m.name} ${m.spec}${m.thick?' '+m.thick:''} × ${m.remain}${m.unit||''}`).join('\n');
+  if (!confirm(`將以下 ${mats.length} 種材料全部分配到「${allocActiveFloor}」：\n\n${lines}\n\n確定繼續嗎？`)) return;
+  const date = document.getElementById('alloc-date').value || today;
+  mats.forEach(m => {
+    // 自動判斷分類：從該樓層的需求單找
+    const demRecord = demands.find(d =>
+      allocNorm(d.project) === allocNorm(allocActiveProject) &&
+      allocNorm(d.floor || '（未分樓層）') === allocNorm(allocActiveFloor) &&
+      allocNorm(d.name) === allocNorm(m.name) &&
+      allocNorm(d.spec) === allocNorm(m.spec) &&
+      allocNorm(d.thick) === allocNorm(m.thick)
+    );
+    const category = demRecord ? (demRecord.category || '隔間') : '隔間';
+    allocations.push({
+      project: allocActiveProject,
+      floor: allocActiveFloor,
+      category,
+      name: m.name, spec: m.spec, thick: m.thick, unit: m.unit || '',
+      qty: m.remain, date
+    });
+  });
+  renderAll(); autoSave();
+  showToast(`✅ 已將 ${mats.length} 種材料分配到 ${allocActiveFloor}`);
 }
 
 function mergeAllocByDate() {
