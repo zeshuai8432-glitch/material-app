@@ -505,7 +505,7 @@ function evalQty(str) {
   const s = String(str).trim().replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-');
   if (s==='') return 0;
   if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
-  try { const v = new Function('return ('+s+')+(0)')(); return (typeof v==='number'&&isFinite(v)) ? Math.round(v*1000)/1000 : 0; } catch(e) { return 0; }
+  try { const v = new Function('return ('+s+')+(0)')(); return (typeof v==='number'&&isFinite(v)) ? Math.ceil(v) : 0; } catch(e) { return 0; }
 }
 
 function previewQty(inputEl, previewId) {
