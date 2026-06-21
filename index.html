@@ -2232,6 +2232,7 @@ function renderAllocation() {
     }
   }
   // 材料下拉
+  const mats = getStockYardMaterials(allocActiveProject);
   const matSel = document.getElementById('alloc-mat-select');
   const prevMat = matSel.value;
   matSel.innerHTML = '<option value="">-- 請選擇材料 --</option>';
