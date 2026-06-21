@@ -638,7 +638,7 @@ async function loadFromSheets() {
   loadLocal();
   renderAll();
   try {
-    const res = await fetch(GAS_URL + '?action=load');
+    const res = await fetch(GAS_URL + '?action=load&_t=' + Date.now());
     const data = await res.json();
     // 支援兩種 GAS 回傳格式：
     //   新格式: { status:'ok', inventory:[], ... }
@@ -2690,6 +2690,11 @@ function calcConfirm() {
   }
   closeCalc();
 }
+
+// 切回 app 時自動從雲端同步
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') loadFromSheets();
+});
 
 // ── Init ──
 loadFromSheets();
