@@ -666,7 +666,7 @@ function recordEditLog(type, label, before, after) {
   const afterJson = JSON.stringify(after || {});
   if (beforeJson === afterJson) return;
   const keys = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})]))
-    .filter(k => JSON.stringify((before || {})[k]) !== JSON.stringify((after || {})[k]));
+    .filter(k => normalizedLogValue((before || {})[k]) !== normalizedLogValue((after || {})[k]));
   editLogs.unshift({
     id: 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2,7),
     time: new Date().toLocaleString('zh-TW', { hour12:false }),
@@ -677,6 +677,17 @@ function recordEditLog(type, label, before, after) {
     after: afterJson
   });
   editLogs = editLogs.slice(0, 300);
+}
+
+const FIELD_LABELS = {
+  date:'日期', project:'案件', site:'案場', floor:'樓層', category:'分類',
+  name:'材料', spec:'規格', thick:'厚度', unit:'單位', qty:'數量',
+  qtyExpr:'公式', note:'備註', type:'類型', lastUpdate:'最後更新',
+  phone:'電話', tag:'系列'
+};
+
+function normalizedLogValue(v) {
+  return String(v == null ? '' : v).trim();
 }
 
 function textSafe(v) {
@@ -696,19 +707,50 @@ function parseLogRecord(raw) {
 function renderLogDiff(log) {
   const before = parseLogRecord(log.before);
   const after = parseLogRecord(log.after);
-  const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)]))
-    .filter(k => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
-  if (!keys.length) return '<div class="list-sub">沒有欄位差異</div>';
+  const keys = getLogChangedKeys(before, after).filter(k => k !== 'qtyExpr');
+  if (!keys.length) return '<div class="list-sub">沒有明顯欄位差異</div>';
   return `<div style="margin-top:8px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
     ${keys.map(k=>`
-      <div style="display:grid;grid-template-columns:72px 1fr;gap:8px;padding:8px;border-bottom:1px solid #f1f5f9;font-size:12px">
-        <div style="font-weight:700;color:#475569">${textSafe(k)}</div>
-        <div>
-          <div><span style="color:#94a3b8">原本：</span>${textSafe(before[k])}</div>
-          <div><span style="color:#0f766e">改成：</span>${textSafe(after[k])}</div>
-        </div>
+      <div style="padding:9px 10px;border-bottom:1px solid #f1f5f9;font-size:13px;line-height:1.6">
+        ${renderLogChangeLine(k, before, after)}
       </div>`).join('')}
   </div>`;
+}
+
+function getLogChangedKeys(before, after) {
+  return Array.from(new Set([...Object.keys(before), ...Object.keys(after)]))
+    .filter(k => normalizedLogValue(before[k]) !== normalizedLogValue(after[k]));
+}
+
+function formatQtyWithExpr(record) {
+  const qty = normalizedLogValue(record.qty);
+  const expr = normalizedLogValue(record.qtyExpr);
+  return expr ? `${qty || '—'}（${expr}）` : (qty || '—');
+}
+
+function renderLogChangeLine(key, before, after) {
+  const label = FIELD_LABELS[key] || key;
+  const oldVal = key === 'qty' ? formatQtyWithExpr(before) : normalizedLogValue(before[key]);
+  const newVal = key === 'qty' ? formatQtyWithExpr(after) : normalizedLogValue(after[key]);
+  return `<strong style="color:#334155">${textSafe(label)}</strong>：
+    <span style="color:#94a3b8">${textSafe(oldVal || '—')}</span>
+    <span style="color:#64748b"> → </span>
+    <span style="color:#0f766e;font-weight:700">${textSafe(newVal || '—')}</span>`;
+}
+
+function summarizeLog(log) {
+  const before = parseLogRecord(log.before);
+  const after = parseLogRecord(log.after);
+  const keys = getLogChangedKeys(before, after);
+  if (keys.includes('qty') || keys.includes('qtyExpr')) {
+    return `數量 ${formatQtyWithExpr(before)} → ${formatQtyWithExpr(after)}`;
+  }
+  const visible = keys.filter(k => k !== 'qtyExpr').slice(0, 3);
+  if (!visible.length) return '內容已更新';
+  return visible.map(k => {
+    const label = FIELD_LABELS[k] || k;
+    return `${label} ${normalizedLogValue(before[k]) || '—'} → ${normalizedLogValue(after[k]) || '—'}`;
+  }).join('、');
 }
 
 function showEditHistory() {
@@ -720,10 +762,10 @@ function showEditHistory() {
           <div class="list-main">${textSafe(log.type || '編輯')}・${textSafe(log.label || '未命名項目')}</div>
           <div class="list-sub">${textSafe(log.time || '')}</div>
         </div>
-        <span class="badge badge-blue">${textSafe(log.fields || '內容')}</span>
       </div>
+      <div style="margin-top:6px;font-size:13px;color:#0f766e;font-weight:700;line-height:1.5">${textSafe(summarizeLog(log))}</div>
       <details style="margin-top:8px">
-        <summary style="font-size:12px;color:#0f766e;cursor:pointer">查看修改內容</summary>
+        <summary style="font-size:12px;color:#64748b;cursor:pointer">詳細修改</summary>
         ${renderLogDiff(log)}
       </details>
     </div>`).join('') : '<div class="empty"><div class="empty-icon">📝</div>目前沒有編輯紀錄</div>';
