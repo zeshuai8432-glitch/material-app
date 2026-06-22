@@ -943,8 +943,8 @@ const LOCAL_BACKUP_KEY = 'mat_last_local_backup';
 function setSyncState(state) {
   const dot = document.getElementById('sync-dot');
   const label = document.getElementById('sync-label');
-  dot.className = 'sync-dot' + (state === 'syncing' ? ' syncing' : state === 'error' ? ' error' : '');
-  label.textContent = state === 'syncing' ? '同步中...' : state === 'error' ? '同步失敗' : '已同步';
+  dot.className = 'sync-dot' + (state === 'syncing' ? ' syncing' : state === 'error' ? ' error' : state === 'pending' ? ' syncing' : '');
+  label.textContent = state === 'syncing' ? '同步中...' : state === 'error' ? '同步失敗' : state === 'pending' ? '待確認' : '已同步';
 }
 
 function markLocalDirty() {
@@ -988,10 +988,15 @@ function saveLocalBackup() {
 async function syncNow() {
   setSyncState('syncing');
   try {
-    await saveToSheets();
-    clearLocalDirty();
-    setSyncState('ok');
-    showToast('✅ 已上傳到雲端');
+    const result = await saveToSheets();
+    if (result && result.confirmed === false) {
+      setSyncState('pending');
+      showToast('⚠️ 已送出，但雲端尚未確認；本機資料會保留');
+    } else {
+      clearLocalDirty();
+      setSyncState('ok');
+      showToast('✅ 已上傳到雲端');
+    }
   } catch(e) {
     setSyncState('error');
     showToast('❌ 上傳失敗：' + e.message);
@@ -1112,17 +1117,26 @@ async function saveToSheets() {
     editLogs: normalizeRecords(editLogs),
     clientUpdatedAt: getLocalUpdatedAt() || Date.now()
   };
-  // redirect:'follow'＋Content-Type:text/plain 避免 CORS preflight
-  // 這裡不可吞掉失敗，否則會顯示已同步但雲端其實沒寫入。
+  // 先用可確認回應的方式；若被 GAS/CORS 擋住，再改用 no-cors 備援送出。
   const res = await fetch(GAS_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(payload)
   }).catch(() => null);
-  if (!res) throw new Error('雲端無回應，本機已保留未同步資料');
-  if (res.type === 'opaqueredirect' || res.type === 'opaque') return; // opaque 視為成功
+  if (!res) {
+    const fallback = await fetch(GAS_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload)
+    }).catch(() => null);
+    if (!fallback) throw new Error('雲端無回應，本機已保留未同步資料');
+    return { confirmed:false };
+  }
+  if (res.type === 'opaqueredirect' || res.type === 'opaque') return { confirmed:false };
   const result = await res.json().catch(() => ({}));
   if (result.ok === false) throw new Error(result.error || 'GAS 回傳失敗');
+  return { confirmed:true };
 }
 
 async function loadFromSheets() {
@@ -1157,9 +1171,9 @@ async function loadFromSheets() {
       if (localTotal > 0 && cloudUpdatedAt > 0 && localUpdatedAt > cloudUpdatedAt) {
         showToast('⚠️ 本機資料較新，已保留並補傳到雲端');
         try {
-          await saveToSheets();
-          clearLocalDirty();
-          setSyncState('ok');
+          const result = await saveToSheets();
+          if (result && result.confirmed === false) setSyncState('pending');
+          else { clearLocalDirty(); setSyncState('ok'); }
         } catch(e) {
           setSyncState('error');
         }
@@ -1169,10 +1183,15 @@ async function loadFromSheets() {
       if (hasUnsyncedLocalChanges() && localTotal > 0) {
         showToast('⚠️ 偵測到本機有未同步資料，已保留本機資料');
         try {
-          await saveToSheets();
-          clearLocalDirty();
-          setSyncState('ok');
-          showToast('✅ 已補傳本機資料到雲端');
+          const result = await saveToSheets();
+          if (result && result.confirmed === false) {
+            setSyncState('pending');
+            showToast('⚠️ 已送出補傳，但雲端尚未確認');
+          } else {
+            clearLocalDirty();
+            setSyncState('ok');
+            showToast('✅ 已補傳本機資料到雲端');
+          }
         } catch(e) {
           setSyncState('error');
         }
@@ -1183,8 +1202,12 @@ async function loadFromSheets() {
       if (localTotal > 0 && cloudTotal === 0) {
         showToast('⚠️ 雲端無資料，上傳本地資料');
         try {
-          await saveToSheets();
-          clearLocalDirty();
+          const result = await saveToSheets();
+          if (result && result.confirmed === false) {
+            setSyncState('pending');
+            renderAll();
+            return;
+          } else clearLocalDirty();
         } catch(e) {
           setSyncState('error');
           renderAll();
@@ -1194,8 +1217,12 @@ async function loadFromSheets() {
       } else if (localTotal > 0 && cloudTotal < localTotal - 3) {
         showToast('⚠️ 雲端資料較少，自動上傳本地資料到雲端');
         try {
-          await saveToSheets();
-          clearLocalDirty();
+          const result = await saveToSheets();
+          if (result && result.confirmed === false) {
+            setSyncState('pending');
+            renderAll();
+            return;
+          } else clearLocalDirty();
         } catch(e) {
           setSyncState('error');
           renderAll();
@@ -1235,7 +1262,11 @@ async function loadFromSheets() {
 
 async function autoSave() {
   saveLocal();
-  try { await saveToSheets(); clearLocalDirty(); setSyncState('ok'); }
+  try {
+    const result = await saveToSheets();
+    if (result && result.confirmed === false) setSyncState('pending');
+    else { clearLocalDirty(); setSyncState('ok'); }
+  }
   catch(e) { setSyncState('error'); showToast('⚠️ 雲端同步失敗，資料已存在本地'); }
 }
 
