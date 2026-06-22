@@ -637,8 +637,13 @@ function evalQty(str) {
   if (str===null||str===undefined) return 0;
   const s = String(str).trim().replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-');
   if (s==='') return 0;
-  if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
-  try { const v = new Function('return ('+s+')+(0)')(); return (typeof v==='number'&&isFinite(v)) ? Math.ceil(v) : 0; } catch(e) { return 0; }
+  if (/^-?\d+(\.\d+)?$/.test(s)) return roundQty(s);
+  try { const v = new Function('return ('+s+')+(0)')(); return roundQty(v); } catch(e) { return 0; }
+}
+
+function roundQty(value) {
+  const n = Number(value);
+  return (typeof n === 'number' && isFinite(n)) ? Math.round(n) : 0;
 }
 
 function previewQty(inputEl, previewId) {
@@ -741,7 +746,7 @@ function getLogChangedKeys(before, after) {
 }
 
 function formatQtyWithExpr(record) {
-  const qty = normalizedLogValue(record.qty);
+  const qty = normalizedLogValue(record.qty) === '' ? '' : String(roundQty(record.qty));
   const expr = normalizedLogValue(record.qtyExpr);
   return expr ? `${qty || '—'}（${expr}）` : (qty || '—');
 }
@@ -913,13 +918,13 @@ function loadLocal() {
     const inv = localStorage.getItem('mat_inventory');
     const pro = localStorage.getItem('mat_productions');
     const shi = localStorage.getItem('mat_shipments');
-    if (inv) inventory = JSON.parse(inv).map(i=>({...i,qty:Number(i.qty)}));
-    if (pro) productions = JSON.parse(pro).map(p=>({...p,qty:Number(p.qty)}));
-    if (shi) shipments = JSON.parse(shi).map(s=>({...s,qty:Number(s.qty)}));
+    if (inv) inventory = JSON.parse(inv).map(i=>({...i,qty:roundQty(i.qty)}));
+    if (pro) productions = JSON.parse(pro).map(p=>({...p,qty:roundQty(p.qty)}));
+    if (shi) shipments = JSON.parse(shi).map(s=>({...s,qty:roundQty(s.qty)}));
     const dem = localStorage.getItem('mat_demands');
-    if (dem) demands = JSON.parse(dem).map(d=>({...d,qty:Number(d.qty)}));
+    if (dem) demands = JSON.parse(dem).map(d=>({...d,qty:roundQty(d.qty)}));
     const alc = localStorage.getItem('mat_allocations');
-    if (alc) allocations = JSON.parse(alc).map(a=>({...a,qty:Number(a.qty)}));
+    if (alc) allocations = JSON.parse(alc).map(a=>({...a,qty:roundQty(a.qty)}));
     const arch = localStorage.getItem('mat_archived');
     if (arch) archivedProjects = JSON.parse(arch);
     const tags = localStorage.getItem('mat_tags');
@@ -1000,11 +1005,11 @@ async function loadFromSheets() {
         showToast('⚠️ 雲端資料較少，自動上傳本地資料到雲端');
         await saveToSheets().catch(()=>{});
       } else {
-        inventory    = (parsed.inventory    || []).map(i => ({...i, qty: Number(i.qty)}));
-        productions  = (parsed.productions  || []).map(p => ({...p, qty: Number(p.qty)}));
-        shipments    = (parsed.shipments    || []).map(s => ({...s, qty: Number(s.qty)}));
-        demands      = (parsed.demands      || []).map(d => ({...d, qty: Number(d.qty)}));
-        allocations  = (parsed.allocations  || []).map(a => ({...a, qty: Number(a.qty)}));
+        inventory    = (parsed.inventory    || []).map(i => ({...i, qty: roundQty(i.qty)}));
+        productions  = (parsed.productions  || []).map(p => ({...p, qty: roundQty(p.qty)}));
+        shipments    = (parsed.shipments    || []).map(s => ({...s, qty: roundQty(s.qty)}));
+        demands      = (parsed.demands      || []).map(d => ({...d, qty: roundQty(d.qty)}));
+        allocations  = (parsed.allocations  || []).map(a => ({...a, qty: roundQty(a.qty)}));
         if (parsed.materialTags && typeof parsed.materialTags === 'object' && !Array.isArray(parsed.materialTags)) materialTags = parsed.materialTags;
         if (Array.isArray(parsed.archivedProjects)) archivedProjects = parsed.archivedProjects;
         if (Array.isArray(parsed.editLogs)) editLogs = parsed.editLogs;
