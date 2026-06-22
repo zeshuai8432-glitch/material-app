@@ -1160,6 +1160,7 @@ async function saveToSheets() {
   const res = await fetch(GAS_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
+    credentials: 'omit',
     body: bodyText
   }).catch(e => {
     console.warn('[Sync] 標準 POST 失敗（通常是 CORS）:', e.message);
@@ -1210,7 +1211,7 @@ async function loadFromSheets() {
   renderAll();
   try {
     console.log('[Sync] loadFromSheets GET:', GAS_URL);
-    const res = await fetch(GAS_URL + '?_t=' + Date.now());
+    const res = await fetch(GAS_URL + '?_t=' + Date.now(), { credentials: 'omit' });
     const raw = await res.text();
     console.log('[Sync] GAS GET status:', res.status, 'rawLength:', raw.length, 'preview:', raw.substring(0,100));
     let parsed = null;
