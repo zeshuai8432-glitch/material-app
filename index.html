@@ -700,15 +700,26 @@ async function loadFromSheets() {
       } catch(e) {}
     }
     if (parsed) {
-      inventory    = (parsed.inventory    || []).map(i => ({...i, qty: Number(i.qty)}));
-      productions  = (parsed.productions  || []).map(p => ({...p, qty: Number(p.qty)}));
-      shipments    = (parsed.shipments    || []).map(s => ({...s, qty: Number(s.qty)}));
-      demands      = (parsed.demands      || []).map(d => ({...d, qty: Number(d.qty)}));
-      allocations  = (parsed.allocations  || []).map(a => ({...a, qty: Number(a.qty)}));
-      if (parsed.materialTags && typeof parsed.materialTags === 'object' && !Array.isArray(parsed.materialTags)) materialTags = parsed.materialTags;
-      if (Array.isArray(parsed.archivedProjects)) archivedProjects = parsed.archivedProjects;
-      orderNo = shipments.length + 1;
-      saveLocal(); // 更新本地備份
+      // 計算雲端資料總筆數 vs 本地資料總筆數
+      const cloudTotal = (parsed.inventory||[]).length + (parsed.productions||[]).length +
+        (parsed.shipments||[]).length + (parsed.demands||[]).length + (parsed.allocations||[]).length;
+      const localTotal = inventory.length + productions.length + shipments.length +
+        demands.length + allocations.length;
+      // 雲端筆數比本地少超過 5 筆時，優先把本地存到雲端，不蓋掉本地資料
+      if (cloudTotal < localTotal - 5) {
+        showToast('⚠️ 雲端資料較少，自動上傳本地資料到雲端');
+        await saveToSheets().catch(()=>{});
+      } else {
+        inventory    = (parsed.inventory    || []).map(i => ({...i, qty: Number(i.qty)}));
+        productions  = (parsed.productions  || []).map(p => ({...p, qty: Number(p.qty)}));
+        shipments    = (parsed.shipments    || []).map(s => ({...s, qty: Number(s.qty)}));
+        demands      = (parsed.demands      || []).map(d => ({...d, qty: Number(d.qty)}));
+        allocations  = (parsed.allocations  || []).map(a => ({...a, qty: Number(a.qty)}));
+        if (parsed.materialTags && typeof parsed.materialTags === 'object' && !Array.isArray(parsed.materialTags)) materialTags = parsed.materialTags;
+        if (Array.isArray(parsed.archivedProjects)) archivedProjects = parsed.archivedProjects;
+        orderNo = shipments.length + 1;
+        saveLocal();
+      }
     }
     setSyncState('ok');
     renderAll();
