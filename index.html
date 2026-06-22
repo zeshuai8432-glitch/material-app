@@ -416,6 +416,15 @@ body{background:var(--app-bg);color:var(--ink)}
     <button class="btn-primary" onclick="addShipment()">加入出貨清單</button>
   </div>
 
+  <!-- 需求單速覽 -->
+  <div class="card" id="ship-demand-preview-card" style="display:none">
+    <div class="card-title" style="cursor:pointer;user-select:none" onclick="toggleShipDemandPreview()">
+      📋 本案場需求單速覽
+      <span id="ship-demand-preview-toggle" style="font-size:12px;color:#6b7280;font-weight:400">▶ 展開</span>
+    </div>
+    <div id="ship-demand-preview-body" style="display:none;margin-top:8px"></div>
+  </div>
+
   <!-- 本次出貨清單 -->
   <div class="card" id="order-card" style="display:none">
     <div class="card-title">
@@ -1380,6 +1389,66 @@ function refreshShipDemandSelects() {
   fillDemandMaterialSelect(document.getElementById('ship-demand-select'), materials, '-- 請選擇需求單材料 --');
   onSelectInventory();
   onSelectShipDemandMaterial(false);
+  renderShipDemandPreview(site);
+}
+
+function renderShipDemandPreview(site) {
+  const card = document.getElementById('ship-demand-preview-card');
+  if (!card) return;
+  if (!site) { card.style.display='none'; return; }
+  card.style.display='';
+  const body = document.getElementById('ship-demand-preview-body');
+  if (body.style.display === 'none') return; // 收合中，不重繪
+  _buildShipDemandPreview(site, body);
+}
+
+function _buildShipDemandPreview(site, body) {
+  const norm = v => String(v==null?'':v).trim();
+  const projectDemands = demands.filter(d => norm(d.project) === norm(site));
+  if (!projectDemands.length) {
+    body.innerHTML = '<div style="font-size:13px;color:#9ca3af;padding:4px 0">此案場尚無需求資料</div>';
+    return;
+  }
+  // 彙整：name|spec|thick → {name,spec,thick,unit,totalQty,shipped,floors:[]}
+  const map = {};
+  projectDemands.forEach(d => {
+    const k = norm(d.name)+'|'+norm(d.spec)+'|'+norm(d.thick||'');
+    if (!map[k]) map[k] = {name:d.name,spec:d.spec,thick:d.thick||'',unit:d.unit||'',totalQty:0,floors:{}};
+    map[k].totalQty += Number(d.qty)||0;
+    const f = d.floor||'（未指定）';
+    map[k].floors[f] = (map[k].floors[f]||0) + (Number(d.qty)||0);
+  });
+  const rows = Object.values(map).sort((a,b)=>a.name.localeCompare(b.name,'zh-TW'));
+  let html = '<div style="font-size:12px;color:#6b7280;margin-bottom:8px">案場：'+site+'　顯示總需求 vs 已出貨</div>';
+  rows.forEach(r => {
+    const shipped = getShippedQty(site, r.name, r.spec, r.thick);
+    const rem = r.totalQty - shipped;
+    const color = rem > 0 ? '#92400e' : rem < 0 ? '#991b1b' : '#166534';
+    const bg = rem > 0 ? '#fef9c3' : rem < 0 ? '#fee2e2' : '#dcfce7';
+    const label = rem > 0 ? '待出 '+rem+r.unit : rem < 0 ? '超出 '+Math.abs(rem)+r.unit : '✅ 完成';
+    const floorText = Object.entries(r.floors).map(([f,q])=>f+'：'+q+r.unit).join('　');
+    html += `<div style="padding:6px 8px;margin-bottom:4px;border-radius:8px;background:${bg};display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:#1e293b">${r.name}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:1px">${r.spec}${r.thick?'　'+r.thick:''}${floorText?'　│　'+floorText:''}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;font-size:12px;font-weight:700;color:${color}">${label}</div>
+    </div>`;
+  });
+  body.innerHTML = html;
+}
+
+function toggleShipDemandPreview() {
+  const body = document.getElementById('ship-demand-preview-body');
+  const toggle = document.getElementById('ship-demand-preview-toggle');
+  if (!body || !toggle) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  toggle.textContent = open ? '▶ 展開' : '▲ 收合';
+  if (!open) {
+    const site = (document.getElementById('ship-site')||{}).value || '';
+    if (site) _buildShipDemandPreview(site, body);
+  }
 }
 
 function onSelectInventory() {
