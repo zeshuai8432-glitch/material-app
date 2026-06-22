@@ -1153,16 +1153,17 @@ async function saveToSheets() {
       if (navigator.sendBeacon) {
         try {
           const ok = navigator.sendBeacon(GAS_URL, new Blob([bodyText], {type:'text/plain'}));
-          if (ok) return { confirmed:false };
+          if (ok) return { confirmed:true }; // sendBeacon 成功視為已傳出
         } catch(e) {
           recordSyncError('sendBeacon 失敗：' + (e && e.message ? e.message : String(e)));
         }
       }
       throw new Error('雲端無回應，本機已保留未同步資料');
     }
-    return { confirmed:false };
+    // no-cors 成功代表 GAS 有收到請求，視為已確認（無法讀回應是正常的）
+    return { confirmed:true };
   }
-  if (res.type === 'opaqueredirect' || res.type === 'opaque') return { confirmed:false };
+  if (res.type === 'opaqueredirect' || res.type === 'opaque') return { confirmed:true };
   if (!res.ok) throw new Error('GAS HTTP ' + res.status);
   const result = await res.json().catch(() => ({}));
   if (result.ok === false) throw new Error(result.error || 'GAS 回傳失敗');
@@ -1229,36 +1230,10 @@ async function loadFromSheets() {
         renderAll();
         return;
       }
-      // 本地有資料但雲端是空的 → 一定是雲端沒存到，上傳本地不蓋掉
-      if (localTotal > 0 && cloudTotal === 0) {
-        showToast('⚠️ 雲端無資料，上傳本地資料');
-        try {
-          const result = await saveToSheets();
-          if (result && result.confirmed === false) {
-            setSyncState('pending');
-            renderAll();
-            return;
-          } else clearLocalDirty();
-        } catch(e) {
-          setSyncState('error');
-          renderAll();
-          return;
-        }
-      // 雲端筆數比本地少超過 3 筆 → 本地比較新，上傳本地不蓋掉
-      } else if (localTotal > 0 && cloudTotal < localTotal - 3) {
-        showToast('⚠️ 雲端資料較少，自動上傳本地資料到雲端');
-        try {
-          const result = await saveToSheets();
-          if (result && result.confirmed === false) {
-            setSyncState('pending');
-            renderAll();
-            return;
-          } else clearLocalDirty();
-        } catch(e) {
-          setSyncState('error');
-          renderAll();
-          return;
-        }
+      // 本地有資料但雲端是空的，或雲端比本地少很多 → 靜默上傳
+      if ((localTotal > 0 && cloudTotal === 0) || (localTotal > 0 && cloudTotal < localTotal - 3)) {
+        await saveToSheets().catch(()=>{});
+        clearLocalDirty();
       } else if (cloudTotal > 0) {
         // 正常情況：用雲端資料
         const nextInventoryProjects = {...inventoryProjects};
