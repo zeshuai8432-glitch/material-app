@@ -2499,15 +2499,23 @@ function showInventoryGap() {
     demandMap[key].qty += Number(d.qty);
   });
   // 對比庫存與已出貨（只計算屬於此案場或通用的庫存）
+  const gapNorm = v => String(v==null?'':v).trim().toLowerCase();
   const rows = Object.values(demandMap).map(m=>{
-    const allMatching = inventory.filter(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||''));
+    const allMatching = inventory.filter(i=>
+      gapNorm(i.name)===gapNorm(m.name) &&
+      gapNorm(i.spec)===gapNorm(m.spec) &&
+      gapNorm(i.thick||'')===gapNorm(m.thick||'')
+    );
     const projMatching = allMatching.filter(i=>!i.project || i.project===activeProject);
     const inStock = projMatching.reduce((s,i)=>s+Number(i.qty),0);
     const excludedQty = allMatching.filter(i=>i.project && i.project!==activeProject).reduce((s,i)=>s+Number(i.qty),0);
     const shipped = getShippedQty(activeProject, m.name, m.spec, m.thick);
-    const net = m.qty - shipped - inStock; // 正=缺，負=溢出，0=剛好
+    const net = m.qty - shipped - inStock;
     return {...m, inStock, shipped, net, excludedQty};
   });
+  // 找出庫存裡沒有對應到任何需求的項目
+  const matchedKeys = new Set(Object.values(demandMap).map(m=>gapNorm(m.name)+'|'+gapNorm(m.spec)+'|'+gapNorm(m.thick||'')));
+  const unmatchedInv = inventory.filter(i=>(!i.project||i.project===activeProject) && !matchedKeys.has(gapNorm(i.name)+'|'+gapNorm(i.spec)+'|'+gapNorm(i.thick||'')));
   // 排序：缺貨 → 溢出 → 足夠，同類別內按系列/名稱
   const netOrder = r => r.net>0?0:r.net<0?1:2;
   rows.sort((a,b)=>netOrder(a)-netOrder(b)||(materialTags[a.name]||'').localeCompare(materialTags[b.name]||'')||(a.name.localeCompare(b.name,'zh-TW')));
@@ -2547,6 +2555,17 @@ function showInventoryGap() {
       </div>`;
     });
   });
+  if (unmatchedInv.length) {
+    body += `<div style="margin-top:16px;padding:12px;background:#fef9c3;border-radius:10px;border:1px solid #fde047">
+      <div style="font-size:13px;font-weight:700;color:#854d0e;margin-bottom:8px">⚠️ 庫存裡有 ${unmatchedInv.length} 項找不到對應需求（可能名稱不同）</div>`;
+    unmatchedInv.forEach(i=>{
+      body += `<div style="font-size:12px;color:#78350f;padding:3px 0;border-bottom:1px solid #fde68a">
+        ${i.name}　${i.spec}${i.thick?'・'+i.thick:''}　<strong>${i.qty}</strong>${i.unit||''}
+        ${i.project?`<span style="margin-left:6px;font-size:11px;color:#92400e">（${i.project}）</span>`:''}
+      </div>`;
+    });
+    body += `</div>`;
+  }
   body += `<button class="btn-primary" onclick="exportGapPDF()" style="margin-top:14px">📄 匯出生產需求單</button>`;
   document.getElementById('edit-modal-title').textContent = '📊 '+activeProject+' 庫存缺口';
   document.getElementById('edit-modal-body').innerHTML = body;
