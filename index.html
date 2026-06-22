@@ -182,10 +182,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <div class="topbar">
   <div class="topbar-title">🏗️ 材料管理系統</div>
-  <button class="sync-btn" onclick="syncNow()">
-    <span class="sync-dot" id="sync-dot"></span>
-    <span id="sync-label">已同步</span>
-  </button>
+  <div style="display:flex;gap:6px;align-items:center">
+    <button class="sync-btn" onclick="diagSync()" style="font-size:11px;padding:5px 10px">🔍 診斷</button>
+    <button class="sync-btn" onclick="syncNow()">
+      <span class="sync-dot" id="sync-dot"></span>
+      <span id="sync-label">已同步</span>
+    </button>
+  </div>
 </div>
 
 <!-- 庫存清單 -->
@@ -561,11 +564,51 @@ async function syncNow() {
   try {
     await saveToSheets();
     setSyncState('ok');
-    showToast('✅ 同步成功');
+    showToast('✅ 已上傳到雲端');
   } catch(e) {
     setSyncState('error');
-    showToast('❌ 同步失敗，請檢查網路');
+    showToast('❌ 上傳失敗：' + e.message);
   }
+}
+
+async function diagSync() {
+  const msg = [];
+  msg.push('【本地資料】');
+  msg.push('庫存 ' + inventory.length + ' 筆');
+  msg.push('生產 ' + productions.length + ' 筆');
+  msg.push('出貨 ' + shipments.length + ' 筆');
+  msg.push('需求 ' + demands.length + ' 筆');
+  msg.push('分配 ' + allocations.length + ' 筆');
+  msg.push('');
+  msg.push('【正在讀取 GAS…】');
+  try {
+    const res = await fetch(GAS_URL + '?_t=' + Date.now());
+    const raw = await res.text();
+    if (!raw || raw === '{}') {
+      msg.push('GAS 回傳：空（尚未存過資料）');
+    } else {
+      try {
+        const d = JSON.parse(raw);
+        const src = d.inventory ? d : (d.data ? JSON.parse(d.data) : null);
+        if (src) {
+          msg.push('GAS 庫存 ' + (src.inventory||[]).length + ' 筆');
+          msg.push('GAS 生產 ' + (src.productions||[]).length + ' 筆');
+          msg.push('GAS 出貨 ' + (src.shipments||[]).length + ' 筆');
+          msg.push('GAS 需求 ' + (src.demands||[]).length + ' 筆');
+          msg.push('GAS 分配 ' + (src.allocations||[]).length + ' 筆');
+        } else {
+          msg.push('GAS 回傳格式無法識別');
+          msg.push(raw.substring(0,200));
+        }
+      } catch(e2) {
+        msg.push('JSON 解析失敗：' + e2.message);
+        msg.push(raw.substring(0,200));
+      }
+    }
+  } catch(e) {
+    msg.push('GAS 讀取失敗：' + e.message);
+  }
+  alert(msg.join('\n'));
 }
 
 function saveLocal() {
