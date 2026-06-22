@@ -1634,23 +1634,41 @@ function exportOrderPDF() {
 
 function exportPDF(page) {
   const titles = {inventory:'庫存清單', production:'生產入庫紀錄', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
+  const datePages = {production:productions, shipment:shipments, arrival:shipments, demand:demands};
+  const source = datePages[page];
+  if (source) {
+    const dates = Array.from(new Set(source.map(r=>r.date||'（無日期）'))).sort((a,b)=>b.localeCompare(a));
+    if (!dates.length) { showToast('⚠️ 目前無資料可匯出'); return; }
+    const options = dates.map(d=>({value:d,label:'📅 '+d+'（'+source.filter(r=>(r.date||'（無日期）')===d).length+'筆）'}));
+    showPicker('選擇要匯出的日期', options, chosenDates=>exportPDFByDates(page, chosenDates), '匯出 PDF');
+    return;
+  }
+  exportPDFByDates(page, null);
+}
+
+function exportPDFByDates(page, chosenDates) {
+  const titles = {inventory:'庫存清單', production:'生產入庫紀錄', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
   let html = '<h1>'+titles[page]+'</h1><div class="meta">匯出日期：'+today+'</div>';
+  if (chosenDates && chosenDates.length) html += '<div class="meta">資料日期：'+chosenDates.slice().sort().join('、')+'</div>';
   if (page==='inventory') {
     if (!inventory.length) { showToast('⚠️ 目前無資料可匯出'); return; }
     const rows = inventory.map(function(i){return '<tr><td>'+i.name+'</td><td>'+i.spec+'</td><td>'+i.thick+'</td><td>'+i.qty+'</td><td>'+i.lastUpdate+'</td><td>'+(i.qty>0?'有庫存':'缺貨')+'</td></tr>';}).join('');
     html += '<table><thead><tr><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>最後更新</th><th>狀態</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='production') {
-    if (!productions.length) { showToast('⚠️ 目前無資料可匯出'); return; }
-    const rows = productions.map(function(p){return '<tr><td>'+p.date+'</td><td>'+p.name+'</td><td>'+p.spec+'</td><td>'+p.thick+'</td><td>'+p.qty+'</td></tr>';}).join('');
+    const items = productions.filter(p=>!chosenDates || chosenDates.includes(p.date||'（無日期）'));
+    if (!items.length) { showToast('⚠️ 目前無資料可匯出'); return; }
+    const rows = items.map(function(p){return '<tr><td>'+p.date+'</td><td>'+p.name+'</td><td>'+p.spec+'</td><td>'+p.thick+'</td><td>'+p.qty+'</td></tr>';}).join('');
     html += '<table><thead><tr><th>日期</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='shipment') {
-    if (!shipments.length) { showToast('⚠️ 目前無資料可匯出'); return; }
-    const rows = shipments.map(function(s){return '<tr><td>'+s.date+'</td><td>'+s.site+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td></tr>';}).join('');
+    const items = shipments.filter(s=>!chosenDates || chosenDates.includes(s.date||'（無日期）'));
+    if (!items.length) { showToast('⚠️ 目前無資料可匯出'); return; }
+    const rows = items.map(function(s){return '<tr><td>'+s.date+'</td><td>'+s.site+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td></tr>';}).join('');
     html += '<table><thead><tr><th>日期</th><th>工地</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='arrival') {
-    if (!shipments.length) { showToast('⚠️ 目前無資料可匯出'); return; }
+    const shipItems = shipments.filter(s=>!chosenDates || chosenDates.includes(s.date||'（無日期）'));
+    if (!shipItems.length) { showToast('⚠️ 目前無資料可匯出'); return; }
     const siteMap = {};
-    shipments.forEach(function(s){ if(!siteMap[s.site]) siteMap[s.site]=[]; siteMap[s.site].push(s); });
+    shipItems.forEach(function(s){ if(!siteMap[s.site]) siteMap[s.site]=[]; siteMap[s.site].push(s); });
     Object.keys(siteMap).forEach(function(site){
       const items = siteMap[site];
       const total = items.reduce(function(a,b){return a+b.qty;},0);
@@ -1659,9 +1677,10 @@ function exportPDF(page) {
       html += '<table><thead><tr><th>日期</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
     });
   } else if (page==='demand') {
-    if (!demands.length) { showToast('⚠️ 目前無資料可匯出'); return; }
+    const demandItems = demands.filter(d=>!chosenDates || chosenDates.includes(d.date||'（無日期）'));
+    if (!demandItems.length) { showToast('⚠️ 目前無資料可匯出'); return; }
     const projectMap = {};
-    demands.forEach(d=>{ if(!projectMap[d.project]) projectMap[d.project]=[]; projectMap[d.project].push(d); });
+    demandItems.forEach(d=>{ if(!projectMap[d.project]) projectMap[d.project]=[]; projectMap[d.project].push(d); });
     html += Object.keys(projectMap).map(project=>{
       const items = projectMap[project];
       const catMap = {};
@@ -2205,10 +2224,19 @@ function copyProject(project) {
   showToast('✅ 已複製到「'+trimmed+'」（'+items.length+'筆）');
 }
 
-function exportProjectPDF(project) {
-  const items = demands.filter(d=>d.project===project);
+function exportProjectPDF(project, chosenDates) {
+  const allItems = demands.filter(d=>d.project===project);
+  if (!chosenDates) {
+    if (!allItems.length) { showToast('⚠️ 此案場無需求'); return; }
+    const dates = Array.from(new Set(allItems.map(d=>d.date||'（無日期）'))).sort((a,b)=>b.localeCompare(a));
+    const options = dates.map(d=>({value:d,label:'📅 '+d+'（'+allItems.filter(x=>(x.date||'（無日期）')===d).length+'筆）'}));
+    showPicker('選擇要匯出的需求日期', options, picked=>exportProjectPDF(project, picked), '匯出 PDF');
+    return;
+  }
+  const items = allItems.filter(d=>chosenDates.includes(d.date||'（無日期）'));
   if (!items.length) { showToast('⚠️ 此案場無需求'); return; }
   let html = '<h1>需求單 - ' + project + '</h1><div class="meta">匯出日期：' + today + '</div>';
+  html += '<div class="meta">資料日期：'+chosenDates.slice().sort().join('、')+'</div>';
   const floorMap = {};
   items.forEach(function(d){ const f=d.floor||'（未分樓層）'; if(!floorMap[f]) floorMap[f]=[]; floorMap[f].push(d); });
   Object.keys(floorMap).forEach(function(floor){
@@ -2828,14 +2856,22 @@ function renderAllocList() {
   }).join('');
 }
 
-function exportAllocPDF() {
+function exportAllocPDF(chosenDates) {
   if (!allocActiveProject) { showToast('⚠️ 請先選案場'); return; }
-  const items = allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject));
+  const allItems = allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject));
+  if (!chosenDates) {
+    if (!allItems.length) { showToast('⚠️ 此案場尚無分配紀錄'); return; }
+    const dates = Array.from(new Set(allItems.map(a=>a.date||'（無日期）'))).sort((a,b)=>b.localeCompare(a));
+    const options = dates.map(d=>({value:d,label:'📅 '+d+'（'+allItems.filter(x=>(x.date||'（無日期）')===d).length+'筆）'}));
+    showPicker('選擇要匯出的搬運日期', options, picked=>exportAllocPDF(picked), '匯出 PDF');
+    return;
+  }
+  const items = allItems.filter(a=>chosenDates.includes(a.date||'（無日期）'));
   if (!items.length) { showToast('⚠️ 此案場尚無分配紀錄'); return; }
   let html = '';
   if (company.name) html += '<div class="company">'+company.name+'</div>';
   html += '<h1>材料搬運單</h1>';
-  html += '<div class="meta">案場：'+allocActiveProject+'　日期：'+today+'</div>';
+  html += '<div class="meta">案場：'+allocActiveProject+'　資料日期：'+chosenDates.slice().sort().join('、')+'</div>';
   // 依樓層 > 分類
   const floorMap = {};
   items.forEach(function(a){ const f=a.floor||'（未分樓層）'; if(!floorMap[f]) floorMap[f]=[]; floorMap[f].push(a); });
