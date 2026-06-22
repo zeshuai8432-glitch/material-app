@@ -263,6 +263,11 @@ body{background:var(--app-bg);color:var(--ink)}
 .acc-series-label{color:var(--accent)}
 .acc-series-label::after{background:linear-gradient(90deg,#b7ded7,transparent)}
 .acc-name-header{background:var(--surface-soft);border-color:var(--line);border-radius:8px}
+.floor-context{position:sticky;top:58px;z-index:40;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px;padding:12px 14px;background:rgba(255,255,255,.96);border:1px solid #b7ded7;border-left:5px solid var(--accent);border-radius:8px;box-shadow:0 10px 24px rgba(15,118,110,.12);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.floor-context-main{min-width:0}
+.floor-context-label{font-size:11px;font-weight:800;color:var(--accent-strong);letter-spacing:.08em;text-transform:uppercase}
+.floor-context-title{font-size:20px;font-weight:900;color:var(--ink);line-height:1.25;margin-top:2px;word-break:break-word}
+.floor-context-meta{font-size:12px;color:var(--muted);white-space:nowrap}
 .bottom-nav{background:rgba(255,255,255,.94);border-top:1px solid var(--line);box-shadow:0 -8px 26px rgba(23,32,28,.08)}
 .nav-item{color:var(--muted);font-weight:700}
 .nav-item.active{color:var(--accent)}
@@ -280,6 +285,12 @@ body{background:var(--app-bg);color:var(--ink)}
   .nav-item{border-radius:12px;min-height:56px}
   .nav-item.active{background:var(--accent-soft)}
   .nav-item.active::before{display:none}
+}
+
+@media (max-width: 420px){
+  .floor-context{top:52px;padding:10px 12px}
+  .floor-context-title{font-size:18px}
+  .floor-context-meta{white-space:normal;text-align:right}
 }
 </style>
 </head>
@@ -467,6 +478,7 @@ body{background:var(--app-bg);color:var(--ink)}
   <button class="btn-outline" onclick="showInventoryGap()" style="width:100%;margin-bottom:10px;border-color:#fca5a5;color:#dc2626;background:#fff5f5">📊 庫存缺口分析（需生產量）</button>
   <div id="demand-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;flex-wrap:nowrap"></div>
   <div id="demand-floor-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;flex-wrap:nowrap"></div>
+  <div id="demand-floor-context" class="floor-context" style="display:none"></div>
   <div id="demand-list"></div>
 </div>
 
@@ -475,6 +487,7 @@ body{background:var(--app-bg);color:var(--ink)}
   <div class="flow-hint">🏗️ 材料已到案場暫存區，在這裡把材料分配到各樓層各分區。</div>
   <div id="alloc-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;flex-wrap:nowrap"></div>
   <div id="alloc-floor-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;flex-wrap:nowrap"></div>
+  <div id="alloc-floor-context" class="floor-context" style="display:none"></div>
   <button class="btn-outline" onclick="showTransferForm()" style="width:100%;margin-bottom:8px;border-color:#ddd6fe;color:#7c3aed;background:#f5f3ff">🔄 樓層調撥</button>
   <button class="btn-outline" onclick="showSettlement()" style="width:100%;margin-bottom:8px">📊 此案場用料結算</button>
   <button class="btn-outline" onclick="mergeAllocByDate()" style="width:100%;margin-bottom:8px">📅 依日期合併（全樓層搬運單）</button>
@@ -627,6 +640,23 @@ function previewQty(inputEl, previewId) {
 function qtyExprSpan(record) {
   return (record.qtyExpr && record.qtyExpr !== String(record.qty))
     ? `<span class="qty-expr">(${record.qtyExpr})</span>` : '';
+}
+
+function setFloorContext(id, project, floor, meta) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (!project && !floor) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  el.style.display = '';
+  el.innerHTML = `
+    <div class="floor-context-main">
+      <div class="floor-context-label">目前查看</div>
+      <div class="floor-context-title">${project || '未選案場'} / ${floor || '未選樓層'}</div>
+    </div>
+    <div class="floor-context-meta">${meta || ''}</div>`;
 }
 
 // 依 materialTags 分系列，再依名稱分組
@@ -1806,6 +1836,7 @@ function renderDemands() {
   if (!demands.length) {
     if (tabsEl) tabsEl.innerHTML = '';
     if (floorTabsEl) floorTabsEl.innerHTML = '';
+    setFloorContext('demand-floor-context');
     el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>尚無需求紀錄</div>';
     return;
   }
@@ -1815,6 +1846,7 @@ function renderDemands() {
   if (!projects.length) {
     if (tabsEl) tabsEl.innerHTML = '';
     if (floorTabsEl) floorTabsEl.innerHTML = '';
+    setFloorContext('demand-floor-context');
     el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>目前沒有進行中的案場</div>';
     return;
   }
@@ -1839,6 +1871,7 @@ function renderDemands() {
   items.forEach(d=>{ const c=d.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(d); });
   const totalNeeded = items.reduce((a,b)=>a+b.qty,0);
   const totalAlloc = items.reduce((a,b)=>a+getAllocatedQty(b.project,b.floor,b.name,b.spec,b.thick),0);
+  setFloorContext('demand-floor-context', activeProject, activeFloor, `需求 ${totalNeeded} ・ 已分配 ${totalAlloc}`);
   let html = `<div class="site-group" style="margin-bottom:12px">
     <div class="site-group-header">
       <div class="site-group-title">🏢 ${activeProject}　${activeFloor}</div>
@@ -2345,6 +2378,7 @@ function renderAllocation() {
   if (!projects.length) {
     if (tabsEl) tabsEl.innerHTML='';
     if (floorTabsEl) floorTabsEl.innerHTML='';
+    setFloorContext('alloc-floor-context');
     document.getElementById('alloc-stock-list').innerHTML='<div class="empty"><div class="empty-icon">📦</div>尚無出貨到置料區的材料</div>';
     document.getElementById('alloc-list').innerHTML='';
     document.getElementById('alloc-mat-select').innerHTML='<option value="">-- 尚無材料 --</option>';
@@ -2368,6 +2402,7 @@ function renderAllocation() {
   }
   const fl = document.getElementById('alloc-current-floor');
   if (fl) fl.textContent = '分配到：' + allocActiveProject + '　' + (allocActiveFloor||'（請先在需求單建立樓層）');
+  setFloorContext('alloc-floor-context', allocActiveProject, allocActiveFloor || '（請先在需求單建立樓層）', '分配與餘料查看中');
   // 置料區現況：從需求單出發（分類直接從需求單來），查各材料的置料區剩餘量
   const stockEl = document.getElementById('alloc-stock-list');
   {
