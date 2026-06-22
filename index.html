@@ -1953,9 +1953,11 @@ function exportShipDatePDF(date, note) {
   note = note || '';
   const items = shipments.filter(s=>(s.date||'（無日期）')===date && (s.note||'')===note);
   if (!items.length) { showToast('⚠️ 無資料'); return; }
+  const extraLabel = shipDateLabels[date+'|||'+note] || '';
+  const dateDisplay = date + (note?' — '+note:'') + (extraLabel?' （'+extraLabel+'）':'');
   let html = '';
   if (company.name) html += '<div class="company">'+company.name+'</div>';
-  html += '<h1>出貨單</h1><div class="meta">日期：'+date+(note?' — '+note:'')+'</div>';
+  html += '<h1>出貨單</h1><div class="meta">日期：'+dateDisplay+'</div>';
   // 依案場分組
   const siteMap = {};
   items.forEach(function(s){ const k=s.site||'（未指定）'; if(!siteMap[k]) siteMap[k]=[]; siteMap[k].push(s); });
@@ -1967,7 +1969,7 @@ function exportShipDatePDF(date, note) {
     html += '<h2>🏢 '+site+'</h2><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
     html += '<div style="text-align:right;font-size:12px;color:#6b7280;margin-top:4px">小計：'+st+'</div>';
   });
-  printHTML('出貨單 '+date+(note?' — '+note:''), html);
+  printHTML('出貨單 '+dateDisplay, html);
 }
 
 function renderOrder() {
