@@ -523,9 +523,8 @@ body{background:var(--app-bg);color:var(--ink)}
     <div id="transfer-suggestion-body" style="display:none">
       <div style="font-size:12px;color:#6b7280;margin-bottom:8px">依照各樓層「已分配 − 需求」自動比對，找出可從餘料樓層支援缺料樓層的材料。</div>
       <div id="transfer-floor-filter" style="margin-bottom:10px;display:none">
-        <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">勾選要比對的樓層：</div>
+        <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px">勾選要比對的樓層（可複選）：</div>
         <div id="transfer-floor-checkboxes" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-        <button class="btn-outline" onclick="runTransferFilter()" style="margin-top:8px;font-size:12px;padding:5px 12px">套用篩選</button>
       </div>
       <div id="alloc-transfer-suggestions"></div>
     </div>
@@ -2729,10 +2728,11 @@ function renderTransferSuggestions() {
     const allFloors = [...new Set([...allItems.map(i=>i.fromFloor), ...allItems.map(i=>i.toFloor)])].sort((a,b)=>a.localeCompare(b,'zh-TW'));
     if (allFloors.length > 1) {
       filterDiv.style.display = '';
+      // Keep existing checked state if available, default all checked
       cbContainer.innerHTML = allFloors.map(f=>{
         const checked = _transferFloorFilter.size === 0 || _transferFloorFilter.has(f) ? 'checked' : '';
         return `<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px;cursor:pointer">
-          <input type="checkbox" value="${f.replace(/"/g,'&quot;')}" ${checked} style="width:14px;height:14px"> ${f}
+          <input type="checkbox" value="${f.replace(/"/g,'&quot;')}" ${checked} style="width:14px;height:14px" onchange="runTransferFilter()"> ${f}
         </label>`;
       }).join('');
     } else {
@@ -2745,7 +2745,10 @@ function renderTransferSuggestions() {
 
 function runTransferFilter() {
   const cbs = document.querySelectorAll('#transfer-floor-checkboxes input[type=checkbox]');
-  _transferFloorFilter = new Set([...cbs].filter(c=>c.checked).map(c=>c.value));
+  const checked = [...cbs].filter(c=>c.checked).map(c=>c.value);
+  // If all checked or none checked → show all
+  const allFloors = [...cbs].map(c=>c.value);
+  _transferFloorFilter = checked.length === allFloors.length || checked.length === 0 ? new Set() : new Set(checked);
   _renderFilteredSuggestions();
 }
 
