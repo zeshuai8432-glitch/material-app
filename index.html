@@ -522,6 +522,11 @@ body{background:var(--app-bg);color:var(--ink)}
     </div>
     <div id="transfer-suggestion-body" style="display:none">
       <div style="font-size:12px;color:#6b7280;margin-bottom:8px">依照各樓層「已分配 − 需求」自動比對，找出可從餘料樓層支援缺料樓層的材料。</div>
+      <div id="transfer-floor-filter" style="margin-bottom:10px;display:none">
+        <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">勾選要比對的樓層：</div>
+        <div id="transfer-floor-checkboxes" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        <button class="btn-outline" onclick="runTransferFilter()" style="margin-top:8px;font-size:12px;padding:5px 12px">套用篩選</button>
+      </div>
       <div id="alloc-transfer-suggestions"></div>
     </div>
   </div>
@@ -2706,24 +2711,64 @@ function getFloorTransferSuggestions(project) {
   );
 }
 
+let _transferSuggestions = [];
+let _transferFloorFilter = new Set();
+
 function renderTransferSuggestions() {
   const el = document.getElementById('alloc-transfer-suggestions');
   if (!el || !allocActiveProject) return;
   const card = document.getElementById('transfer-suggestion-card');
   if (card) card.style.display = '';
-  const items = getFloorTransferSuggestions(allocActiveProject);
+  const allItems = getFloorTransferSuggestions(allocActiveProject);
+  _transferSuggestions = allItems;
+
+  // Build floor filter checkboxes
+  const filterDiv = document.getElementById('transfer-floor-filter');
+  const cbContainer = document.getElementById('transfer-floor-checkboxes');
+  if (filterDiv && cbContainer) {
+    const allFloors = [...new Set([...allItems.map(i=>i.fromFloor), ...allItems.map(i=>i.toFloor)])].sort((a,b)=>a.localeCompare(b,'zh-TW'));
+    if (allFloors.length > 1) {
+      filterDiv.style.display = '';
+      cbContainer.innerHTML = allFloors.map(f=>{
+        const checked = _transferFloorFilter.size === 0 || _transferFloorFilter.has(f) ? 'checked' : '';
+        return `<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px;cursor:pointer">
+          <input type="checkbox" value="${f.replace(/"/g,'&quot;')}" ${checked} style="width:14px;height:14px"> ${f}
+        </label>`;
+      }).join('');
+    } else {
+      filterDiv.style.display = 'none';
+    }
+  }
+
+  _renderFilteredSuggestions();
+}
+
+function runTransferFilter() {
+  const cbs = document.querySelectorAll('#transfer-floor-checkboxes input[type=checkbox]');
+  _transferFloorFilter = new Set([...cbs].filter(c=>c.checked).map(c=>c.value));
+  _renderFilteredSuggestions();
+}
+
+function _renderFilteredSuggestions() {
+  const el = document.getElementById('alloc-transfer-suggestions');
+  if (!el) return;
+  const items = _transferFloorFilter.size === 0
+    ? _transferSuggestions
+    : _transferSuggestions.filter(it => _transferFloorFilter.has(it.fromFloor) || _transferFloorFilter.has(it.toFloor));
+
   if (!items.length) {
     el.innerHTML = '<div style="color:#6b7280;font-size:13px;padding:4px 0">目前沒有可互相支援的樓層。</div>';
     return;
   }
-  el.innerHTML = items.map(it=>{
+  el.innerHTML = items.map((it, idx)=>{
+    const globalIdx = _transferSuggestions.indexOf(it);
     const categoryLine = (it.fromCategory || it.toCategory)
       ? `<div style="font-size:12px;color:#64748b;margin-top:3px">分類：${it.fromCategory || '未分類'} → ${it.toCategory || '未分類'}</div>`
       : '';
     const remainLine = it.remainingShortage > 0
       ? `<div style="font-size:11px;color:#b45309;margin-top:3px">調完 ${it.toFloor} 仍缺 ${it.remainingShortage}${it.unit}</div>`
       : `<div style="font-size:11px;color:#15803d;margin-top:3px">調完可補足 ${it.toFloor}</div>`;
-    return `<div class="list-item" style="padding:10px 0">
+    return `<div class="list-item" style="padding:10px 0;align-items:flex-start">
       <div style="flex:1;min-width:0">
         <div class="list-main">${it.name}</div>
         <div style="margin-top:3px">${specBadge(it.spec,it.thick)}</div>
@@ -2734,10 +2779,28 @@ function renderTransferSuggestions() {
       </div>
       <div style="text-align:right;margin-left:10px;flex-shrink:0">
         <div style="font-size:18px;font-weight:900;color:#0f766e">${it.qty}${it.unit}</div>
-        <div style="font-size:11px;color:#64748b">可調度</div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:6px">可調度</div>
+        <button class="btn-primary" onclick="quickTransfer(${globalIdx})" style="font-size:12px;padding:5px 10px;white-space:nowrap">⚡ 立即調撥</button>
       </div>
     </div>`;
   }).join('');
+}
+
+function quickTransfer(idx) {
+  const it = _transferSuggestions[idx];
+  if (!it) { showToast('❌ 找不到調度資料'); return; }
+  const available = getAllocatedQty(allocActiveProject, it.fromFloor, it.name, it.spec, it.thick);
+  if (available <= 0) { showToast('⚠️ '+it.fromFloor+' 已無可調材料'); return; }
+  const qty = Math.min(it.qty, available);
+  const fromCat = it.fromCategory ? it.fromCategory.split('、')[0] : '';
+  const toCat   = it.toCategory   ? it.toCategory.split('、')[0]   : '';
+  const tid = 'TR-'+(++transferCounter)+'-'+Date.now();
+  const base = {project:allocActiveProject, name:it.name, spec:it.spec, thick:it.thick, unit:it.unit, date:today, transferId:tid};
+  allocations.push({...base, floor:it.fromFloor, category:fromCat, qty:-qty});
+  allocations.push({...base, floor:it.toFloor,   category:toCat,   qty:qty});
+  renderAll();
+  autoSave();
+  showToast('✅ 已從 '+it.fromFloor+' 調 '+qty+it.unit+' 到 '+it.toFloor);
 }
 
 function toggleTransferSuggestionCard() {
@@ -3238,16 +3301,39 @@ function deleteAllocation(idx) {
 }
 
 // ── 樓層調撥 ──
+function _allProjects() {
+  const set = new Set();
+  shipments.forEach(s=>{ if(s.site && !archivedProjects.includes(s.site)) set.add(s.site); });
+  demands.forEach(d=>{ if(d.project && !archivedProjects.includes(d.project)) set.add(d.project); });
+  return [...set];
+}
+
+function _projFloors(project) { return getAllocFloors(project); }
+
+function _projCats(project) {
+  const cats = new Set();
+  demands.filter(d=>allocNorm(d.project)===allocNorm(project)).forEach(d=>{ if(d.category) cats.add(d.category); });
+  allocations.filter(a=>allocNorm(a.project)===allocNorm(project)).forEach(a=>{ if(a.category) cats.add(a.category); });
+  return [...cats];
+}
+
 function showTransferForm() {
   if (!allocActiveProject) { showToast('⚠️ 請先選案場'); return; }
+  const allProjects = _allProjects();
+  const projectOpts = allProjects.map(p=>`<option value="${p.replace(/"/g,'&quot;')}" ${p===allocActiveProject?'selected':''}>${p}</option>`).join('');
+
   const floors = getAllocFloors(allocActiveProject);
-  if (floors.length < 2) { showToast('⚠️ 此案場至少需要兩個樓層才能調撥'); return; }
   const floorOpts = floors.map(f=>`<option value="${f}">${f}</option>`).join('');
-  const cats = new Set();
-  demands.filter(d=>allocNorm(d.project)===allocNorm(allocActiveProject)).forEach(d=>{ if(d.category) cats.add(d.category); });
-  allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject)).forEach(a=>{ if(a.category && !a.transferId) cats.add(a.category); });
-  const catOpts = Array.from(cats).map(c=>`<option value="${c}">${c}</option>`).join('');
+
+  const cats = _projCats(allocActiveProject);
+  const catOpts = cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+
   const body = `
+    <div class="form-group"><label>調出案場</label>
+      <select id="tr-from-project" onchange="onTransferFromProjectChange()">
+        ${projectOpts}
+      </select>
+    </div>
     <div class="form-group"><label>從哪個樓層調出</label>
       <select id="tr-from-floor" onchange="updateTransferMats()">
         <option value="">-- 選擇樓層 --</option>${floorOpts}
@@ -3261,6 +3347,11 @@ function showTransferForm() {
     </div>
     <div id="tr-qty-hint" style="font-size:12px;color:#64748b;margin:-4px 0 10px;display:none"></div>
     <div class="form-group"><label>調撥數量</label><input type="text" id="tr-qty" placeholder="點此開啟計算機" readonly class="qty-tap" onclick="openCalc(this)"><div class="qty-preview" id="tr-qty-preview"></div></div>
+    <div class="form-group"><label>調入案場</label>
+      <select id="tr-to-project" onchange="onTransferToProjectChange()">
+        ${projectOpts}
+      </select>
+    </div>
     <div class="form-group"><label>調入哪個樓層</label>
       <select id="tr-to-floor">
         <option value="">-- 選擇樓層 --</option>${floorOpts}
@@ -3271,13 +3362,34 @@ function showTransferForm() {
   showEditModal('🔄 樓層調撥', body, doTransfer);
 }
 
+function onTransferFromProjectChange() {
+  const project = document.getElementById('tr-from-project').value;
+  const floors = _projFloors(project);
+  const floorSel = document.getElementById('tr-from-floor');
+  floorSel.innerHTML = '<option value="">-- 選擇樓層 --</option>' + floors.map(f=>`<option value="${f}">${f}</option>`).join('');
+  const cats = _projCats(project);
+  document.getElementById('tr-from-cat').innerHTML = cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  document.getElementById('tr-mat').innerHTML = '<option value="">-- 先選樓層 --</option>';
+  document.getElementById('tr-qty-hint').style.display = 'none';
+}
+
+function onTransferToProjectChange() {
+  const project = document.getElementById('tr-to-project').value;
+  const floors = _projFloors(project);
+  const floorSel = document.getElementById('tr-to-floor');
+  floorSel.innerHTML = '<option value="">-- 選擇樓層 --</option>' + floors.map(f=>`<option value="${f}">${f}</option>`).join('');
+  const cats = _projCats(project);
+  document.getElementById('tr-to-cat').innerHTML = cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+}
+
 function updateTransferMats() {
+  const project = (document.getElementById('tr-from-project') || {}).value || allocActiveProject;
   const fromFloor = document.getElementById('tr-from-floor').value;
   const sel = document.getElementById('tr-mat');
   sel.innerHTML = '<option value="">-- 選擇材料 --</option>';
   if (!fromFloor) return;
   const map = {};
-  allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject) && allocNorm(a.floor)===allocNorm(fromFloor))
+  allocations.filter(a=>allocNorm(a.project)===allocNorm(project) && allocNorm(a.floor)===allocNorm(fromFloor))
     .forEach(a=>{
       const key = a.name+'|'+a.spec+'|'+(a.thick||'');
       if (!map[key]) map[key] = {name:a.name,spec:a.spec,thick:a.thick||'',unit:a.unit||'',qty:0};
@@ -3293,23 +3405,26 @@ function updateTransferMats() {
 }
 
 function updateTransferQtyHint() {
+  const project = (document.getElementById('tr-from-project') || {}).value || allocActiveProject;
   const fromFloor = document.getElementById('tr-from-floor').value;
   const matVal = document.getElementById('tr-mat').value;
   const hint = document.getElementById('tr-qty-hint');
   if (!fromFloor||!matVal) { hint.style.display='none'; return; }
   try {
     const m = JSON.parse(matVal);
-    const qty = getAllocatedQty(allocActiveProject, fromFloor, m.name, m.spec, m.thick);
+    const qty = getAllocatedQty(project, fromFloor, m.name, m.spec, m.thick);
     hint.style.display = 'block';
     hint.textContent = fromFloor+' 此材料目前已分配 '+qty+m.unit+'，最多可調 '+qty+m.unit;
   } catch(e) { hint.style.display='none'; }
 }
 
 function doTransfer() {
+  const fromProject = (document.getElementById('tr-from-project') || {}).value || allocActiveProject;
   const fromFloor = document.getElementById('tr-from-floor').value;
   const fromCat   = document.getElementById('tr-from-cat').value;
   const matVal    = document.getElementById('tr-mat').value;
   const qty       = evalQty(document.getElementById('tr-qty').value);
+  const toProject = (document.getElementById('tr-to-project') || {}).value || allocActiveProject;
   const toFloor   = document.getElementById('tr-to-floor').value;
   const toCat     = document.getElementById('tr-to-cat').value;
   const date      = document.getElementById('tr-date').value || today;
@@ -3317,19 +3432,19 @@ function doTransfer() {
   if (!matVal)              { showToast('⚠️ 請選擇材料'); return; }
   if (!qty||qty<=0)         { showToast('⚠️ 請填寫數量'); return; }
   if (!toFloor)             { showToast('⚠️ 請選擇調入樓層'); return; }
-  if (fromFloor===toFloor)  { showToast('⚠️ 調出與調入樓層不能相同'); return; }
+  if (fromProject===toProject && fromFloor===toFloor) { showToast('⚠️ 調出與調入不能相同'); return; }
   let m;
   try { m = JSON.parse(matVal); } catch(e) { showToast('❌ 材料資料錯誤'); return; }
-  const available = getAllocatedQty(allocActiveProject, fromFloor, m.name, m.spec, m.thick);
+  const available = getAllocatedQty(fromProject, fromFloor, m.name, m.spec, m.thick);
   if (qty > available) { showToast('❌ '+fromFloor+' 只有 '+available+m.unit+'，不夠調'); return; }
   const tid = 'TR-'+(++transferCounter)+'-'+Date.now();
-  const base = {project:allocActiveProject, name:m.name, spec:m.spec, thick:m.thick, unit:m.unit, date, transferId:tid};
-  allocations.push({...base, floor:fromFloor, category:fromCat, qty:-qty});
-  allocations.push({...base, floor:toFloor,   category:toCat,   qty:qty});
+  allocations.push({project:fromProject, name:m.name, spec:m.spec, thick:m.thick, unit:m.unit, date, transferId:tid, floor:fromFloor, category:fromCat, qty:-qty});
+  allocations.push({project:toProject,   name:m.name, spec:m.spec, thick:m.thick, unit:m.unit, date, transferId:tid, floor:toFloor,   category:toCat,   qty:qty});
   hideEditModal();
   renderAll();
   autoSave();
-  showToast('✅ 已從 '+fromFloor+' 調 '+qty+m.unit+' 到 '+toFloor);
+  const crossProject = fromProject !== toProject ? ` (${fromProject} → ${toProject})` : '';
+  showToast('✅ 已從 '+fromFloor+' 調 '+qty+m.unit+' 到 '+toFloor+crossProject);
 }
 
 // ── Calculator ──
