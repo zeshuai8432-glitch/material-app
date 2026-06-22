@@ -2161,7 +2161,9 @@ function copyFloor(project, floor) {
   const trimmed = newFloor.trim();
   if (!trimmed) { showToast('⚠️ 樓層不可空白'); return; }
   items.forEach(d=>{
-    demands.push({ project:d.project, floor:trimmed, category:d.category||'', date:today, name:d.name, spec:d.spec, thick:d.thick, unit:d.unit, qty:d.qty, note:d.note });
+    const copied = { project:d.project, floor:trimmed, category:d.category||'', date:today, name:d.name, spec:d.spec, thick:d.thick, unit:d.unit, qty:d.qty, note:d.note };
+    if (d.qtyExpr) copied.qtyExpr = d.qtyExpr;
+    demands.push(copied);
   });
   activeProject = project;
   activeFloor = trimmed;
@@ -2183,8 +2185,9 @@ function copyProject(project) {
   }
   // 複製每一筆需求（日期改成今天，不帶出貨紀錄）
   items.forEach(d=>{
-    demands.push({
+    const copied = {
       project: trimmed,
+      floor: d.floor||'',
       category: d.category||'',
       date: today,
       name: d.name,
@@ -2193,7 +2196,9 @@ function copyProject(project) {
       unit: d.unit,
       qty: d.qty,
       note: d.note
-    });
+    };
+    if (d.qtyExpr) copied.qtyExpr = d.qtyExpr;
+    demands.push(copied);
   });
   activeProject = trimmed;
   renderAll(); autoSave();
@@ -2238,7 +2243,8 @@ function copyDemand(idx) {
   document.getElementById('dem-spec').value = d.spec;
   document.getElementById('dem-thick').value = d.thick||'';
   document.getElementById('dem-unit').value = d.unit||'';
-  document.getElementById('dem-qty').value = d.qty;
+  document.getElementById('dem-qty').value = d.qtyExpr || d.qty;
+  previewQty(document.getElementById('dem-qty'), 'dem-qty-preview');
   document.getElementById('dem-note').value = d.note||'';
   document.getElementById('dem-floor').value = d.floor||'';
   // 案件名稱預設選同一個（方便改成新樓層時用新增）
