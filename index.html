@@ -1534,9 +1534,15 @@ function updateDemandGap() {
   </div>`;
   html += '<div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px">各樓層需求：</div>';
   floorRows.forEach(([floor, qty]) => {
-    html += `<div style="display:flex;justify-content:space-between;padding:4px 6px;border-bottom:1px solid #f3f4f6;font-size:13px">
-      <span style="color:#374151">${floor}</span>
-      <span style="font-weight:600;color:#185FA5">${qty}${unit}</span>
+    const allocated = getAllocatedQty(site, floor, mat.name, mat.spec, mat.thick);
+    const lack = qty - allocated;
+    const rowColor = lack > 0 ? '#92400e' : lack < 0 ? '#991b1b' : '#166534';
+    const rowBg   = lack > 0 ? '#fef9c3' : lack < 0 ? '#fee2e2' : '#f0fdf4';
+    const lackText = lack > 0 ? '缺 '+lack+unit : lack < 0 ? '超出 '+Math.abs(lack)+unit : '✅';
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;margin-bottom:2px;border-radius:6px;background:${rowBg};font-size:13px">
+      <span style="color:#374151;font-weight:500">${floor}</span>
+      <span style="color:#6b7280;font-size:12px">需求 ${qty}　已分配 ${allocated}</span>
+      <span style="font-weight:700;color:${rowColor};min-width:60px;text-align:right">${lackText}</span>
     </div>`;
   });
   box.style.display='block';
