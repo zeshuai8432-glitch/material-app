@@ -2994,6 +2994,17 @@ function getStockYardQty(project, name, spec, thick) {
   return shipped - allocated;
 }
 
+function returnFromStockyard(name, spec, thick, unit, maxQty) {
+  if (!allocActiveProject) { showToast('⚠️ 請先選案場'); return; }
+  const qtyStr = prompt(`退回「${name}」數量（最多 ${maxQty}${unit}）：`);
+  if (qtyStr === null) return;
+  const qty = parseFloat(qtyStr);
+  if (!qty || qty <= 0) { showToast('⚠️ 請輸入有效數量'); return; }
+  if (qty > maxQty) { showToast(`⚠️ 退回量不可超過置料區剩餘 ${maxQty}${unit}`); return; }
+  shipments.push({ date: today, site: allocActiveProject, name, spec, thick, unit, qty: -qty, note: '退回' });
+  renderAll(); autoSave(); showToast(`✅ 已退回 ${qty}${unit}`);
+}
+
 // 取得某案場置料區所有材料（有運到的）
 function getStockYardMaterials(project) {
   const map = {};
@@ -3353,9 +3364,12 @@ function renderAllocation() {
             <div class="list-main">${m.name}</div>
             <div style="margin-top:3px">${specBadge(m.spec,m.thick)}</div>
           </div>
-          <div style="text-align:right">
-            <div style="font-size:18px;font-weight:700;color:#166534">${m.remain}${m.unit}</div>
-            <div style="font-size:11px;color:#9ca3af">置料區剩餘</div>
+          <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+            <div>
+              <div style="font-size:18px;font-weight:700;color:#166534">${m.remain}${m.unit}</div>
+              <div style="font-size:11px;color:#9ca3af">置料區剩餘</div>
+            </div>
+            <button onclick="returnFromStockyard(${JSON.stringify(m.name)},${JSON.stringify(m.spec)},${JSON.stringify(m.thick)},${JSON.stringify(m.unit)},${m.remain})" style="font-size:12px;padding:4px 10px;background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;color:#92400e;cursor:pointer">退回</button>
           </div>
         </div>`).join('');
         return `<div class="cat-header">${cat}</div>${rows}`;
