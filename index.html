@@ -412,7 +412,7 @@ body{background:var(--app-bg);color:var(--ink)}
     </div>
     <div class="form-group"><label>數量</label><input type="text" id="ship-qty" placeholder="點此開啟計算機" readonly class="qty-tap" onclick="openCalc(this)">
     <div class="qty-preview" id="ship-qty-preview"></div></div>
-    <div class="form-group"><label>備註（選填）</label><input type="text" id="ship-note" placeholder="例：第一批、急件…" maxlength="50"></div>
+    <div class="form-group"><label>備註（選填，相同備注歸同一組）</label><input type="text" id="ship-note" placeholder="例：第一批、急件… 留空不分組" maxlength="50" autocomplete="off"></div>
     <div id="demand-gap-box" style="display:none;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
     <button class="btn-primary" onclick="addShipment()">加入出貨清單</button>
   </div>
@@ -1624,7 +1624,8 @@ function addShipment() {
       }
     }
   }
-  const note = (document.getElementById('ship-note').value || '').trim();
+  const noteEl = document.getElementById('ship-note');
+  const note = noteEl ? (noteEl.value || '').trim() : '';
   const record = {date,site,name,spec,thick,qty,type:shipType};
   if (qtyRaw && qtyRaw !== String(qty)) record.qtyExpr = qtyRaw;
   if (note) record.note = note;
@@ -1632,7 +1633,7 @@ function addShipment() {
   currentOrder.push(record);
   document.getElementById('ship-qty').value='';
   document.getElementById('ship-qty-preview').style.display='none';
-  document.getElementById('ship-note').value='';
+  if (noteEl) noteEl.value='';
   if (shipType==='standard') {
     ['ship-name','ship-spec','ship-thick'].forEach(id=>document.getElementById(id).value='');
     const demandSel = document.getElementById('ship-demand-select');
