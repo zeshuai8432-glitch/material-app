@@ -1,4 +1,4 @@
-const CACHE_NAME = 'material-app-v16';
+const CACHE_NAME = 'material-app-v17';
 const ASSETS = [
   './index.html',
   './manifest.json',
@@ -23,7 +23,9 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // 網路優先，失敗才用快取
+  // 只攔截同源 GET（app assets）；跨域或 POST 讓瀏覽器直接處理
+  if (e.request.method !== 'GET') return;
+  if (!e.request.url.startsWith(self.location.origin)) return;
   e.respondWith(
     fetch(e.request).catch(() => caches.match(e.request))
   );

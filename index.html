@@ -992,16 +992,13 @@ async function saveToSheets() {
     archivedProjects: archivedProjects,
     editLogs: normalizeRecords(editLogs)
   };
-  // Content-Type: text/plain 不觸發 CORS preflight，GAS 可直接從 e.postData.contents 讀到 body
-  // 不用 no-cors，可以讀到回應確認存檔成功
-  const res = await fetch(GAS_URL, {
+  // no-cors 避免 GAS redirect 造成的 CORS 錯誤；response 為 opaque 不可讀，但資料確實送出
+  await fetch(GAS_URL, {
     method: 'POST',
+    mode: 'no-cors',
     headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(payload)
   });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const result = await res.json().catch(() => ({}));
-  if (result.ok === false) throw new Error(result.error || 'GAS 回傳失敗');
 }
 
 async function loadFromSheets() {
