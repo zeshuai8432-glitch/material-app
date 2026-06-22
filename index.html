@@ -2500,12 +2500,13 @@ function showInventoryGap() {
   });
   // 對比庫存與已出貨（只計算屬於此案場或通用的庫存）
   const rows = Object.values(demandMap).map(m=>{
-    const inStock = inventory
-      .filter(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||'') && (!i.project || i.project===activeProject))
-      .reduce((s,i)=>s+Number(i.qty),0);
+    const allMatching = inventory.filter(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||''));
+    const projMatching = allMatching.filter(i=>!i.project || i.project===activeProject);
+    const inStock = projMatching.reduce((s,i)=>s+Number(i.qty),0);
+    const excludedQty = allMatching.filter(i=>i.project && i.project!==activeProject).reduce((s,i)=>s+Number(i.qty),0);
     const shipped = getShippedQty(activeProject, m.name, m.spec, m.thick);
     const net = m.qty - shipped - inStock; // 正=缺，負=溢出，0=剛好
-    return {...m, inStock, shipped, net};
+    return {...m, inStock, shipped, net, excludedQty};
   });
   // 排序：缺貨 → 溢出 → 足夠，同類別內按系列/名稱
   const netOrder = r => r.net>0?0:r.net<0?1:2;
@@ -2537,6 +2538,7 @@ function showInventoryGap() {
           <div style="font-size:12px;color:#374151;margin-top:5px;line-height:1.7">
             總需求 <strong>${r.qty}${r.unit}</strong>　已出貨 <strong>${r.shipped}${r.unit}</strong>　現有庫存 <strong>${r.inStock}${r.unit}</strong>
           </div>
+          ${r.excludedQty>0?`<div style="font-size:11px;color:#d97706;margin-top:3px">⚠️ 另有 ${r.excludedQty}${r.unit} 庫存被標記為其他案場，未計入</div>`:''}
         </div>
         <div style="text-align:right;margin-left:12px;flex-shrink:0">
           <div style="font-size:16px;font-weight:800;color:${statusColor}">${statusText}</div>
