@@ -1502,6 +1502,7 @@ function updateDemandGap() {
     box.style.display='block';
     box.style.background='#f1efe8';
     box.style.color='#5f5e5a';
+    box.style.padding='10px 12px';
     box.innerHTML='ℹ️ 此案場沒有「'+mat.name+'」的需求紀錄';
     return;
   }
@@ -1511,22 +1512,38 @@ function updateDemandGap() {
   const inputQty = evalQty(document.getElementById('ship-qty').value) || 0;
   const afterThis = shipped + inputQty;
   const remaining = totalDemand - afterThis;
-  box.style.display='block';
-  let line = '需求 <strong>'+totalDemand+unit+'</strong>　已出 <strong>'+shipped+unit+'</strong>';
-  if (inputQty>0) line += '　本次 <strong>'+inputQty+unit+'</strong>';
+  // 彙整各樓層需求
+  const floorMap = {};
+  matched.forEach(d=>{ const f=d.floor||'（未指定）'; floorMap[f]=(floorMap[f]||0)+Number(d.qty); });
+  const floorRows = Object.entries(floorMap).sort((a,b)=>a[0].localeCompare(b[0],'zh-TW'));
+  // 顏色狀態
+  let headerBg, headerColor, statusText;
   if (remaining > 0) {
-    box.style.background='#fef3c7';
-    box.style.color='#92400e';
-    box.innerHTML = line + '<br>📦 還缺 <strong>'+remaining+unit+'</strong>';
+    headerBg='#fef3c7'; headerColor='#92400e';
+    statusText = inputQty>0 ? '本次出貨後仍缺 <strong>'+remaining+unit+'</strong>' : '尚缺 <strong>'+remaining+unit+'</strong>';
   } else if (remaining === 0) {
-    box.style.background='#dcfce7';
-    box.style.color='#166534';
-    box.innerHTML = line + '<br>✅ 剛好滿足需求';
+    headerBg='#dcfce7'; headerColor='#166534';
+    statusText = '✅ '+(inputQty>0?'本次出貨後':'已')+'剛好滿足';
   } else {
-    box.style.background='#fee2e2';
-    box.style.color='#991b1b';
-    box.innerHTML = line + '<br>⚠️ 將超出 <strong>'+Math.abs(remaining)+unit+'</strong>';
+    headerBg='#fee2e2'; headerColor='#991b1b';
+    statusText = '⚠️ '+(inputQty>0?'本次出貨後':'已')+'超出 <strong>'+Math.abs(remaining)+unit+'</strong>';
   }
+  let html = `<div style="background:${headerBg};color:${headerColor};border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:13px">
+    總需求 <strong>${totalDemand}${unit}</strong>　已出 <strong>${shipped}${unit}</strong>${inputQty>0?'　本次 <strong>'+inputQty+unit+'</strong>':''}
+    <br>${statusText}
+  </div>`;
+  html += '<div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px">各樓層需求：</div>';
+  floorRows.forEach(([floor, qty]) => {
+    html += `<div style="display:flex;justify-content:space-between;padding:4px 6px;border-bottom:1px solid #f3f4f6;font-size:13px">
+      <span style="color:#374151">${floor}</span>
+      <span style="font-weight:600;color:#185FA5">${qty}${unit}</span>
+    </div>`;
+  });
+  box.style.display='block';
+  box.style.background='#f8fafc';
+  box.style.color='inherit';
+  box.style.padding='10px 12px';
+  box.innerHTML = html;
 }
 
 function addShipment() {
