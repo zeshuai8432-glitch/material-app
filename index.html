@@ -1141,17 +1141,15 @@ function normalizeRecords(arr) {
 
 async function saveToSheets() {
   const payload = {
-    action: 'save',
-    inventory: normalizeRecords(inventory),
-    productions: normalizeRecords(productions),
-    shipments: normalizeRecords(shipments),
-    demands: normalizeRecords(demands),
-    allocations: normalizeRecords(allocations),
-    materialTags: materialTags,
-    inventoryProjects: inventoryProjects,
-    inventoryProjectRows: normalizeRecords(inventoryProjectRowsFromMap(inventoryProjects)),
-    archivedProjects: archivedProjects,
-    editLogs: normalizeRecords(editLogs),
+    inventory,
+    productions,
+    shipments,
+    demands,
+    allocations,
+    materialTags,
+    inventoryProjects,
+    archivedProjects,
+    editLogs: editLogs.slice(-200),
     clientUpdatedAt: getLocalUpdatedAt() || Date.now()
   };
   const bodyText = JSON.stringify(payload);
