@@ -1037,37 +1037,53 @@ async function diagSync() {
   const lastSyncError = localStorage.getItem(LOCAL_SYNC_ERROR_KEY);
   if (lastSyncError) msg.push('最後同步錯誤 ' + lastSyncError);
   msg.push('');
-  msg.push('【正在讀取 GAS…】');
+  msg.push('【正在讀取 GAS (GET)…】');
   try {
     const res = await fetch(GAS_URL + '?_t=' + Date.now());
+    msg.push('GET HTTP 狀態: ' + res.status);
     const raw = await res.text();
-    if (!raw || raw === '{}') {
-      msg.push('GAS 回傳：空（尚未存過資料）');
+    msg.push('GET 回傳長度: ' + raw.length + ' bytes');
+    if (!raw || raw === '{}' || raw.trim() === '') {
+      msg.push('⚠️ GAS 回傳：空（雲端沒有資料）');
     } else {
       try {
         const d = JSON.parse(raw);
         const src = d.inventory ? d : (d.data ? JSON.parse(d.data) : null);
         if (src) {
-          msg.push('GAS 庫存 ' + (src.inventory||[]).length + ' 筆');
-          msg.push('GAS 入庫 ' + (src.productions||[]).length + ' 筆');
-          msg.push('GAS 出貨 ' + (src.shipments||[]).length + ' 筆');
-          msg.push('GAS 需求 ' + (src.demands||[]).length + ' 筆');
-          msg.push('GAS 分配 ' + (src.allocations||[]).length + ' 筆');
-          msg.push('GAS 庫存案場對照 ' + Object.keys(src.inventoryProjects||{}).length + ' 筆');
-          msg.push('GAS 庫存案場清單 ' + (src.inventoryProjectRows||[]).length + ' 筆');
+          msg.push('✅ GAS 庫存 ' + (src.inventory||[]).length + ' 筆');
+          msg.push('✅ GAS 入庫 ' + (src.productions||[]).length + ' 筆');
+          msg.push('✅ GAS 出貨 ' + (src.shipments||[]).length + ' 筆');
+          msg.push('✅ GAS 需求 ' + (src.demands||[]).length + ' 筆');
+          msg.push('✅ GAS 分配 ' + (src.allocations||[]).length + ' 筆');
           msg.push('GAS 更新時間 ' + (src.clientUpdatedAt || '無'));
         } else {
-          msg.push('GAS 回傳格式無法識別');
-          msg.push(raw.substring(0,200));
+          msg.push('⚠️ GAS 回傳格式無法識別');
+          msg.push('內容: ' + raw.substring(0,300));
         }
       } catch(e2) {
-        msg.push('JSON 解析失敗：' + e2.message);
-        msg.push(raw.substring(0,200));
+        msg.push('⚠️ JSON 解析失敗：' + e2.message);
+        msg.push('內容: ' + raw.substring(0,300));
       }
     }
   } catch(e) {
-    msg.push('GAS 讀取失敗：' + e.message);
+    msg.push('❌ GET 失敗：' + e.message);
   }
+  msg.push('');
+  msg.push('【正在測試 POST (no-cors)…】');
+  try {
+    const testPayload = JSON.stringify({ action:'ping', ts: Date.now() });
+    const r = await fetch(GAS_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: testPayload
+    });
+    msg.push('POST no-cors 結果: type=' + r.type + ' (opaque=正常)');
+  } catch(e) {
+    msg.push('❌ POST no-cors 失敗：' + e.message);
+  }
+  msg.push('');
+  msg.push('（完整 log 請開 F12 → Console 查看 [Sync] 開頭的訊息）');
   alert(msg.join('\n'));
 }
 
@@ -1139,22 +1155,26 @@ async function saveToSheets() {
     clientUpdatedAt: getLocalUpdatedAt() || Date.now()
   };
   const bodyText = JSON.stringify(payload);
+  console.log('[Sync] saveToSheets 開始，資料大小:', bodyText.length, 'bytes');
   // 先用可確認回應的方式；若被 GAS/CORS 擋住，再改用 no-cors 備援送出。
   const res = await fetch(GAS_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
     body: bodyText
   }).catch(e => {
+    console.warn('[Sync] 標準 POST 失敗（通常是 CORS）:', e.message);
     recordSyncError('標準 POST 失敗：' + (e && e.message ? e.message : String(e)));
     return null;
   });
   if (!res) {
+    console.log('[Sync] 嘗試 no-cors fallback POST...');
     const fallback = await fetch(GAS_URL, {
       method: 'POST',
       mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
       body: bodyText
     }).catch(e => {
+      console.warn('[Sync] no-cors POST 也失敗:', e.message);
       recordSyncError('no-cors POST 失敗：' + (e && e.message ? e.message : String(e)));
       return null;
     });
@@ -1162,19 +1182,22 @@ async function saveToSheets() {
       if (navigator.sendBeacon) {
         try {
           const ok = navigator.sendBeacon(GAS_URL, new Blob([bodyText], {type:'text/plain'}));
-          if (ok) return { confirmed:true }; // sendBeacon 成功視為已傳出
+          console.log('[Sync] sendBeacon 結果:', ok);
+          if (ok) return { confirmed:true };
         } catch(e) {
           recordSyncError('sendBeacon 失敗：' + (e && e.message ? e.message : String(e)));
         }
       }
       throw new Error('雲端無回應，本機已保留未同步資料');
     }
-    // no-cors 成功代表 GAS 有收到請求，視為已確認（無法讀回應是正常的）
+    console.log('[Sync] no-cors POST 送出（回應不透明，視為成功）type:', fallback.type);
     return { confirmed:true };
   }
+  console.log('[Sync] 標準 POST 有回應 status:', res.status, 'type:', res.type, 'ok:', res.ok);
   if (res.type === 'opaqueredirect' || res.type === 'opaque') return { confirmed:true };
   if (!res.ok) throw new Error('GAS HTTP ' + res.status);
   const result = await res.json().catch(() => ({}));
+  console.log('[Sync] GAS 回傳 JSON:', result);
   if (result.ok === false) throw new Error(result.error || 'GAS 回傳失敗');
   clearSyncError();
   return { confirmed:true };
@@ -1186,8 +1209,10 @@ async function loadFromSheets() {
   loadLocal();
   renderAll();
   try {
+    console.log('[Sync] loadFromSheets GET:', GAS_URL);
     const res = await fetch(GAS_URL + '?_t=' + Date.now());
     const raw = await res.text();
+    console.log('[Sync] GAS GET status:', res.status, 'rawLength:', raw.length, 'preview:', raw.substring(0,100));
     let parsed = null;
     if (raw && raw !== '{}' && raw.trim() !== '') {
       try {
