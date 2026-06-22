@@ -999,6 +999,7 @@ async function saveToSheets() {
     headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(payload)
   });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
   const result = await res.json().catch(() => ({}));
   if (result.ok === false) throw new Error(result.error || 'GAS 回傳失敗');
 }
@@ -1063,7 +1064,7 @@ async function loadFromSheets() {
 async function autoSave() {
   saveLocal(); // 先存本地，確保不會丟失
   try { await saveToSheets(); setSyncState('ok'); }
-  catch(e) { setSyncState('error'); showToast('⚠️ 雲端同步失敗，資料已存在本地'); }
+  catch(e) { setSyncState('error'); showToast('⚠️ 雲端同步失敗：' + (e && e.message ? e.message : String(e))); }
 }
 
 // ── Data ──
