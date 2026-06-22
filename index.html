@@ -935,6 +935,10 @@ document.getElementById('company-name').value = company.name;
 document.getElementById('company-phone').value = company.phone;
 
 // ── Sync ──
+const LOCAL_DIRTY_KEY = 'mat_unsynced_changes';
+const LOCAL_UPDATED_KEY = 'mat_local_updated_at';
+const LOCAL_BACKUP_KEY = 'mat_last_local_backup';
+
 function setSyncState(state) {
   const dot = document.getElementById('sync-dot');
   const label = document.getElementById('sync-label');
@@ -942,10 +946,49 @@ function setSyncState(state) {
   label.textContent = state === 'syncing' ? '同步中...' : state === 'error' ? '同步失敗' : '已同步';
 }
 
+function markLocalDirty() {
+  localStorage.setItem(LOCAL_DIRTY_KEY, '1');
+  localStorage.setItem(LOCAL_UPDATED_KEY, String(Date.now()));
+}
+
+function clearLocalDirty() {
+  localStorage.removeItem(LOCAL_DIRTY_KEY);
+}
+
+function hasUnsyncedLocalChanges() {
+  return localStorage.getItem(LOCAL_DIRTY_KEY) === '1';
+}
+
+function getDataTotalFromPayload(src) {
+  return (src.inventory||[]).length + (src.productions||[]).length +
+    (src.shipments||[]).length + (src.demands||[]).length + (src.allocations||[]).length;
+}
+
+function getCurrentDataTotal() {
+  return inventory.length + productions.length + shipments.length + demands.length + allocations.length;
+}
+
+function getLocalUpdatedAt() {
+  return Number(localStorage.getItem(LOCAL_UPDATED_KEY) || 0);
+}
+
+function getLocalSnapshot() {
+  return {
+    time: new Date().toLocaleString('zh-TW', { hour12:false }),
+    inventory, productions, shipments, demands, allocations,
+    archivedProjects, materialTags, inventoryProjects, editLogs
+  };
+}
+
+function saveLocalBackup() {
+  try { localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify(getLocalSnapshot())); } catch(e) {}
+}
+
 async function syncNow() {
   setSyncState('syncing');
   try {
     await saveToSheets();
+    clearLocalDirty();
     setSyncState('ok');
     showToast('✅ 已上傳到雲端');
   } catch(e) {
@@ -962,6 +1005,10 @@ async function diagSync() {
   msg.push('出貨 ' + shipments.length + ' 筆');
   msg.push('需求 ' + demands.length + ' 筆');
   msg.push('分配 ' + allocations.length + ' 筆');
+  try {
+    const backup = JSON.parse(localStorage.getItem(LOCAL_BACKUP_KEY) || 'null');
+    if (backup && backup.time) msg.push('最後本機備份 ' + backup.time);
+  } catch(e) {}
   msg.push('');
   msg.push('【正在讀取 GAS…】');
   try {
@@ -981,6 +1028,7 @@ async function diagSync() {
           msg.push('GAS 分配 ' + (src.allocations||[]).length + ' 筆');
           msg.push('GAS 庫存案場對照 ' + Object.keys(src.inventoryProjects||{}).length + ' 筆');
           msg.push('GAS 庫存案場清單 ' + (src.inventoryProjectRows||[]).length + ' 筆');
+          msg.push('GAS 更新時間 ' + (src.clientUpdatedAt || '無'));
         } else {
           msg.push('GAS 回傳格式無法識別');
           msg.push(raw.substring(0,200));
@@ -996,7 +1044,7 @@ async function diagSync() {
   alert(msg.join('\n'));
 }
 
-function saveLocal() {
+function saveLocal(markDirty = true) {
   localStorage.setItem('mat_inventory', JSON.stringify(inventory));
   localStorage.setItem('mat_productions', JSON.stringify(productions));
   localStorage.setItem('mat_shipments', JSON.stringify(shipments));
@@ -1006,6 +1054,10 @@ function saveLocal() {
   localStorage.setItem('mat_tags', JSON.stringify(materialTags));
   localStorage.setItem('mat_inv_projects', JSON.stringify(inventoryProjects));
   localStorage.setItem('mat_edit_logs', JSON.stringify(editLogs));
+  if (markDirty) {
+    markLocalDirty();
+    saveLocalBackup();
+  }
 }
 
 function loadLocal() {
@@ -1056,17 +1108,17 @@ async function saveToSheets() {
     inventoryProjects: inventoryProjects,
     inventoryProjectRows: normalizeRecords(inventoryProjectRowsFromMap(inventoryProjects)),
     archivedProjects: archivedProjects,
-    editLogs: normalizeRecords(editLogs)
+    editLogs: normalizeRecords(editLogs),
+    clientUpdatedAt: getLocalUpdatedAt() || Date.now()
   };
   // redirect:'follow'＋Content-Type:text/plain 避免 CORS preflight
-  // GAS redirect 到 googleusercontent.com 會帶 CORS header，正常情況可讀回應
-  // 若仍拋錯就靜默失敗（本地已先存）
+  // 這裡不可吞掉失敗，否則會顯示已同步但雲端其實沒寫入。
   const res = await fetch(GAS_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(payload)
   }).catch(() => null);
-  if (!res) return; // 網路失敗 → 靜默，本地已存
+  if (!res) throw new Error('雲端無回應，本機已保留未同步資料');
   if (res.type === 'opaqueredirect' || res.type === 'opaque') return; // opaque 視為成功
   const result = await res.json().catch(() => ({}));
   if (result.ok === false) throw new Error(result.error || 'GAS 回傳失敗');
@@ -1097,18 +1149,57 @@ async function loadFromSheets() {
       } catch(e) {}
     }
     if (parsed) {
-      const cloudTotal = (parsed.inventory||[]).length + (parsed.productions||[]).length +
-        (parsed.shipments||[]).length + (parsed.demands||[]).length + (parsed.allocations||[]).length;
-      const localTotal = inventory.length + productions.length + shipments.length +
-        demands.length + allocations.length;
+      const cloudTotal = getDataTotalFromPayload(parsed);
+      const localTotal = getCurrentDataTotal();
+      const localUpdatedAt = getLocalUpdatedAt();
+      const cloudUpdatedAt = Number(parsed.clientUpdatedAt || 0);
+      if (localTotal > 0 && cloudUpdatedAt > 0 && localUpdatedAt > cloudUpdatedAt) {
+        showToast('⚠️ 本機資料較新，已保留並補傳到雲端');
+        try {
+          await saveToSheets();
+          clearLocalDirty();
+          setSyncState('ok');
+        } catch(e) {
+          setSyncState('error');
+        }
+        renderAll();
+        return;
+      }
+      if (hasUnsyncedLocalChanges() && localTotal > 0) {
+        showToast('⚠️ 偵測到本機有未同步資料，已保留本機資料');
+        try {
+          await saveToSheets();
+          clearLocalDirty();
+          setSyncState('ok');
+          showToast('✅ 已補傳本機資料到雲端');
+        } catch(e) {
+          setSyncState('error');
+        }
+        renderAll();
+        return;
+      }
       // 本地有資料但雲端是空的 → 一定是雲端沒存到，上傳本地不蓋掉
       if (localTotal > 0 && cloudTotal === 0) {
         showToast('⚠️ 雲端無資料，上傳本地資料');
-        await saveToSheets().catch(()=>{});
+        try {
+          await saveToSheets();
+          clearLocalDirty();
+        } catch(e) {
+          setSyncState('error');
+          renderAll();
+          return;
+        }
       // 雲端筆數比本地少超過 3 筆 → 本地比較新，上傳本地不蓋掉
       } else if (localTotal > 0 && cloudTotal < localTotal - 3) {
         showToast('⚠️ 雲端資料較少，自動上傳本地資料到雲端');
-        await saveToSheets().catch(()=>{});
+        try {
+          await saveToSheets();
+          clearLocalDirty();
+        } catch(e) {
+          setSyncState('error');
+          renderAll();
+          return;
+        }
       } else if (cloudTotal > 0) {
         // 正常情況：用雲端資料
         const nextInventoryProjects = {...inventoryProjects};
@@ -1124,9 +1215,14 @@ async function loadFromSheets() {
         if (Array.isArray(parsed.archivedProjects)) archivedProjects = parsed.archivedProjects;
         if (Array.isArray(parsed.editLogs)) editLogs = parsed.editLogs;
         orderNo = shipments.length + 1;
-        saveLocal();
+        saveLocal(false);
       }
       // cloudTotal===0 且 localTotal===0：兩邊都空，不動
+    } else if (hasUnsyncedLocalChanges() && getCurrentDataTotal() > 0) {
+      setSyncState('error');
+      showToast('⚠️ 雲端沒有回傳資料，已保留本機未同步資料');
+      renderAll();
+      return;
     }
     setSyncState('ok');
     renderAll();
@@ -1138,7 +1234,7 @@ async function loadFromSheets() {
 
 async function autoSave() {
   saveLocal();
-  try { await saveToSheets(); setSyncState('ok'); }
+  try { await saveToSheets(); clearLocalDirty(); setSyncState('ok'); }
   catch(e) { setSyncState('error'); showToast('⚠️ 雲端同步失敗，資料已存在本地'); }
 }
 
