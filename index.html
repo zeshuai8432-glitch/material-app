@@ -316,6 +316,13 @@ body{background:var(--app-bg);color:var(--ink)}
     <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:#9ca3af;flex-shrink:0"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     <input type="text" id="inv-search" placeholder="搜尋名稱、規格或厚度..." oninput="renderInventory()">
   </div>
+  <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+    <span style="font-size:12px;color:#64748b;font-weight:600">篩選案場：</span>
+    <select id="inv-project-filter" onchange="renderInventory()" style="border:1.5px solid #e2e8f0;border-radius:10px;padding:6px 10px;font-size:13px;background:#f8fafc">
+      <option value="">全部</option>
+      <option value="__global__">通用（未指定）</option>
+    </select>
+  </div>
   <div class="card">
     <div class="card-title">
       特殊材料庫存
@@ -339,6 +346,9 @@ body{background:var(--app-bg);color:var(--ink)}
       <div class="form-group"><label>厚度</label><input type="text" id="prod-thick" placeholder="例：3mm"></div>
       <div class="form-group"><label>數量</label><input type="text" id="prod-qty" placeholder="點此開啟計算機" readonly class="qty-tap" onclick="openCalc(this)">
       <div class="qty-preview" id="prod-qty-preview"></div></div>
+    </div>
+    <div class="form-group"><label>指定案場（留空 = 通用庫存）</label>
+      <select id="prod-project"><option value="">-- 通用（不限案場）--</option></select>
     </div>
     <button class="btn-primary" onclick="addProduction()">確認入庫 → 自動更新庫存</button>
   </div>
@@ -1048,8 +1058,9 @@ async function autoSave() {
 }
 
 // ── Data ──
-function findInventory(name, spec, thick) {
-  return inventory.find(i => i.name===name && i.spec===spec && i.thick===thick);
+function findInventory(name, spec, thick, project) {
+  const p = project || '';
+  return inventory.find(i => i.name===name && i.spec===spec && i.thick===thick && (i.project||'')===p);
 }
 
 function addProduction() {
@@ -1059,13 +1070,15 @@ function addProduction() {
   const thick = document.getElementById('prod-thick').value.trim();
   const qtyRaw = document.getElementById('prod-qty').value.trim();
   const qty = evalQty(qtyRaw);
+  const project = (document.getElementById('prod-project')||{}).value || '';
   if (!date||!name||!spec||!thick||!qty||qty<=0) { showToast('⚠️ 請填寫所有欄位'); return; }
   const rec = {date,name,spec,thick,qty};
+  if (project) rec.project = project;
   if (qtyRaw && qtyRaw !== String(qty)) rec.qtyExpr = qtyRaw;
   productions.push(rec);
-  const ex = findInventory(name,spec,thick);
+  const ex = findInventory(name,spec,thick,project);
   if (ex) { ex.qty+=qty; ex.lastUpdate=date; }
-  else inventory.push({name,spec,thick,qty,lastUpdate:date});
+  else inventory.push({name,spec,thick,qty,lastUpdate:date,...(project?{project}:{})});
   ['prod-name','prod-spec','prod-thick','prod-qty'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('prod-qty-preview').style.display='none';
   renderAll(); autoSave(); showToast('✅ 入庫成功，庫存已更新');
@@ -1309,8 +1322,25 @@ function renderInvStats() {
 
 function renderInventory() {
   const q = (document.getElementById('inv-search').value||'').trim().toLowerCase();
+  const projFilter = (document.getElementById('inv-project-filter')||{}).value || '';
   const txt = v => String(v==null?'':v).toLowerCase();
-  const filtered = inventory.filter(i=>!q || txt(i.name).includes(q) || txt(i.spec).includes(q) || txt(i.thick).includes(q));
+  // Refresh project filter options
+  const pfSel = document.getElementById('inv-project-filter');
+  if (pfSel) {
+    const existingProjs = [...new Set(inventory.map(i=>i.project||'').filter(Boolean))];
+    const currentVal = pfSel.value;
+    pfSel.innerHTML = '<option value="">全部</option><option value="__global__">通用（未指定）</option>';
+    existingProjs.sort((a,b)=>a.localeCompare(b,'zh-TW')).forEach(p=>{
+      const o=document.createElement('option'); o.value=p; o.textContent='🏢 '+p; pfSel.appendChild(o);
+    });
+    pfSel.value = currentVal;
+  }
+  const filtered = inventory.filter(i=>{
+    if (q && !(txt(i.name).includes(q)||txt(i.spec).includes(q)||txt(i.thick).includes(q))) return false;
+    if (projFilter==='__global__') return !i.project;
+    if (projFilter) return (i.project||'')===(projFilter);
+    return true;
+  });
   const el = document.getElementById('inv-list');
   if (!filtered.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📦</div>目前無庫存資料</div>'; return; }
   // Group by series then by name
@@ -1338,6 +1368,7 @@ function renderInventory() {
           <div style="flex:1">
             <div>${specBadge(i.spec,i.thick)}</div>
             <div style="font-size:11px;color:#94a3b8;margin-top:4px">更新：${i.lastUpdate}</div>
+            <div style="margin-top:4px">${i.project?`<span class="badge badge-blue" style="font-size:11px">🏢 ${i.project}</span>`:'<span style="font-size:11px;color:#94a3b8">通用</span>'}</div>
           </div>
           <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
             <div class="list-qty">${i.qty}</div>
@@ -1584,7 +1615,18 @@ function showPage(name, btn) {
       if (oc.indexOf("'"+name+"'")>=0) b.classList.add('active');
     });
   }
+  if (name === 'production') _refreshProdProjectOpts();
   window.scrollTo({top:0});
+}
+
+function _refreshProdProjectOpts() {
+  const sel = document.getElementById('prod-project');
+  if (!sel) return;
+  const projects = typeof _allProjects === 'function' ? _allProjects() : [];
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">-- 通用（不限案場）--</option>';
+  projects.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; sel.appendChild(o); });
+  sel.value = cur;
 }
 
 function goToAllocation() {
@@ -1784,21 +1826,27 @@ function togglePickAll(cb) {
 // ── Inventory Edit/Delete ──
 function editInventory(idx) {
   const i = inventory[idx];
+  const allProjects = _allProjects ? _allProjects() : [];
+  const projOpts = '<option value="">-- 通用（不限案場）--</option>' +
+    allProjects.map(p=>`<option value="${p.replace(/"/g,'&quot;')}" ${(i.project||'')===p?'selected':''}>${p}</option>`).join('');
   const body = `
     <div class="form-group"><label>材料名稱</label><input type="text" id="ei-name" value="${i.name}"></div>
     <div class="form-group"><label>規格</label><input type="text" id="ei-spec" value="${i.spec}"></div>
     <div class="form-group"><label>厚度</label><input type="text" id="ei-thick" value="${i.thick}"></div>
     <div class="form-group"><label>數量</label><input type="text" id="ei-qty" value="${i.qty}" readonly class="qty-tap" onclick="openCalc(this)"><div class="qty-preview" id="ei-qty-preview"></div></div>
+    <div class="form-group"><label>指定案場（留空 = 通用）</label><select id="ei-project">${projOpts}</select></div>
     <div class="form-group"><label>系列標籤</label><input type="text" id="ei-tag" value="${materialTags[i.name]||''}" placeholder="例：隔間骨架、天花板系統"></div>`;
   showEditModal('編輯庫存', body, ()=>{
     const before = cloneRecord({...inventory[idx], tag: materialTags[inventory[idx].name] || ''});
     const oldName = inventory[idx].name;
     const newName = document.getElementById('ei-name').value.trim();
+    const newProject = document.getElementById('ei-project').value;
     inventory[idx].name = newName;
     inventory[idx].spec = document.getElementById('ei-spec').value.trim();
     inventory[idx].thick = document.getElementById('ei-thick').value.trim();
     inventory[idx].qty = evalQty(document.getElementById('ei-qty').value)||0;
     inventory[idx].lastUpdate = today;
+    if (newProject) inventory[idx].project = newProject; else delete inventory[idx].project;
     const newTag = document.getElementById('ei-tag').value.trim();
     if (oldName !== newName) delete materialTags[oldName];
     if (newTag) materialTags[newName] = newTag; else delete materialTags[newName];
@@ -2450,10 +2498,11 @@ function showInventoryGap() {
     if (!demandMap[key]) demandMap[key] = {name:d.name,spec:d.spec,thick:d.thick||'',unit:d.unit||'',qty:0};
     demandMap[key].qty += Number(d.qty);
   });
-  // 對比庫存與已出貨
+  // 對比庫存與已出貨（只計算屬於此案場或通用的庫存）
   const rows = Object.values(demandMap).map(m=>{
-    const invItem = inventory.find(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||''));
-    const inStock = invItem ? Number(invItem.qty) : 0;
+    const inStock = inventory
+      .filter(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||'') && (!i.project || i.project===activeProject))
+      .reduce((s,i)=>s+Number(i.qty),0);
     const shipped = getShippedQty(activeProject, m.name, m.spec, m.thick);
     const net = m.qty - shipped - inStock; // 正=缺，負=溢出，0=剛好
     return {...m, inStock, shipped, net};
@@ -2514,8 +2563,9 @@ function exportGapPDF() {
   });
   const netOrder = r => r.net>0?0:r.net<0?1:2;
   const rows = Object.values(demandMap).map(m=>{
-    const invItem = inventory.find(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||''));
-    const inStock = invItem ? Number(invItem.qty) : 0;
+    const inStock = inventory
+      .filter(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||'') && (!i.project || i.project===activeProject))
+      .reduce((s,i)=>s+Number(i.qty),0);
     const shipped = getShippedQty(activeProject, m.name, m.spec, m.thick);
     const net = m.qty - shipped - inStock;
     return {...m, inStock, shipped, net};
