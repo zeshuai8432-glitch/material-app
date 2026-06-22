@@ -2730,9 +2730,14 @@ function renderTransferSuggestions() {
       filterDiv.style.display = '';
       // Keep existing checked state if available, default all checked
       cbContainer.innerHTML = allFloors.map(f=>{
-        const checked = _transferFloorFilter.size === 0 || _transferFloorFilter.has(f) ? 'checked' : '';
-        return `<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px;cursor:pointer">
-          <input type="checkbox" value="${f.replace(/"/g,'&quot;')}" ${checked} style="width:14px;height:14px" onchange="runTransferFilter()"> ${f}
+        const isChecked = _transferFloorFilter.size === 0 || _transferFloorFilter.has(f);
+        const activeStyle = isChecked ? 'background:#185FA5;color:#fff;border-color:#185FA5' : 'background:#f1f5f9;color:#374151;border-color:#e2e8f0';
+        const markStyle = isChecked ? 'background:#fff;border-color:#fff' : 'border-color:#94a3b8';
+        const markText = isChecked ? '✓' : '';
+        return `<label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:5px 10px;border-radius:20px;border:2px solid;cursor:pointer;user-select:none;-webkit-user-select:none;${activeStyle}">
+          <input type="checkbox" value="${f.replace(/"/g,'&quot;')}" ${isChecked?'checked':''} style="position:absolute;opacity:0;width:0;height:0" onchange="_cbStyle(this);runTransferFilter()">
+          <span class="cb-mark" style="width:13px;height:13px;border-radius:3px;border:1.5px solid;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;flex-shrink:0;${markStyle}">${markText}</span>
+          ${f}
         </label>`;
       }).join('');
     } else {
@@ -3321,9 +3326,27 @@ function _projCats(project) {
   return [...cats];
 }
 
+function _cbStyle(cb) {
+  const label = cb.closest('label');
+  const mark = label.querySelector('.cb-mark');
+  if (cb.checked) {
+    label.style.background = '#185FA5';
+    label.style.color = '#fff';
+    label.style.borderColor = '#185FA5';
+    if (mark) { mark.style.background='#fff'; mark.style.borderColor='#fff'; mark.textContent='✓'; }
+  } else {
+    label.style.background = '#f1f5f9';
+    label.style.color = '#374151';
+    label.style.borderColor = '#e2e8f0';
+    if (mark) { mark.style.background=''; mark.style.borderColor='#94a3b8'; mark.textContent=''; }
+  }
+}
+
 function _floorCheckboxesHtml(floors, onchangeFn) {
-  return floors.map(f=>`<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;padding:5px 10px;background:#f1f5f9;border-radius:8px;cursor:pointer;margin:2px 0">
-    <input type="checkbox" value="${f.replace(/"/g,'&quot;')}" style="width:15px;height:15px" onchange="${onchangeFn}"> ${f}
+  return floors.map(f=>`<label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:6px 12px;background:#f1f5f9;color:#374151;border-radius:20px;border:2px solid #e2e8f0;cursor:pointer;user-select:none;-webkit-user-select:none;transition:background 0.15s,color 0.15s">
+    <input type="checkbox" value="${f.replace(/"/g,'&quot;')}" style="position:absolute;opacity:0;width:0;height:0" onchange="_cbStyle(this);${onchangeFn}">
+    <span class="cb-mark" style="width:15px;height:15px;border-radius:4px;border:1.5px solid #94a3b8;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;flex-shrink:0"></span>
+    ${f}
   </label>`).join('');
 }
 
