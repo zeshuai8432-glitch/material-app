@@ -621,13 +621,15 @@ async function saveToSheets() {
     materialTags: materialTags,
     archivedProjects: archivedProjects
   };
-  // GAS 會 302 轉址，轉址過程 POST body 會丟失
-  // no-cors 可以繞過這個問題，讓資料真正寫進 GAS
-  await fetch(GAS_URL, {
+  // Content-Type: text/plain 不觸發 CORS preflight，GAS 可直接從 e.postData.contents 讀到 body
+  // 不用 no-cors，可以讀到回應確認存檔成功
+  const res = await fetch(GAS_URL, {
     method: 'POST',
-    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(payload)
   });
+  const result = await res.json().catch(() => ({}));
+  if (result.ok === false) throw new Error(result.error || 'GAS 回傳失敗');
 }
 
 async function loadFromSheets() {
@@ -636,16 +638,23 @@ async function loadFromSheets() {
   loadLocal();
   renderAll();
   try {
-    const res = await fetch(GAS_URL + '?action=load&_t=' + Date.now());
-    const data = await res.json();
-    // 支援兩種 GAS 回傳格式：
-    //   新格式: { status:'ok', inventory:[], ... }
-    //   舊格式: { ok:true, data:'{"inventory":[...],...}' }
+    const res = await fetch(GAS_URL + '?_t=' + Date.now());
+    const raw = await res.text();
     let parsed = null;
-    if (data.status === 'ok') {
-      parsed = data;
-    } else if (data.ok === true && data.data) {
-      try { parsed = typeof data.data === 'string' ? JSON.parse(data.data) : data.data; } catch(e) {}
+    if (raw && raw !== '{}' && raw.trim() !== '') {
+      try {
+        const data = JSON.parse(raw);
+        // 新版 GAS：直接回傳 payload { inventory:[], demands:[], ... }
+        if (data.inventory || data.demands || data.shipments) {
+          parsed = data;
+        // 舊版 GAS：{ ok:true, data:'...' }
+        } else if (data.ok === true && data.data) {
+          parsed = typeof data.data === 'string' ? JSON.parse(data.data) : data.data;
+        // 另一種格式：{ status:'ok', inventory:[] }
+        } else if (data.status === 'ok') {
+          parsed = data;
+        }
+      } catch(e) {}
     }
     if (parsed) {
       inventory    = (parsed.inventory    || []).map(i => ({...i, qty: Number(i.qty)}));
