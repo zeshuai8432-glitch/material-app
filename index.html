@@ -1828,6 +1828,7 @@ function renderShipments() {
         <div class="site-group-title"><span class="acc-arrow${dayOpen?' open':''}" data-arrow="${dayGid}">▶</span> 📅 ${date}${labelHtml}</div>
         <div style="display:flex;align-items:center;gap:6px">
           <span class="site-group-total">合計 ${dayTotal}</span>
+          <button onclick="event.stopPropagation();editShipDateBulk(${qDate},${JSON.stringify(items.map(x=>x._idx))})" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">改日期</button>
           <button onclick="event.stopPropagation();editShipDateLabel(${qDate})" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">備註</button>
           <button onclick="event.stopPropagation();exportShipDatePDF('${date}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
         </div>
@@ -1835,6 +1836,30 @@ function renderShipments() {
       <div class="site-group-body collapsible-body" id="${dayGid}" style="display:${dayOpen?'block':'none'}">${seriesBlocks}</div>
     </div>`;
   }).join('');
+}
+
+function editShipDateBulk(oldDate, idxList) {
+  showEditModal(
+    `改日期「${oldDate}」`,
+    `<div class="form-group">
+       <label>將這 ${idxList.length} 筆出貨紀錄改為哪個日期？</label>
+       <input id="ship-bulk-date-input" type="date" value="${oldDate}" style="font-size:16px">
+     </div>`,
+    () => {
+      const newDate = document.getElementById('ship-bulk-date-input').value;
+      if (!newDate || newDate === oldDate) { hideEditModal(); return; }
+      idxList.forEach(idx => { if (shipments[idx]) shipments[idx].date = newDate; });
+      if (shipDateLabels[oldDate] && !shipDateLabels[newDate]) {
+        shipDateLabels[newDate] = shipDateLabels[oldDate];
+        delete shipDateLabels[oldDate];
+      }
+      hideEditModal();
+      renderAll();
+      autoSave();
+      showToast(`✅ 已將 ${idxList.length} 筆改為 ${newDate}`);
+    }
+  );
+  setTimeout(() => { const el = document.getElementById('ship-bulk-date-input'); if (el) el.focus(); }, 100);
 }
 
 function editShipDateLabel(date) {
