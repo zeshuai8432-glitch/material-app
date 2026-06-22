@@ -939,6 +939,7 @@ document.getElementById('company-phone').value = company.phone;
 const LOCAL_DIRTY_KEY = 'mat_unsynced_changes';
 const LOCAL_UPDATED_KEY = 'mat_local_updated_at';
 const LOCAL_BACKUP_KEY = 'mat_last_local_backup';
+const LOCAL_SYNC_ERROR_KEY = 'mat_last_sync_error';
 
 function setSyncState(state) {
   const dot = document.getElementById('sync-dot');
@@ -954,6 +955,14 @@ function markLocalDirty() {
 
 function clearLocalDirty() {
   localStorage.removeItem(LOCAL_DIRTY_KEY);
+}
+
+function recordSyncError(message) {
+  localStorage.setItem(LOCAL_SYNC_ERROR_KEY, new Date().toLocaleString('zh-TW', { hour12:false }) + '｜' + message);
+}
+
+function clearSyncError() {
+  localStorage.removeItem(LOCAL_SYNC_ERROR_KEY);
 }
 
 function hasUnsyncedLocalChanges() {
@@ -998,6 +1007,7 @@ async function syncNow() {
       showToast('✅ 已上傳到雲端');
     }
   } catch(e) {
+    recordSyncError(e && e.message ? e.message : String(e));
     setSyncState('error');
     showToast('❌ 上傳失敗：' + e.message);
   }
@@ -1015,6 +1025,8 @@ async function diagSync() {
     const backup = JSON.parse(localStorage.getItem(LOCAL_BACKUP_KEY) || 'null');
     if (backup && backup.time) msg.push('最後本機備份 ' + backup.time);
   } catch(e) {}
+  const lastSyncError = localStorage.getItem(LOCAL_SYNC_ERROR_KEY);
+  if (lastSyncError) msg.push('最後同步錯誤 ' + lastSyncError);
   msg.push('');
   msg.push('【正在讀取 GAS…】');
   try {
@@ -1117,25 +1129,44 @@ async function saveToSheets() {
     editLogs: normalizeRecords(editLogs),
     clientUpdatedAt: getLocalUpdatedAt() || Date.now()
   };
+  const bodyText = JSON.stringify(payload);
   // 先用可確認回應的方式；若被 GAS/CORS 擋住，再改用 no-cors 備援送出。
   const res = await fetch(GAS_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify(payload)
-  }).catch(() => null);
+    body: bodyText
+  }).catch(e => {
+    recordSyncError('標準 POST 失敗：' + (e && e.message ? e.message : String(e)));
+    return null;
+  });
   if (!res) {
     const fallback = await fetch(GAS_URL, {
       method: 'POST',
       mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(payload)
-    }).catch(() => null);
-    if (!fallback) throw new Error('雲端無回應，本機已保留未同步資料');
+      body: bodyText
+    }).catch(e => {
+      recordSyncError('no-cors POST 失敗：' + (e && e.message ? e.message : String(e)));
+      return null;
+    });
+    if (!fallback) {
+      if (navigator.sendBeacon) {
+        try {
+          const ok = navigator.sendBeacon(GAS_URL, new Blob([bodyText], {type:'text/plain'}));
+          if (ok) return { confirmed:false };
+        } catch(e) {
+          recordSyncError('sendBeacon 失敗：' + (e && e.message ? e.message : String(e)));
+        }
+      }
+      throw new Error('雲端無回應，本機已保留未同步資料');
+    }
     return { confirmed:false };
   }
   if (res.type === 'opaqueredirect' || res.type === 'opaque') return { confirmed:false };
+  if (!res.ok) throw new Error('GAS HTTP ' + res.status);
   const result = await res.json().catch(() => ({}));
   if (result.ok === false) throw new Error(result.error || 'GAS 回傳失敗');
+  clearSyncError();
   return { confirmed:true };
 }
 
@@ -1255,6 +1286,7 @@ async function loadFromSheets() {
     setSyncState('ok');
     renderAll();
   } catch(e) {
+    recordSyncError('讀取雲端失敗：' + (e && e.message ? e.message : String(e)));
     setSyncState('error');
     showToast('⚠️ 雲端連線失敗，已載入本地備份');
   }
@@ -1267,7 +1299,11 @@ async function autoSave() {
     if (result && result.confirmed === false) setSyncState('pending');
     else { clearLocalDirty(); setSyncState('ok'); }
   }
-  catch(e) { setSyncState('error'); showToast('⚠️ 雲端同步失敗，資料已存在本地'); }
+  catch(e) {
+    recordSyncError(e && e.message ? e.message : String(e));
+    setSyncState('error');
+    showToast('⚠️ 雲端同步失敗，資料已存在本地');
+  }
 }
 
 // ── Data ──
