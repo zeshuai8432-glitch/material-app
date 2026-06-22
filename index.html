@@ -412,6 +412,7 @@ body{background:var(--app-bg);color:var(--ink)}
     </div>
     <div class="form-group"><label>數量</label><input type="text" id="ship-qty" placeholder="點此開啟計算機" readonly class="qty-tap" onclick="openCalc(this)">
     <div class="qty-preview" id="ship-qty-preview"></div></div>
+    <div class="form-group"><label>備註（選填）</label><input type="text" id="ship-note" placeholder="例：第一批、急件…" maxlength="50"></div>
     <div id="demand-gap-box" style="display:none;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
     <button class="btn-primary" onclick="addShipment()">加入出貨清單</button>
   </div>
@@ -1623,12 +1624,15 @@ function addShipment() {
       }
     }
   }
+  const note = (document.getElementById('ship-note').value || '').trim();
   const record = {date,site,name,spec,thick,qty,type:shipType};
   if (qtyRaw && qtyRaw !== String(qty)) record.qtyExpr = qtyRaw;
+  if (note) record.note = note;
   shipments.push(record);
   currentOrder.push(record);
   document.getElementById('ship-qty').value='';
   document.getElementById('ship-qty-preview').style.display='none';
+  document.getElementById('ship-note').value='';
   if (shipType==='standard') {
     ['ship-name','ship-spec','ship-thick'].forEach(id=>document.getElementById(id).value='');
     const demandSel = document.getElementById('ship-demand-select');
@@ -1783,15 +1787,23 @@ function renderShipments() {
   const el = document.getElementById('ship-list');
   if (!shipments.length) { el.innerHTML='<div class="empty"><div class="empty-icon">🚛</div>尚無出貨紀錄</div>'; return; }
   const withIdx = shipments.map((s,i)=>({...s,_idx:i}));
-  // 依日期分組
-  const dateMap = {};
-  withIdx.forEach(s=>{ const d=s.date||'（無日期）'; if(!dateMap[d]) dateMap[d]=[]; dateMap[d].push(s); });
-  // 日期由新到舊
-  const dates = Object.keys(dateMap).sort((a,b)=>b.localeCompare(a));
-  el.innerHTML = dates.map(date=>{
-    const items = dateMap[date];
+  // 依（日期 + 備註）分組
+  const groupMap = {};
+  withIdx.forEach(s=>{
+    const d = s.date||'（無日期）';
+    const n = s.note||'';
+    const k = d+'|||'+n;
+    if (!groupMap[k]) groupMap[k] = {date:d, note:n, items:[]};
+    groupMap[k].items.push(s);
+  });
+  const groupKeys = Object.keys(groupMap).sort((a,b)=>{
+    const [ad,an] = a.split('|||'); const [bd,bn] = b.split('|||');
+    return bd.localeCompare(ad) || (an||'').localeCompare(bn||'');
+  });
+  el.innerHTML = groupKeys.map(gk=>{
+    const {date, note, items} = groupMap[gk];
     const dayTotal = items.reduce((a,b)=>a+Number(b.qty),0);
-    const dayGid = 'ship-date-g-'+hashStr(date);
+    const dayGid = 'ship-date-g-'+hashStr(gk);
     const dayOpen = expandedGroups.has(dayGid);
     const sm = groupBySeriesName(items, s=>s.name);
     const seriesBlocks = sortedSeriesKeys(sm).map(series=>{
@@ -1799,22 +1811,30 @@ function renderShipments() {
       const nameBlocks = Object.keys(nameMap).sort((a,b)=>a.localeCompare(b,'zh-TW')).map(name=>{
         const ni = nameMap[name];
         const nameQty = ni.reduce((a,b)=>a+Number(b.qty),0);
-        const gid = 'ship-g-'+hashStr(date+series+name);
+        const gid = 'ship-g-'+hashStr(gk+series+name);
         const isOpen = expandedGroups.has(gid);
-        const rows = ni.map(s=>`
-          <div class="list-item">
+        const rows = ni.map(s=>{
+          const isReturn = s.qty < 0;
+          const typeBadge = isReturn
+            ? `<span class="badge" style="background:#fee2e2;color:#dc2626;margin-top:5px">退回</span>`
+            : `<span class="badge ${s.type==='stock'?'badge-blue':'badge-amber'}" style="margin-top:5px">${s.type==='stock'?'庫存出':'制式材料'}</span>`;
+          const qtyHtml = isReturn
+            ? `<div class="list-qty" style="color:#dc2626">${s.qty}</div>`
+            : `<div class="list-qty">${s.qty}${qtyExprSpan(s)}</div>`;
+          const btns = isReturn
+            ? `<button class="btn-danger-sm" onclick="deleteShipment(${s._idx})">刪除</button>`
+            : `<button class="btn-sm" onclick="editShipment(${s._idx})">編輯</button><button class="btn-danger-sm" onclick="deleteShipment(${s._idx})">退回</button>`;
+          return `<div class="list-item">
             <div style="flex:1">
               <div>${specBadge(s.spec,s.thick)}<span class="site-tag">${s.site}</span></div>
-              <span class="badge ${s.type==='stock'?'badge-blue':'badge-amber'}" style="margin-top:5px">${s.type==='stock'?'庫存出':'制式材料'}</span>
+              ${typeBadge}
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-              <div class="list-qty">${s.qty}${qtyExprSpan(s)}</div>
-              <div style="display:flex;gap:4px;margin-top:2px">
-                <button class="btn-sm" onclick="editShipment(${s._idx})">編輯</button>
-                <button class="btn-danger-sm" onclick="deleteShipment(${s._idx})">刪除</button>
-              </div>
+              ${qtyHtml}
+              <div style="display:flex;gap:4px;margin-top:2px">${btns}</div>
             </div>
-          </div>`).join('');
+          </div>`;
+        }).join('');
         return `<div class="acc-name-header" onclick="toggleGroup('${gid}')">
             <span class="acc-arrow${isOpen?' open':''}" data-arrow="${gid}">▶</span>
             <span class="acc-name">${name}</span>
@@ -1824,17 +1844,20 @@ function renderShipments() {
       }).join('');
       return `<div class="acc-series"><div class="acc-series-label">📁 ${series}</div>${nameBlocks}</div>`;
     }).join('');
-    const dateLabel = shipDateLabels[date] || '';
-    const labelHtml = dateLabel ? `<span style="font-size:12px;font-weight:400;opacity:0.9;margin-left:6px">— ${dateLabel}</span>` : '';
+    const labelKey = date+'|||'+note;
+    const extraLabel = shipDateLabels[labelKey] || '';
+    const noteDisplay = note ? `<span style="font-size:13px;font-weight:600;opacity:0.95;margin-left:6px">— ${note}</span>` : '';
+    const labelHtml = extraLabel ? `<span style="font-size:12px;font-weight:400;opacity:0.85;margin-left:4px">（${extraLabel}）</span>` : '';
     const qDate = JSON.stringify(date).replace(/"/g,'&quot;');
+    const qNote = JSON.stringify(note).replace(/"/g,'&quot;');
     return `<div class="site-group" style="margin-bottom:12px">
       <div class="site-group-header" onclick="toggleGroup('${dayGid}')" style="cursor:pointer">
-        <div class="site-group-title"><span class="acc-arrow${dayOpen?' open':''}" data-arrow="${dayGid}">▶</span> 📅 ${date}${labelHtml}</div>
+        <div class="site-group-title"><span class="acc-arrow${dayOpen?' open':''}" data-arrow="${dayGid}">▶</span> 📅 ${date}${noteDisplay}${labelHtml}</div>
         <div style="display:flex;align-items:center;gap:6px">
           <span class="site-group-total">合計 ${dayTotal}</span>
           <button onclick="event.stopPropagation();editShipDateBulk(${qDate},${JSON.stringify(items.map(x=>x._idx))})" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">改日期</button>
-          <button onclick="event.stopPropagation();editShipDateLabel(${qDate})" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">備註</button>
-          <button onclick="event.stopPropagation();exportShipDatePDF('${date}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
+          <button onclick="event.stopPropagation();editShipDateLabel(${qDate},${qNote})" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">備註</button>
+          <button onclick="event.stopPropagation();exportShipDatePDF(${qDate},${qNote})" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
         </div>
       </div>
       <div class="site-group-body collapsible-body" id="${dayGid}" style="display:${dayOpen?'block':'none'}">${seriesBlocks}</div>
@@ -1853,10 +1876,13 @@ function editShipDateBulk(oldDate, idxList) {
       const newDate = document.getElementById('ship-bulk-date-input').value;
       if (!newDate || newDate === oldDate) { hideEditModal(); return; }
       idxList.forEach(idx => { if (shipments[idx]) shipments[idx].date = newDate; });
-      if (shipDateLabels[oldDate] && !shipDateLabels[newDate]) {
-        shipDateLabels[newDate] = shipDateLabels[oldDate];
-        delete shipDateLabels[oldDate];
-      }
+      // migrate any labels keyed on this date
+      Object.keys(shipDateLabels).forEach(k => {
+        if (k.startsWith(oldDate+'|||') && !shipDateLabels[k.replace(oldDate, newDate)]) {
+          shipDateLabels[k.replace(oldDate, newDate)] = shipDateLabels[k];
+          delete shipDateLabels[k];
+        }
+      });
       hideEditModal();
       renderAll();
       autoSave();
@@ -1866,18 +1892,20 @@ function editShipDateBulk(oldDate, idxList) {
   setTimeout(() => { const el = document.getElementById('ship-bulk-date-input'); if (el) el.focus(); }, 100);
 }
 
-function editShipDateLabel(date) {
-  const current = shipDateLabels[date] || '';
+function editShipDateLabel(date, note) {
+  const labelKey = date + '|||' + (note || '');
+  const current = shipDateLabels[labelKey] || '';
+  const headerTitle = note ? `📅 ${date} — ${note}` : `📅 ${date}`;
   showEditModal(
-    `📅 ${date} — 備註`,
+    `${headerTitle} 備註`,
     `<div class="form-group">
        <label>備註／命名（留空則清除）</label>
        <input id="ship-label-input" type="text" maxlength="40" placeholder="例：第一批出貨、A案場配送…" value="${current.replace(/"/g,'&quot;')}" style="font-size:16px">
      </div>`,
     () => {
       const val = (document.getElementById('ship-label-input').value || '').trim();
-      if (val) shipDateLabels[date] = val;
-      else delete shipDateLabels[date];
+      if (val) shipDateLabels[labelKey] = val;
+      else delete shipDateLabels[labelKey];
       hideEditModal();
       renderAll();
       autoSave();
@@ -1917,12 +1945,13 @@ function mergeShipByRange() {
   });
 }
 
-function exportShipDatePDF(date) {
-  const items = shipments.filter(s=>(s.date||'（無日期）')===date);
+function exportShipDatePDF(date, note) {
+  note = note || '';
+  const items = shipments.filter(s=>(s.date||'（無日期）')===date && (s.note||'')===note);
   if (!items.length) { showToast('⚠️ 無資料'); return; }
   let html = '';
   if (company.name) html += '<div class="company">'+company.name+'</div>';
-  html += '<h1>出貨單</h1><div class="meta">日期：'+date+'</div>';
+  html += '<h1>出貨單</h1><div class="meta">日期：'+date+(note?' — '+note:'')+'</div>';
   // 依案場分組
   const siteMap = {};
   items.forEach(function(s){ const k=s.site||'（未指定）'; if(!siteMap[k]) siteMap[k]=[]; siteMap[k].push(s); });
@@ -2307,7 +2336,8 @@ function editShipment(idx) {
     <div class="form-group"><label>材料名稱</label><input type="text" id="es-name" value="${s.name}"></div>
     <div class="form-group"><label>規格</label><input type="text" id="es-spec" value="${s.spec}"></div>
     <div class="form-group"><label>厚度</label><input type="text" id="es-thick" value="${s.thick}"></div>
-    <div class="form-group"><label>數量</label><input type="text" id="es-qty" value="${s.qtyExpr||s.qty}" readonly class="qty-tap" onclick="openCalc(this)"><div class="qty-preview" id="es-qty-preview"></div></div>`;
+    <div class="form-group"><label>數量</label><input type="text" id="es-qty" value="${s.qtyExpr||s.qty}" readonly class="qty-tap" onclick="openCalc(this)"><div class="qty-preview" id="es-qty-preview"></div></div>
+    <div class="form-group"><label>備註</label><input type="text" id="es-note" value="${(s.note||'').replace(/"/g,'&quot;')}" maxlength="50" placeholder="選填"></div>`;
   showEditModal('編輯出貨紀錄', body, ()=>{
     const before = cloneRecord(shipments[idx]);
     const esRaw = document.getElementById('es-qty').value.trim();
@@ -2331,6 +2361,8 @@ function editShipment(idx) {
     shipments[idx].thick = document.getElementById('es-thick').value.trim();
     shipments[idx].qty = newQty;
     if (esRaw && esRaw !== String(newQty)) shipments[idx].qtyExpr = esRaw; else delete shipments[idx].qtyExpr;
+    const esNote = (document.getElementById('es-note').value || '').trim();
+    if (esNote) shipments[idx].note = esNote; else delete shipments[idx].note;
     recordEditLog('出貨紀錄', shipments[idx].site + ' / ' + shipments[idx].name, before, cloneRecord(shipments[idx]));
     hideEditModal(); renderAll(); autoSave(); showToast('✅ 出貨紀錄已更新');
   });
@@ -2338,14 +2370,22 @@ function editShipment(idx) {
 
 function deleteShipment(idx) {
   const s = shipments[idx];
-  if (!confirm('確定刪除此出貨紀錄？')) return;
-  // 若是庫存出，刪除時把數量加回庫存
+  // 退回紀錄（qty<0）只允許直接刪除
+  if (s.qty < 0) {
+    if (!confirm('確定刪除這筆退回紀錄？')) return;
+    shipments.splice(idx,1);
+    renderAll(); autoSave(); showToast('🗑️ 已刪除退回紀錄');
+    return;
+  }
+  if (!confirm(`確定退回「${s.name}」${s.qty}${s.unit||''}？\n將保留原出貨紀錄並新增一筆退回紀錄。${s.type==='stock'?'\n庫存將還原。':''}`)) return;
+  // 庫存出：把數量還給庫存
   if (s.type==='stock') {
     const inv = findInventory(s.name, s.spec, s.thick);
     if (inv) { inv.qty += Number(s.qty); inv.lastUpdate = today; }
   }
-  shipments.splice(idx,1);
-  renderAll(); autoSave(); showToast('🗑️ 已刪除，庫存已還原');
+  // 新增退回紀錄（負數）
+  shipments.push({date:today, site:s.site, name:s.name, spec:s.spec, thick:s.thick, unit:s.unit||'', qty:-Math.abs(Number(s.qty)), type:s.type, note:'退回'});
+  renderAll(); autoSave(); showToast('✅ 已退回，庫存已還原');
 }
 
 // ── Demand ──
