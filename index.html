@@ -1059,6 +1059,20 @@ function setShipType(t) {
   refreshShipDemandSelects();
 }
 
+function refreshInvSelect() {
+  const sel = document.getElementById('ship-inv-select');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">-- 請選擇庫存材料 --</option>';
+  inventory.filter(i=>Number(i.qty)>0).forEach((i,idx)=>{
+    const opt = document.createElement('option');
+    opt.value = String(idx);
+    opt.textContent = i.name + '　' + i.spec + (i.thick?'　'+i.thick:'') + '（庫存 '+i.qty+'）';
+    sel.appendChild(opt);
+  });
+  if (prev) sel.value = prev;
+}
+
 function demandMaterialValue(m) {
   return encodeURIComponent(JSON.stringify({name:m.name||'', spec:m.spec||'', thick:m.thick||''}));
 }
@@ -1100,7 +1114,7 @@ function fillDemandMaterialSelect(sel, materials, placeholder) {
 function refreshShipDemandSelects() {
   const site = document.getElementById('ship-site') ? document.getElementById('ship-site').value : '';
   const materials = getDemandMaterialOptions(site);
-  fillDemandMaterialSelect(document.getElementById('ship-inv-select'), materials, '-- 請選擇需求單材料 --');
+  refreshInvSelect();
   fillDemandMaterialSelect(document.getElementById('ship-demand-select'), materials, '-- 請選擇需求單材料 --');
   onSelectInventory();
   onSelectShipDemandMaterial(false);
@@ -1111,11 +1125,10 @@ function onSelectInventory() {
   const info = document.getElementById('ship-stock-info');
   const detail = document.getElementById('ship-stock-detail');
   if (!sel.value && sel.value !== 0) { info.style.display='none'; updateDemandGap(); return; }
-  const mat = parseDemandMaterialValue(sel.value);
-  if (!mat) { info.style.display='none'; updateDemandGap(); return; }
-  const i = findInventory(mat.name, mat.spec, mat.thick);
+  const i = inventory.filter(x=>Number(x.qty)>0)[parseInt(sel.value)];
+  if (!i) { info.style.display='none'; updateDemandGap(); return; }
   info.style.display='block';
-  detail.textContent = '名稱：'+mat.name+'　規格：'+mat.spec+'　厚度：'+(mat.thick||'')+'　庫存：'+(i?i.qty:0);
+  detail.textContent = '名稱：'+i.name+'　規格：'+i.spec+'　厚度：'+(i.thick||'')+'　庫存：'+i.qty;
   updateDemandGap();
 }
 
@@ -1134,7 +1147,9 @@ function getCurrentShipMaterial() {
   if (shipType==='stock') {
     const sel = document.getElementById('ship-inv-select');
     if (!sel.value && sel.value!==0) return null;
-    return parseDemandMaterialValue(sel.value);
+    const inv = inventory.filter(i=>Number(i.qty)>0)[parseInt(sel.value)];
+    if (!inv) return null;
+    return { name: inv.name, spec: inv.spec, thick: inv.thick };
   } else {
     const name = document.getElementById('ship-name').value.trim();
     const spec = document.getElementById('ship-spec').value.trim();
@@ -1192,11 +1207,9 @@ function addShipment() {
   if (!date||!site||!qty||qty<=0) { showToast('⚠️ 請填寫所有欄位'); return; }
   if (shipType==='stock') {
     const sel = document.getElementById('ship-inv-select');
-    if (!sel.value && sel.value!==0) { showToast('⚠️ 請選擇需求單材料'); return; }
-    const mat = parseDemandMaterialValue(sel.value);
-    if (!mat) { showToast('❌ 找不到此材料'); return; }
-    const inv = findInventory(mat.name, mat.spec, mat.thick);
-    if (!inv) { showToast('❌ 庫存沒有這項材料'); return; }
+    if (!sel.value && sel.value!==0) { showToast('⚠️ 請選擇庫存材料'); return; }
+    const inv = inventory.filter(i=>Number(i.qty)>0)[parseInt(sel.value)];
+    if (!inv) { showToast('❌ 找不到此庫存材料'); return; }
     if (inv.qty<qty) { showToast('❌ 庫存不足！目前：'+inv.qty); return; }
     name=inv.name; spec=inv.spec; thick=inv.thick;
     inv.qty-=qty; inv.lastUpdate=date;
