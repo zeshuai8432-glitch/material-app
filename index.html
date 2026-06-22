@@ -633,12 +633,15 @@ let shipType = 'stock';
 let orderNo = 1;
 let transferCounter = 0;
 let materialTags = {}; // { [materialName]: seriesLabel }
+let inventoryProjects = {}; // { [name|spec|thick]: projectName }
 let editLogs = [];
 const expandedGroups = new Set();
 
 function hashStr(s) {
   let h=0; for(let i=0;i<s.length;i++) h=Math.imul(31,h)+s.charCodeAt(i)|0; return Math.abs(h).toString(36);
 }
+function invProjectKey(name, spec, thick) { return (name||'')+'|'+(spec||'')+'|'+(thick||''); }
+function getInvProject(i) { return inventoryProjects[invProjectKey(i.name, i.spec, i.thick)] || ''; }
 function toggleGroup(id) {
   const body=document.getElementById(id); if(!body) return;
   const wasOpen=expandedGroups.has(id);
@@ -936,6 +939,7 @@ function saveLocal() {
   localStorage.setItem('mat_allocations', JSON.stringify(allocations));
   localStorage.setItem('mat_archived', JSON.stringify(archivedProjects));
   localStorage.setItem('mat_tags', JSON.stringify(materialTags));
+  localStorage.setItem('mat_inv_projects', JSON.stringify(inventoryProjects));
   localStorage.setItem('mat_edit_logs', JSON.stringify(editLogs));
 }
 
@@ -944,7 +948,7 @@ function loadLocal() {
     const inv = localStorage.getItem('mat_inventory');
     const pro = localStorage.getItem('mat_productions');
     const shi = localStorage.getItem('mat_shipments');
-    if (inv) inventory = JSON.parse(inv).map(i=>({...i,qty:roundQty(i.qty)}));
+    if (inv) inventory = JSON.parse(inv).map(i=>({...i,qty:roundQty(i.qty)})).map(i=>{ if(i.project){inventoryProjects[invProjectKey(i.name,i.spec,i.thick)]=i.project; const c={...i}; delete c.project; return c;} return i; });
     if (pro) productions = JSON.parse(pro).map(p=>({...p,qty:roundQty(p.qty)}));
     if (shi) shipments = JSON.parse(shi).map(s=>({...s,qty:roundQty(s.qty)}));
     const dem = localStorage.getItem('mat_demands');
@@ -955,6 +959,8 @@ function loadLocal() {
     if (arch) archivedProjects = JSON.parse(arch);
     const tags = localStorage.getItem('mat_tags');
     if (tags) materialTags = JSON.parse(tags);
+    const invp = localStorage.getItem('mat_inv_projects');
+    if (invp) { const p = JSON.parse(invp); if (p && typeof p==='object' && !Array.isArray(p)) Object.assign(inventoryProjects, p); }
     const logs = localStorage.getItem('mat_edit_logs');
     if (logs) editLogs = JSON.parse(logs);
     orderNo = shipments.length + 1;
@@ -982,6 +988,7 @@ async function saveToSheets() {
     demands: normalizeRecords(demands),
     allocations: normalizeRecords(allocations),
     materialTags: materialTags,
+    inventoryProjects: inventoryProjects,
     archivedProjects: archivedProjects,
     editLogs: normalizeRecords(editLogs)
   };
@@ -1031,12 +1038,14 @@ async function loadFromSheets() {
         showToast('⚠️ 雲端資料較少，自動上傳本地資料到雲端');
         await saveToSheets().catch(()=>{});
       } else {
-        inventory    = (parsed.inventory    || []).map(i => ({...i, qty: roundQty(i.qty)}));
+        inventoryProjects = {};
+        inventory    = (parsed.inventory    || []).map(i => ({...i, qty: roundQty(i.qty)})).map(i=>{ if(i.project){inventoryProjects[invProjectKey(i.name,i.spec,i.thick)]=i.project; const c={...i}; delete c.project; return c;} return i; });
         productions  = (parsed.productions  || []).map(p => ({...p, qty: roundQty(p.qty)}));
         shipments    = (parsed.shipments    || []).map(s => ({...s, qty: roundQty(s.qty)}));
         demands      = (parsed.demands      || []).map(d => ({...d, qty: roundQty(d.qty)}));
         allocations  = (parsed.allocations  || []).map(a => ({...a, qty: roundQty(a.qty)}));
         if (parsed.materialTags && typeof parsed.materialTags === 'object' && !Array.isArray(parsed.materialTags)) materialTags = parsed.materialTags;
+        if (parsed.inventoryProjects && typeof parsed.inventoryProjects === 'object' && !Array.isArray(parsed.inventoryProjects)) Object.assign(inventoryProjects, parsed.inventoryProjects);
         if (Array.isArray(parsed.archivedProjects)) archivedProjects = parsed.archivedProjects;
         if (Array.isArray(parsed.editLogs)) editLogs = parsed.editLogs;
         orderNo = shipments.length + 1;
@@ -1060,7 +1069,7 @@ async function autoSave() {
 // ── Data ──
 function findInventory(name, spec, thick, project) {
   const p = project || '';
-  return inventory.find(i => i.name===name && i.spec===spec && i.thick===thick && (i.project||'')===p);
+  return inventory.find(i => i.name===name && i.spec===spec && i.thick===thick && getInvProject(i)===p);
 }
 
 function addProduction() {
@@ -1078,7 +1087,10 @@ function addProduction() {
   productions.push(rec);
   const ex = findInventory(name,spec,thick,project);
   if (ex) { ex.qty+=qty; ex.lastUpdate=date; }
-  else inventory.push({name,spec,thick,qty,lastUpdate:date,...(project?{project}:{})});
+  else {
+    inventory.push({name,spec,thick,qty,lastUpdate:date});
+    if (project) inventoryProjects[invProjectKey(name,spec,thick)] = project;
+  }
   ['prod-name','prod-spec','prod-thick','prod-qty'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('prod-qty-preview').style.display='none';
   renderAll(); autoSave(); showToast('✅ 入庫成功，庫存已更新');
@@ -1327,7 +1339,7 @@ function renderInventory() {
   // Refresh project filter options
   const pfSel = document.getElementById('inv-project-filter');
   if (pfSel) {
-    const existingProjs = [...new Set(inventory.map(i=>i.project||'').filter(Boolean))];
+    const existingProjs = [...new Set(inventory.map(i=>getInvProject(i)).filter(Boolean))];
     const currentVal = pfSel.value;
     pfSel.innerHTML = '<option value="">全部</option><option value="__global__">通用（未指定）</option>';
     existingProjs.sort((a,b)=>a.localeCompare(b,'zh-TW')).forEach(p=>{
@@ -1337,8 +1349,8 @@ function renderInventory() {
   }
   const filtered = inventory.filter(i=>{
     if (q && !(txt(i.name).includes(q)||txt(i.spec).includes(q)||txt(i.thick).includes(q))) return false;
-    if (projFilter==='__global__') return !i.project;
-    if (projFilter) return (i.project||'')===(projFilter);
+    if (projFilter==='__global__') return !getInvProject(i);
+    if (projFilter) return getInvProject(i)===projFilter;
     return true;
   });
   const el = document.getElementById('inv-list');
@@ -1368,7 +1380,7 @@ function renderInventory() {
           <div style="flex:1">
             <div>${specBadge(i.spec,i.thick)}</div>
             <div style="font-size:11px;color:#94a3b8;margin-top:4px">更新：${i.lastUpdate}</div>
-            <div style="margin-top:4px">${i.project?`<span class="badge badge-blue" style="font-size:11px">🏢 ${i.project}</span>`:'<span style="font-size:11px;color:#94a3b8">通用</span>'}</div>
+            <div style="margin-top:4px">${getInvProject(i)?`<span class="badge badge-blue" style="font-size:11px">🏢 ${getInvProject(i)}</span>`:'<span style="font-size:11px;color:#94a3b8">通用</span>'}</div>
           </div>
           <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
             <div class="list-qty">${i.qty}</div>
@@ -1828,7 +1840,7 @@ function editInventory(idx) {
   const i = inventory[idx];
   const allProjects = _allProjects ? _allProjects() : [];
   const projOpts = '<option value="">-- 通用（不限案場）--</option>' +
-    allProjects.map(p=>`<option value="${p.replace(/"/g,'&quot;')}" ${(i.project||'')===p?'selected':''}>${p}</option>`).join('');
+    allProjects.map(p=>`<option value="${p.replace(/"/g,'&quot;')}" ${getInvProject(i)===p?'selected':''}>${p}</option>`).join('');
   const body = `
     <div class="form-group"><label>材料名稱</label><input type="text" id="ei-name" value="${i.name}"></div>
     <div class="form-group"><label>規格</label><input type="text" id="ei-spec" value="${i.spec}"></div>
@@ -1839,6 +1851,7 @@ function editInventory(idx) {
   showEditModal('編輯庫存', body, ()=>{
     const before = cloneRecord({...inventory[idx], tag: materialTags[inventory[idx].name] || ''});
     const oldName = inventory[idx].name;
+    const oldKey = invProjectKey(inventory[idx].name, inventory[idx].spec, inventory[idx].thick);
     const newName = document.getElementById('ei-name').value.trim();
     const newProject = document.getElementById('ei-project').value;
     inventory[idx].name = newName;
@@ -1846,7 +1859,9 @@ function editInventory(idx) {
     inventory[idx].thick = document.getElementById('ei-thick').value.trim();
     inventory[idx].qty = evalQty(document.getElementById('ei-qty').value)||0;
     inventory[idx].lastUpdate = today;
-    if (newProject) inventory[idx].project = newProject; else delete inventory[idx].project;
+    const newKey = invProjectKey(inventory[idx].name, inventory[idx].spec, inventory[idx].thick);
+    if (oldKey !== newKey) delete inventoryProjects[oldKey];
+    if (newProject) inventoryProjects[newKey] = newProject; else delete inventoryProjects[newKey];
     const newTag = document.getElementById('ei-tag').value.trim();
     if (oldName !== newName) delete materialTags[oldName];
     if (newTag) materialTags[newName] = newTag; else delete materialTags[newName];
@@ -1857,6 +1872,7 @@ function editInventory(idx) {
 
 function deleteInventory(idx) {
   if (!confirm('確定刪除「'+inventory[idx].name+'」？')) return;
+  delete inventoryProjects[invProjectKey(inventory[idx].name, inventory[idx].spec, inventory[idx].thick)];
   inventory.splice(idx,1);
   renderAll(); autoSave(); showToast('🗑️ 已刪除');
 }
@@ -2506,16 +2522,16 @@ function showInventoryGap() {
       gapNorm(i.spec)===gapNorm(m.spec) &&
       gapNorm(i.thick||'')===gapNorm(m.thick||'')
     );
-    const projMatching = allMatching.filter(i=>!i.project || i.project===activeProject);
+    const projMatching = allMatching.filter(i=>!getInvProject(i) || getInvProject(i)===activeProject);
     const inStock = projMatching.reduce((s,i)=>s+Number(i.qty),0);
-    const excludedQty = allMatching.filter(i=>i.project && i.project!==activeProject).reduce((s,i)=>s+Number(i.qty),0);
+    const excludedQty = allMatching.filter(i=>getInvProject(i) && getInvProject(i)!==activeProject).reduce((s,i)=>s+Number(i.qty),0);
     const shipped = getShippedQty(activeProject, m.name, m.spec, m.thick);
     const net = m.qty - shipped - inStock;
     return {...m, inStock, shipped, net, excludedQty};
   });
   // 找出庫存裡沒有對應到任何需求的項目
   const matchedKeys = new Set(Object.values(demandMap).map(m=>gapNorm(m.name)+'|'+gapNorm(m.spec)+'|'+gapNorm(m.thick||'')));
-  const unmatchedInv = inventory.filter(i=>(!i.project||i.project===activeProject) && !matchedKeys.has(gapNorm(i.name)+'|'+gapNorm(i.spec)+'|'+gapNorm(i.thick||'')));
+  const unmatchedInv = inventory.filter(i=>(!getInvProject(i)||getInvProject(i)===activeProject) && !matchedKeys.has(gapNorm(i.name)+'|'+gapNorm(i.spec)+'|'+gapNorm(i.thick||'')));
   // 排序：缺貨 → 溢出 → 足夠，同類別內按系列/名稱
   const netOrder = r => r.net>0?0:r.net<0?1:2;
   rows.sort((a,b)=>netOrder(a)-netOrder(b)||(materialTags[a.name]||'').localeCompare(materialTags[b.name]||'')||(a.name.localeCompare(b.name,'zh-TW')));
@@ -2561,7 +2577,7 @@ function showInventoryGap() {
     unmatchedInv.forEach(i=>{
       body += `<div style="font-size:12px;color:#78350f;padding:3px 0;border-bottom:1px solid #fde68a">
         ${i.name}　${i.spec}${i.thick?'・'+i.thick:''}　<strong>${i.qty}</strong>${i.unit||''}
-        ${i.project?`<span style="margin-left:6px;font-size:11px;color:#92400e">（${i.project}）</span>`:''}
+        ${getInvProject(i)?`<span style="margin-left:6px;font-size:11px;color:#92400e">（${getInvProject(i)}）</span>`:''}
       </div>`;
     });
     body += `</div>`;
@@ -2585,7 +2601,7 @@ function exportGapPDF() {
   const netOrder = r => r.net>0?0:r.net<0?1:2;
   const rows = Object.values(demandMap).map(m=>{
     const inStock = inventory
-      .filter(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||'') && (!i.project || i.project===activeProject))
+      .filter(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||'') && (!getInvProject(i) || getInvProject(i)===activeProject))
       .reduce((s,i)=>s+Number(i.qty),0);
     const shipped = getShippedQty(activeProject, m.name, m.spec, m.thick);
     const net = m.qty - shipped - inStock;
