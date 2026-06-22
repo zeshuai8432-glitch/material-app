@@ -3553,6 +3553,7 @@ function renderAllocList() {
         <div class="site-group-title"><span class="acc-arrow${dateOpen?' open':''}" data-arrow="${dateGid}">▶</span> 📅 ${date}</div>
         <div style="display:flex;align-items:center;gap:6px">
           <span class="site-group-total">合計 ${dtotal}</span>
+          <button onclick="event.stopPropagation();editAllocDateBulk('${date.replace(/'/g,"\\'")}', ${JSON.stringify(dateItems.map(x=>x._idx))})" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">改日期</button>
           <button onclick="event.stopPropagation();exportAllocDatePDF('${date}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
         </div>
       </div>
@@ -3754,6 +3755,14 @@ function mergeAllocByFloor() {
     if (!items.length) { showToast('⚠️ 無資料'); return; }
     printHTML('搬運單合併 '+allocActiveProject, buildAllocHTML(items, '案場：'+allocActiveProject+'　樓層：'+chosenFloors.join('、')+'（全部日期）'));
   });
+}
+
+function editAllocDateBulk(oldDate, idxList) {
+  const newDate = prompt('將「' + oldDate + '」的所有分配紀錄改為哪個日期？', oldDate);
+  if (!newDate || newDate === oldDate) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) { showToast('⚠️ 日期格式錯誤，請輸入 YYYY-MM-DD'); return; }
+  idxList.forEach(idx => { if (allocations[idx]) allocations[idx].date = newDate; });
+  renderAll(); autoSave(); showToast('✅ 已將 ' + idxList.length + ' 筆改為 ' + newDate);
 }
 
 function editAllocation(idx) {
