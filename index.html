@@ -3320,6 +3320,12 @@ function _projCats(project) {
   return [...cats];
 }
 
+function _toFloorCheckboxesHtml(floors) {
+  return floors.map(f=>`<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;padding:5px 10px;background:#f1f5f9;border-radius:8px;cursor:pointer;margin:2px 0">
+    <input type="checkbox" value="${f.replace(/"/g,'&quot;')}" style="width:15px;height:15px" onchange="updateTransferToHint()"> ${f}
+  </label>`).join('');
+}
+
 function showTransferForm() {
   if (!allocActiveProject) { showToast('⚠️ 請先選案場'); return; }
   const allProjects = _allProjects();
@@ -3327,7 +3333,6 @@ function showTransferForm() {
 
   const floors = getAllocFloors(allocActiveProject);
   const floorOpts = floors.map(f=>`<option value="${f}">${f}</option>`).join('');
-
   const cats = _projCats(allocActiveProject);
   const catOpts = cats.map(c=>`<option value="${c}">${c}</option>`).join('');
 
@@ -3349,16 +3354,18 @@ function showTransferForm() {
       </select>
     </div>
     <div id="tr-qty-hint" style="font-size:12px;color:#64748b;margin:-4px 0 10px;display:none"></div>
-    <div class="form-group"><label>調撥數量</label><input type="text" id="tr-qty" placeholder="點此開啟計算機" readonly class="qty-tap" onclick="openCalc(this)"><div class="qty-preview" id="tr-qty-preview"></div></div>
+    <div class="form-group"><label>調撥總數量</label><input type="text" id="tr-qty" placeholder="點此開啟計算機" readonly class="qty-tap" onclick="openCalc(this)" oninput="updateTransferToHint()"><div class="qty-preview" id="tr-qty-preview"></div></div>
     <div class="form-group"><label>調入案場</label>
       <select id="tr-to-project" onchange="onTransferToProjectChange()">
         ${projectOpts}
       </select>
     </div>
-    <div class="form-group"><label>調入哪個樓層</label>
-      <select id="tr-to-floor">
-        <option value="">-- 選擇樓層 --</option>${floorOpts}
-      </select>
+    <div class="form-group">
+      <label>調入哪些樓層（可複選，數量平均分配）</label>
+      <div id="tr-to-floors" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+        ${_toFloorCheckboxesHtml(floors)}
+      </div>
+      <div id="tr-to-floor-hint" style="font-size:12px;color:#0f766e;margin-top:6px;display:none"></div>
     </div>
     <div class="form-group"><label>調入的分類（放到哪個用途）</label><select id="tr-to-cat">${catOpts}</select></div>
     <div class="form-group"><label>日期</label><input type="date" id="tr-date" value="${today}"></div>`;
@@ -3379,10 +3386,24 @@ function onTransferFromProjectChange() {
 function onTransferToProjectChange() {
   const project = document.getElementById('tr-to-project').value;
   const floors = _projFloors(project);
-  const floorSel = document.getElementById('tr-to-floor');
-  floorSel.innerHTML = '<option value="">-- 選擇樓層 --</option>' + floors.map(f=>`<option value="${f}">${f}</option>`).join('');
+  document.getElementById('tr-to-floors').innerHTML = _toFloorCheckboxesHtml(floors);
   const cats = _projCats(project);
   document.getElementById('tr-to-cat').innerHTML = cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  updateTransferToHint();
+}
+
+function updateTransferToHint() {
+  const cbs = document.querySelectorAll('#tr-to-floors input[type=checkbox]:checked');
+  const hint = document.getElementById('tr-to-floor-hint');
+  const qtyRaw = (document.getElementById('tr-qty')||{}).value;
+  const total = evalQty(qtyRaw) || 0;
+  if (!hint) return;
+  if (cbs.length < 2 || total <= 0) { hint.style.display='none'; return; }
+  const each = roundQty(total / cbs.length);
+  let unit = '';
+  try { unit = JSON.parse((document.getElementById('tr-mat')||{}).value||'{}').unit||''; } catch(e) {}
+  hint.style.display = 'block';
+  hint.textContent = `共 ${cbs.length} 個樓層，每層各調入 ${each}${unit}`;
 }
 
 function updateTransferMats() {
@@ -3426,28 +3447,35 @@ function doTransfer() {
   const fromFloor = document.getElementById('tr-from-floor').value;
   const fromCat   = document.getElementById('tr-from-cat').value;
   const matVal    = document.getElementById('tr-mat').value;
-  const qty       = evalQty(document.getElementById('tr-qty').value);
+  const totalQty  = evalQty(document.getElementById('tr-qty').value);
   const toProject = (document.getElementById('tr-to-project') || {}).value || allocActiveProject;
-  const toFloor   = document.getElementById('tr-to-floor').value;
+  const toCbs     = [...document.querySelectorAll('#tr-to-floors input[type=checkbox]:checked')];
+  const toFloors  = toCbs.map(c=>c.value);
   const toCat     = document.getElementById('tr-to-cat').value;
   const date      = document.getElementById('tr-date').value || today;
   if (!fromFloor)           { showToast('⚠️ 請選擇調出樓層'); return; }
   if (!matVal)              { showToast('⚠️ 請選擇材料'); return; }
-  if (!qty||qty<=0)         { showToast('⚠️ 請填寫數量'); return; }
-  if (!toFloor)             { showToast('⚠️ 請選擇調入樓層'); return; }
-  if (fromProject===toProject && fromFloor===toFloor) { showToast('⚠️ 調出與調入不能相同'); return; }
+  if (!totalQty||totalQty<=0) { showToast('⚠️ 請填寫數量'); return; }
+  if (!toFloors.length)     { showToast('⚠️ 請至少勾選一個調入樓層'); return; }
+  const badFloor = fromProject===toProject ? toFloors.find(f=>f===fromFloor) : null;
+  if (badFloor)             { showToast('⚠️ 調出與調入樓層不能相同'); return; }
   let m;
   try { m = JSON.parse(matVal); } catch(e) { showToast('❌ 材料資料錯誤'); return; }
   const available = getAllocatedQty(fromProject, fromFloor, m.name, m.spec, m.thick);
-  if (qty > available) { showToast('❌ '+fromFloor+' 只有 '+available+m.unit+'，不夠調'); return; }
-  const tid = 'TR-'+(++transferCounter)+'-'+Date.now();
-  allocations.push({project:fromProject, name:m.name, spec:m.spec, thick:m.thick, unit:m.unit, date, transferId:tid, floor:fromFloor, category:fromCat, qty:-qty});
-  allocations.push({project:toProject,   name:m.name, spec:m.spec, thick:m.thick, unit:m.unit, date, transferId:tid, floor:toFloor,   category:toCat,   qty:qty});
+  if (totalQty > available) { showToast('❌ '+fromFloor+' 只有 '+available+m.unit+'，不夠調'); return; }
+  const perFloor = roundQty(totalQty / toFloors.length);
+  const crossProject = fromProject !== toProject ? ` (${fromProject} → ${toProject})` : '';
+  toFloors.forEach(toFloor=>{
+    const tid = 'TR-'+(++transferCounter)+'-'+Date.now();
+    const base = {project:fromProject, name:m.name, spec:m.spec, thick:m.thick, unit:m.unit, date, transferId:tid};
+    allocations.push({...base, floor:fromFloor, category:fromCat, qty:-perFloor});
+    allocations.push({...base, project:toProject, floor:toFloor, category:toCat, qty:perFloor});
+  });
   hideEditModal();
   renderAll();
   autoSave();
-  const crossProject = fromProject !== toProject ? ` (${fromProject} → ${toProject})` : '';
-  showToast('✅ 已從 '+fromFloor+' 調 '+qty+m.unit+' 到 '+toFloor+crossProject);
+  const floorList = toFloors.join('、');
+  showToast(`✅ 已從 ${fromFloor} 各調 ${perFloor}${m.unit} 到 ${floorList}${crossProject}`);
 }
 
 // ── Calculator ──
