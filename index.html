@@ -992,13 +992,18 @@ async function saveToSheets() {
     archivedProjects: archivedProjects,
     editLogs: normalizeRecords(editLogs)
   };
-  // no-cors 避免 GAS redirect 造成的 CORS 錯誤；response 為 opaque 不可讀，但資料確實送出
-  await fetch(GAS_URL, {
+  // redirect:'follow'＋Content-Type:text/plain 避免 CORS preflight
+  // GAS redirect 到 googleusercontent.com 會帶 CORS header，正常情況可讀回應
+  // 若仍拋錯就靜默失敗（本地已先存）
+  const res = await fetch(GAS_URL, {
     method: 'POST',
-    mode: 'no-cors',
     headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(payload)
-  });
+  }).catch(() => null);
+  if (!res) return; // 網路失敗 → 靜默，本地已存
+  if (res.type === 'opaqueredirect' || res.type === 'opaque') return; // opaque 視為成功
+  const result = await res.json().catch(() => ({}));
+  if (result.ok === false) throw new Error(result.error || 'GAS 回傳失敗');
 }
 
 async function loadFromSheets() {
@@ -1026,16 +1031,20 @@ async function loadFromSheets() {
       } catch(e) {}
     }
     if (parsed) {
-      // 計算雲端資料總筆數 vs 本地資料總筆數
       const cloudTotal = (parsed.inventory||[]).length + (parsed.productions||[]).length +
         (parsed.shipments||[]).length + (parsed.demands||[]).length + (parsed.allocations||[]).length;
       const localTotal = inventory.length + productions.length + shipments.length +
         demands.length + allocations.length;
-      // 雲端筆數比本地少超過 5 筆時，優先把本地存到雲端，不蓋掉本地資料
-      if (cloudTotal < localTotal - 5) {
+      // 本地有資料但雲端是空的 → 一定是雲端沒存到，上傳本地不蓋掉
+      if (localTotal > 0 && cloudTotal === 0) {
+        showToast('⚠️ 雲端無資料，上傳本地資料');
+        await saveToSheets().catch(()=>{});
+      // 雲端筆數比本地少超過 3 筆 → 本地比較新，上傳本地不蓋掉
+      } else if (localTotal > 0 && cloudTotal < localTotal - 3) {
         showToast('⚠️ 雲端資料較少，自動上傳本地資料到雲端');
         await saveToSheets().catch(()=>{});
-      } else {
+      } else if (cloudTotal > 0) {
+        // 正常情況：用雲端資料
         inventoryProjects = {};
         inventory    = (parsed.inventory    || []).map(i => ({...i, qty: roundQty(i.qty)})).map(i=>{ if(i.project){inventoryProjects[invProjectKey(i.name,i.spec,i.thick)]=i.project; const c={...i}; delete c.project; return c;} return i; });
         productions  = (parsed.productions  || []).map(p => ({...p, qty: roundQty(p.qty)}));
@@ -1049,6 +1058,7 @@ async function loadFromSheets() {
         orderNo = shipments.length + 1;
         saveLocal();
       }
+      // cloudTotal===0 且 localTotal===0：兩邊都空，不動
     }
     setSyncState('ok');
     renderAll();
@@ -1059,9 +1069,9 @@ async function loadFromSheets() {
 }
 
 async function autoSave() {
-  saveLocal(); // 先存本地，確保不會丟失
+  saveLocal();
   try { await saveToSheets(); setSyncState('ok'); }
-  catch(e) { setSyncState('error'); showToast('⚠️ 雲端同步失敗：' + (e && e.message ? e.message : String(e))); }
+  catch(e) { setSyncState('error'); showToast('⚠️ 雲端同步失敗，資料已存在本地'); }
 }
 
 // ── Data ──
