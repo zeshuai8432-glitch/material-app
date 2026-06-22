@@ -3020,13 +3020,22 @@ function getStockYardQty(project, name, spec, thick) {
 
 function returnFromStockyard(name, spec, thick, unit, maxQty) {
   if (!allocActiveProject) { showToast('⚠️ 請先選案場'); return; }
-  const qtyStr = prompt(`退回「${name}」數量（最多 ${maxQty}${unit}）：`);
-  if (qtyStr === null) return;
-  const qty = parseFloat(qtyStr);
-  if (!qty || qty <= 0) { showToast('⚠️ 請輸入有效數量'); return; }
-  if (qty > maxQty) { showToast(`⚠️ 退回量不可超過置料區剩餘 ${maxQty}${unit}`); return; }
-  shipments.push({ date: today, site: allocActiveProject, name, spec, thick, unit, qty: -qty, note: '退回' });
-  renderAll(); autoSave(); showToast(`✅ 已退回 ${qty}${unit}`);
+  showEditModal(
+    `退回「${name}」`,
+    `<div class="form-group">
+       <label>退回數量（最多 ${maxQty}${unit}）</label>
+       <input id="return-qty-input" type="number" inputmode="decimal" min="0.01" max="${maxQty}" step="any" placeholder="輸入數量" style="font-size:18px">
+     </div>`,
+    () => {
+      const qty = parseFloat(document.getElementById('return-qty-input').value);
+      if (!qty || qty <= 0) { showToast('⚠️ 請輸入有效數量'); return; }
+      if (qty > maxQty) { showToast(`⚠️ 退回量不可超過 ${maxQty}${unit}`); return; }
+      shipments.push({ date: today, site: allocActiveProject, name, spec, thick, unit, qty: -qty, note: '退回' });
+      hideEditModal();
+      renderAll(); autoSave(); showToast(`✅ 已退回 ${qty}${unit}`);
+    }
+  );
+  setTimeout(() => { const el = document.getElementById('return-qty-input'); if (el) el.focus(); }, 100);
 }
 
 // 取得某案場置料區所有材料（有運到的）
