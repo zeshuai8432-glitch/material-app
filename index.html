@@ -642,6 +642,15 @@ function hashStr(s) {
 }
 function invProjectKey(name, spec, thick) { return (name||'')+'|'+(spec||'')+'|'+(thick||''); }
 function getInvProject(i) { return inventoryProjects[invProjectKey(i.name, i.spec, i.thick)] || ''; }
+function inventoryProjectRowsFromMap(map) {
+  return Object.entries(map || {}).filter(([,project])=>project).map(([key,project])=>({key, project}));
+}
+function mergeInventoryProjectRows(rows, target) {
+  if (!Array.isArray(rows)) return;
+  rows.forEach(r=>{
+    if (r && r.key && r.project) target[r.key] = r.project;
+  });
+}
 function toggleGroup(id) {
   const body=document.getElementById(id); if(!body) return;
   const wasOpen=expandedGroups.has(id);
@@ -916,6 +925,8 @@ async function diagSync() {
           msg.push('GAS 出貨 ' + (src.shipments||[]).length + ' 筆');
           msg.push('GAS 需求 ' + (src.demands||[]).length + ' 筆');
           msg.push('GAS 分配 ' + (src.allocations||[]).length + ' 筆');
+          msg.push('GAS 庫存案場對照 ' + Object.keys(src.inventoryProjects||{}).length + ' 筆');
+          msg.push('GAS 庫存案場清單 ' + (src.inventoryProjectRows||[]).length + ' 筆');
         } else {
           msg.push('GAS 回傳格式無法識別');
           msg.push(raw.substring(0,200));
@@ -989,6 +1000,7 @@ async function saveToSheets() {
     allocations: normalizeRecords(allocations),
     materialTags: materialTags,
     inventoryProjects: inventoryProjects,
+    inventoryProjectRows: normalizeRecords(inventoryProjectRowsFromMap(inventoryProjects)),
     archivedProjects: archivedProjects,
     editLogs: normalizeRecords(editLogs)
   };
@@ -1045,14 +1057,16 @@ async function loadFromSheets() {
         await saveToSheets().catch(()=>{});
       } else if (cloudTotal > 0) {
         // 正常情況：用雲端資料
-        inventoryProjects = {};
-        inventory    = (parsed.inventory    || []).map(i => ({...i, qty: roundQty(i.qty)})).map(i=>{ if(i.project){inventoryProjects[invProjectKey(i.name,i.spec,i.thick)]=i.project; const c={...i}; delete c.project; return c;} return i; });
+        const nextInventoryProjects = {...inventoryProjects};
+        inventory    = (parsed.inventory    || []).map(i => ({...i, qty: roundQty(i.qty)})).map(i=>{ if(i.project){nextInventoryProjects[invProjectKey(i.name,i.spec,i.thick)]=i.project; const c={...i}; delete c.project; return c;} return i; });
         productions  = (parsed.productions  || []).map(p => ({...p, qty: roundQty(p.qty)}));
         shipments    = (parsed.shipments    || []).map(s => ({...s, qty: roundQty(s.qty)}));
         demands      = (parsed.demands      || []).map(d => ({...d, qty: roundQty(d.qty)}));
         allocations  = (parsed.allocations  || []).map(a => ({...a, qty: roundQty(a.qty)}));
         if (parsed.materialTags && typeof parsed.materialTags === 'object' && !Array.isArray(parsed.materialTags)) materialTags = parsed.materialTags;
-        if (parsed.inventoryProjects && typeof parsed.inventoryProjects === 'object' && !Array.isArray(parsed.inventoryProjects)) Object.assign(inventoryProjects, parsed.inventoryProjects);
+        if (parsed.inventoryProjects && typeof parsed.inventoryProjects === 'object' && !Array.isArray(parsed.inventoryProjects)) Object.assign(nextInventoryProjects, parsed.inventoryProjects);
+        mergeInventoryProjectRows(parsed.inventoryProjectRows, nextInventoryProjects);
+        inventoryProjects = nextInventoryProjects;
         if (Array.isArray(parsed.archivedProjects)) archivedProjects = parsed.archivedProjects;
         if (Array.isArray(parsed.editLogs)) editLogs = parsed.editLogs;
         orderNo = shipments.length + 1;
