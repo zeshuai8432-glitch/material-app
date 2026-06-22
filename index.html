@@ -635,6 +635,7 @@ let transferCounter = 0;
 let materialTags = {}; // { [materialName]: seriesLabel }
 let inventoryProjects = {}; // { [name|spec|thick]: projectName }
 let editLogs = [];
+let intakeDraftQueue = [];
 const expandedGroups = new Set();
 
 function hashStr(s) {
@@ -1266,6 +1267,7 @@ function addProduction() {
   ['prod-name','prod-spec','prod-thick','prod-qty'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('prod-qty-preview').style.display='none';
   renderAll(); autoSave(); showToast('✅ 入庫成功，庫存已更新');
+  if (intakeDraftQueue.length) setTimeout(fillNextIntakeDraft, 250);
 }
 
 function setShipType(t) {
@@ -2768,7 +2770,10 @@ function showInventoryGap() {
     });
     body += `</div>`;
   }
-  body += `<button class="btn-primary" onclick="exportGapPDF()" style="margin-top:14px">📄 匯出補料需求單</button>`;
+  body += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px">
+    <button class="btn-outline" onclick="createIntakeDraftsFromGap()" style="width:100%">📥 轉入庫草稿</button>
+    <button class="btn-primary" onclick="exportGapPDF()" style="width:100%;margin-top:0">📄 匯出補料需求單</button>
+  </div>`;
   document.getElementById('edit-modal-title').textContent = '📊 '+activeProject+' 庫存缺口';
   document.getElementById('edit-modal-body').innerHTML = body;
   document.getElementById('edit-save-btn').style.display = 'none';
@@ -2784,6 +2789,43 @@ function setGapChecks(mode) {
 
 function getPickedGapKeys() {
   return Array.from(document.querySelectorAll('.gap-pick:checked')).map(cb=>cb.value);
+}
+
+function getPickedGapRowsForIntake() {
+  if (!activeProject) return [];
+  const picked = new Set(getPickedGapKeys());
+  return getInventoryGapRows(activeProject).filter(r=>picked.has(r.key) && r.net > 0);
+}
+
+function createIntakeDraftsFromGap() {
+  const rows = getPickedGapRowsForIntake();
+  if (!rows.length) { showToast('⚠️ 請先勾選缺貨項目'); return; }
+  intakeDraftQueue = rows.map(r=>({
+    project: activeProject,
+    name: r.name,
+    spec: r.spec,
+    thick: r.thick,
+    qty: r.net
+  }));
+  document.getElementById('edit-modal').classList.remove('show');
+  showPage('production', null);
+  fillNextIntakeDraft();
+}
+
+function fillNextIntakeDraft() {
+  const draft = intakeDraftQueue.shift();
+  if (!draft) return;
+  _refreshProdProjectOpts();
+  document.getElementById('prod-date').value = today;
+  document.getElementById('prod-name').value = draft.name || '';
+  document.getElementById('prod-spec').value = draft.spec || '';
+  document.getElementById('prod-thick').value = draft.thick || '';
+  document.getElementById('prod-qty').value = draft.qty || '';
+  const projectSel = document.getElementById('prod-project');
+  if (projectSel && draft.project) projectSel.value = draft.project;
+  const remaining = intakeDraftQueue.length;
+  showToast(remaining ? `📥 已帶入入庫草稿，還有 ${remaining} 筆待帶入` : '📥 已帶入最後一筆入庫草稿');
+  window.scrollTo({top:0});
 }
 
 function exportGapPDF() {
