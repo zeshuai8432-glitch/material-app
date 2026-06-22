@@ -1,11 +1,12 @@
 {
   "name": "材料管理系統",
   "short_name": "材料管理",
-  "description": "工地材料庫存與採購管理系統",
+  "description": "工地與案場材料需求、入庫、出貨、庫存、分配與報表管理系統",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#f5f6f8",
-  "theme_color": "#185FA5",
+  "background_color": "#eef2ff",
+  "theme_color": "#0f766e",
   "orientation": "portrait-primary",
   "icons": [
     {

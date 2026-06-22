@@ -2,11 +2,19 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="description" content="材料管理系統可協助工地與案場管理材料需求、入庫、出貨、庫存、樓層分配與 PDF 報表。">
+<meta name="keywords" content="材料管理,庫存管理,工地材料,案場管理,出貨管理,入庫管理,樓層分配,PDF報表">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="材料管理系統">
+<meta property="og:description" content="管理材料需求、入庫、出貨、庫存與樓層分配的行動版工具。">
+<meta property="og:type" content="website">
+<meta property="og:image" content="icon-512.png">
+<meta name="twitter:card" content="summary">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="材料管理">
-<meta name="theme-color" content="#2563eb">
+<meta name="theme-color" content="#0f766e">
 <title>材料管理系統</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -14,12 +22,12 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(160deg,#eef2ff 0%,#f0f9ff 50%,#f0fdf4 100%);background-attachment:fixed;color:#0f172a;min-height:100vh;padding-bottom:90px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(160deg,#eef2ff 0%,#f0f9ff 50%,#f0fdf4 100%);background-attachment:fixed;color:#0f172a;min-height:100vh;min-height:100dvh;padding-bottom:90px;overflow-x:hidden}
 
 /* ── Gradient Top Bar ── */
 .topbar{background:linear-gradient(135deg,#1e3a8a 0%,#2563eb 55%,#7c3aed 100%);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 4px 20px rgba(37,99,235,0.4)}
 .topbar-title{font-size:17px;font-weight:800;letter-spacing:-0.3px;text-shadow:0 1px 3px rgba(0,0,0,0.2)}
-.sync-btn{background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:#fff;padding:7px 14px;border-radius:20px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:600;transition:background 0.15s}
+.sync-btn{background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:#fff;padding:7px 14px;border-radius:20px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:600;transition:background 0.15s;min-height:40px}
 .sync-btn:active{background:rgba(255,255,255,0.3)}
 .sync-dot{width:7px;height:7px;border-radius:50%;background:#4ade80;display:inline-block;box-shadow:0 0 8px #4ade80}
 .sync-dot.syncing{background:#fbbf24;animation:pulse 1s infinite;box-shadow:0 0 8px #fbbf24}
@@ -28,7 +36,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 /* ── Frosted Glass Bottom Nav ── */
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,0.72);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:1px solid rgba(255,255,255,0.6);box-shadow:0 -4px 28px rgba(0,0,0,0.08);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
-.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;padding:10px 2px 8px;cursor:pointer;color:#94a3b8;font-size:9.5px;gap:3px;border:none;background:none;transition:color 0.2s}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:58px;padding:10px 2px 8px;cursor:pointer;color:#64748b;font-size:10.5px;gap:3px;border:none;background:none;transition:color 0.2s}
 .nav-item.active{color:#2563eb}
 .nav-item.active svg{filter:drop-shadow(0 0 5px rgba(37,99,235,0.5))}
 .nav-item svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform 0.15s}
@@ -60,18 +68,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* ── Forms ── */
 .form-group{margin-bottom:13px}
 .form-group label{display:block;font-size:12px;color:#64748b;margin-bottom:5px;font-weight:600;letter-spacing:0.02em}
-.form-group input,.form-group select{width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:15px;color:#0f172a;background:#f8fafc;-webkit-appearance:none;appearance:none;transition:border-color 0.15s,box-shadow 0.15s,background 0.15s}
+.form-group input,.form-group select{width:100%;min-height:44px;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:16px;color:#0f172a;background:#f8fafc;-webkit-appearance:none;appearance:none;transition:border-color 0.15s,box-shadow 0.15s,background 0.15s}
 .form-group input:focus,.form-group select:focus{outline:none;border-color:#2563eb;background:#fff;box-shadow:0 0 0 3px rgba(37,99,235,0.12)}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
 /* ── Buttons ── */
-.btn-primary{width:100%;padding:14px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;border:none;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;box-shadow:0 4px 16px rgba(37,99,235,0.38);transition:opacity 0.15s,transform 0.1s}
+.btn-primary{width:100%;min-height:44px;padding:14px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;border:none;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;box-shadow:0 4px 16px rgba(37,99,235,0.38);transition:opacity 0.15s,transform 0.1s}
 .btn-primary:active{opacity:0.9;transform:scale(0.99)}
-.btn-outline{padding:7px 16px;background:#eff6ff;color:#2563eb;border:1.5px solid #bfdbfe;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;transition:background 0.15s}
+.btn-outline{min-height:40px;padding:7px 16px;background:#eff6ff;color:#2563eb;border:1.5px solid #bfdbfe;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;transition:background 0.15s}
 .btn-outline:active{background:#dbeafe}
-.btn-sm{padding:5px 12px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500}
+.btn-sm{min-height:36px;padding:6px 12px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500}
 .btn-sm:active{background:#e2e8f0}
-.btn-danger-sm{padding:5px 12px;background:#fef2f2;color:#dc2626;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500}
+.btn-danger-sm{min-height:36px;padding:6px 12px;background:#fef2f2;color:#dc2626;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500}
 
 /* ── Radio / Toggle ── */
 .radio-group{display:flex;gap:0;border:1.5px solid #e2e8f0;border-radius:12px;overflow:hidden;margin-top:4px;background:#f8fafc}
@@ -176,20 +184,117 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .acc-arrow{font-size:11px;color:#94a3b8;transition:transform 0.2s;display:inline-block;flex-shrink:0}
 .acc-arrow.open{transform:rotate(90deg)}
 .acc-body{display:none;padding-left:8px;border-left:2px solid #e0e7ff;margin:0 0 6px 6px}
+
+@media (max-width: 420px){
+  .topbar{padding:12px 12px}
+  .topbar-title{font-size:16px}
+  .page{padding:12px}
+  .card{padding:14px;border-radius:16px}
+  .stats-grid,.form-row{grid-template-columns:1fr}
+  .list-item,.order-item{gap:8px}
+  .list-main,.order-name{word-break:break-word}
+  .list-right{max-width:42%}
+  .card-title{gap:8px;flex-wrap:wrap}
+  .card-title button{flex-shrink:0}
+  .dtab{min-height:36px}
+}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}
+}
+
+/* ── Visual refresh ── */
+:root{
+  --app-bg:#f5f7f4;
+  --surface:#ffffff;
+  --surface-soft:#f8faf8;
+  --ink:#17201c;
+  --muted:#66736d;
+  --line:#dde5df;
+  --accent:#0f766e;
+  --accent-strong:#115e59;
+  --accent-soft:#e6f4f1;
+  --blue:#2563eb;
+  --green:#15803d;
+  --amber:#b45309;
+  --red:#b91c1c;
+  --shadow:0 8px 24px rgba(23,32,28,.08);
+}
+body{background:var(--app-bg);color:var(--ink)}
+.topbar{background:rgba(255,255,255,.92);color:var(--ink);box-shadow:0 1px 0 var(--line),0 10px 30px rgba(15,118,110,.08);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.topbar-title{margin:0;font-size:18px;font-weight:800;letter-spacing:0;text-shadow:none}
+.sync-btn{background:var(--accent-soft);border:1px solid #b7ded7;color:var(--accent-strong);border-radius:999px;box-shadow:none}
+.sync-btn:active{background:#d7eee9}
+.sync-dot{background:#14b8a6;box-shadow:0 0 0 4px rgba(20,184,166,.14)}
+.page{max-width:980px;margin:0 auto;padding-top:18px}
+.flow-hint{background:#fff;border:1px solid var(--line);color:var(--muted);border-radius:8px;box-shadow:none}
+.card,.stat-card,.site-group{border-radius:8px;border:1px solid var(--line);box-shadow:var(--shadow);background:var(--surface)}
+.card{padding:18px}
+.card-title{font-size:16px;color:var(--ink);letter-spacing:0}
+.stats-grid{gap:12px}
+.stat-card{padding:16px}
+.stat-card::before{height:4px}
+.stat-card:nth-child(1)::before{background:var(--accent)}
+.stat-card:nth-child(2)::before{background:var(--green)}
+.stat-card:nth-child(3)::before{background:var(--amber)}
+.stat-card:nth-child(4)::before{background:var(--red)}
+.stat-label{color:var(--muted);letter-spacing:.03em}
+.stat-card:nth-child(1) .stat-val{color:var(--accent)}
+.stat-card:nth-child(2) .stat-val{color:var(--green)}
+.stat-card:nth-child(3) .stat-val{color:var(--amber)}
+.stat-card:nth-child(4) .stat-val{color:var(--red)}
+.form-group label{color:var(--muted)}
+.form-group input,.form-group select{background:var(--surface-soft);border-color:var(--line);border-radius:8px;color:var(--ink)}
+.form-group input:focus,.form-group select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(15,118,110,.14)}
+.search-bar{border-color:var(--line);border-radius:8px;box-shadow:none}
+.btn-primary{background:var(--accent);border-radius:8px;box-shadow:0 8px 18px rgba(15,118,110,.22)}
+.btn-primary:active{background:var(--accent-strong)}
+.btn-outline{background:var(--accent-soft);border-color:#b7ded7;color:var(--accent-strong);border-radius:8px}
+.btn-outline:active{background:#d7eee9}
+.btn-sm{background:#eef2f0;color:#43504a;border-radius:8px}
+.btn-danger-sm{background:#fff1f2;color:var(--red);border-radius:8px}
+.radio-group{border-color:var(--line);border-radius:8px;background:var(--surface-soft)}
+.radio-opt.active{background:var(--accent);color:#fff}
+.badge,.spec-tag,.thick-tag,.site-tag,.note-tag{border-radius:6px}
+.site-group-header{background:var(--accent);color:#fff}
+.cat-header{color:var(--accent);border-bottom-color:#b7ded7}
+.dtab{border-radius:999px;border-color:var(--line);box-shadow:none}
+.dtab.active{background:var(--accent);border-color:var(--accent);box-shadow:none}
+.acc-series-label{color:var(--accent)}
+.acc-series-label::after{background:linear-gradient(90deg,#b7ded7,transparent)}
+.acc-name-header{background:var(--surface-soft);border-color:var(--line);border-radius:8px}
+.bottom-nav{background:rgba(255,255,255,.94);border-top:1px solid var(--line);box-shadow:0 -8px 26px rgba(23,32,28,.08)}
+.nav-item{color:var(--muted);font-weight:700}
+.nav-item.active{color:var(--accent)}
+.nav-item.active svg{filter:none}
+.nav-item.active::before{content:'';width:34px;height:3px;border-radius:999px;background:var(--accent);position:absolute;top:6px}
+.nav-item{position:relative}
+.modal,.edit-modal{border-radius:16px 16px 0 0}
+#calc-panel{border-radius:16px 16px 0 0}
+.calc-btn{border-radius:8px}
+.calc-btn.confirm{background:var(--accent)}
+
+@media (min-width: 900px){
+  body{padding-bottom:96px}
+  .bottom-nav{left:50%;right:auto;bottom:16px;transform:translateX(-50%);width:min(620px,calc(100% - 32px));border:1px solid var(--line);border-radius:18px;padding:6px;box-shadow:0 16px 38px rgba(23,32,28,.14)}
+  .nav-item{border-radius:12px;min-height:56px}
+  .nav-item.active{background:var(--accent-soft)}
+  .nav-item.active::before{display:none}
+}
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <div class="topbar-title">🏗️ 材料管理系統</div>
+<header class="topbar">
+  <h1 class="topbar-title">🏗️ 材料管理系統</h1>
   <div style="display:flex;gap:6px;align-items:center">
-    <button class="sync-btn" onclick="diagSync()" style="font-size:11px;padding:5px 10px">🔍 診斷</button>
-    <button class="sync-btn" onclick="syncNow()">
+    <button class="sync-btn" type="button" onclick="diagSync()" aria-label="同步診斷" style="font-size:11px;padding:5px 10px">🔍 診斷</button>
+    <button class="sync-btn" type="button" onclick="syncNow()" aria-label="同步資料">
       <span class="sync-dot" id="sync-dot"></span>
       <span id="sync-label">已同步</span>
     </button>
   </div>
-</div>
+</header>
 
 <!-- 庫存清單 -->
 <div class="page" id="page-inventory">
@@ -420,24 +525,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <!-- Bottom Nav -->
-<nav class="bottom-nav">
-  <button class="nav-item active" onclick="showPage('demand',this)">
+<nav class="bottom-nav" aria-label="主要功能">
+  <button class="nav-item active" type="button" onclick="showPage('demand',this)" aria-label="需求">
     <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
     需求單
   </button>
-  <button class="nav-item" onclick="showPage('production',this)">
+  <button class="nav-item" type="button" onclick="showPage('production',this)" aria-label="入庫">
     <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
     生產
   </button>
-  <button class="nav-item" onclick="showPage('inventory',this)">
+  <button class="nav-item" type="button" onclick="showPage('inventory',this)" aria-label="庫存">
     <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
     庫存
   </button>
-  <button class="nav-item" onclick="showPage('shipment',this)">
+  <button class="nav-item" type="button" onclick="showPage('shipment',this)" aria-label="出貨">
     <svg viewBox="0 0 24 24"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect x="9" y="11" width="14" height="10" rx="1"/><circle cx="12" cy="21" r="1"/><circle cx="20" cy="21" r="1"/></svg>
     出貨
   </button>
-  <button class="nav-item" onclick="showPage('allocation',this)">
+  <button class="nav-item" type="button" onclick="showPage('allocation',this)" aria-label="分配">
     <svg viewBox="0 0 24 24"><path d="M3 3h18v4H3z"/><path d="M3 11h7v10H3z"/><path d="M14 11h7v10h-7z"/></svg>
     分配
   </button>
