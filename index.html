@@ -332,11 +332,11 @@ body{background:var(--app-bg);color:var(--ink)}
   </div>
 </div>
 
-<!-- 生產入庫 -->
+<!-- 入庫 -->
 <div class="page" id="page-production">
-  <div class="flow-hint">🏭 生產完成後，在這裡登記入庫，材料數量會自動更新到庫存。</div>
+  <div class="flow-hint">📥 材料完成或到倉後，在這裡登記入庫，數量會自動加到庫存。</div>
   <div class="card">
-    <div class="card-title">新增生產入庫</div>
+    <div class="card-title">新增入庫</div>
     <div class="form-group"><label>日期</label><input type="date" id="prod-date"></div>
     <div class="form-row">
       <div class="form-group"><label>材料名稱</label><input type="text" id="prod-name" placeholder="例：鍍鋅管"></div>
@@ -492,7 +492,7 @@ body{background:var(--app-bg);color:var(--ink)}
   </div>
   <button class="btn-outline" onclick="showArchiveManager()" style="width:100%;margin-bottom:6px">📦 封存管理（已完工案場）</button>
   <button class="btn-outline" onclick="mergeDemandProjects()" style="width:100%;margin-bottom:6px">📄 合併匯出多個案場需求單</button>
-  <button class="btn-outline" onclick="showInventoryGap()" style="width:100%;margin-bottom:10px;border-color:#fca5a5;color:#dc2626;background:#fff5f5">📊 庫存缺口分析（需生產量）</button>
+  <button class="btn-outline" onclick="showInventoryGap()" style="width:100%;margin-bottom:10px;border-color:#fca5a5;color:#dc2626;background:#fff5f5">📊 庫存缺口分析（需補量）</button>
   <div id="demand-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;flex-wrap:nowrap"></div>
   <div id="demand-floor-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;flex-wrap:nowrap"></div>
   <div id="demand-floor-context" class="floor-context" style="display:none"></div>
@@ -576,7 +576,7 @@ body{background:var(--app-bg);color:var(--ink)}
   </button>
   <button class="nav-item" type="button" onclick="showPage('production',this)" aria-label="入庫">
     <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-    生產
+    入庫
   </button>
   <button class="nav-item" type="button" onclick="showPage('inventory',this)" aria-label="庫存">
     <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
@@ -958,7 +958,7 @@ async function diagSync() {
   const msg = [];
   msg.push('【本地資料】');
   msg.push('庫存 ' + inventory.length + ' 筆');
-  msg.push('生產 ' + productions.length + ' 筆');
+  msg.push('入庫 ' + productions.length + ' 筆');
   msg.push('出貨 ' + shipments.length + ' 筆');
   msg.push('需求 ' + demands.length + ' 筆');
   msg.push('分配 ' + allocations.length + ' 筆');
@@ -975,7 +975,7 @@ async function diagSync() {
         const src = d.inventory ? d : (d.data ? JSON.parse(d.data) : null);
         if (src) {
           msg.push('GAS 庫存 ' + (src.inventory||[]).length + ' 筆');
-          msg.push('GAS 生產 ' + (src.productions||[]).length + ' 筆');
+          msg.push('GAS 入庫 ' + (src.productions||[]).length + ' 筆');
           msg.push('GAS 出貨 ' + (src.shipments||[]).length + ' 筆');
           msg.push('GAS 需求 ' + (src.demands||[]).length + ' 筆');
           msg.push('GAS 分配 ' + (src.allocations||[]).length + ' 筆');
@@ -1797,7 +1797,7 @@ function exportOrderPDF() {
 }
 
 function exportPDF(page) {
-  const titles = {inventory:'庫存清單', production:'生產入庫紀錄', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
+  const titles = {inventory:'庫存清單', production:'入庫紀錄', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
   const datePages = {production:productions, shipment:shipments, arrival:shipments, demand:demands};
   const source = datePages[page];
   if (source) {
@@ -1811,7 +1811,7 @@ function exportPDF(page) {
 }
 
 function exportPDFByDates(page, chosenDates) {
-  const titles = {inventory:'庫存清單', production:'生產入庫紀錄', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
+  const titles = {inventory:'庫存清單', production:'入庫紀錄', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
   let html = '<h1>'+titles[page]+'</h1><div class="meta">匯出日期：'+today+'</div>';
   if (chosenDates && chosenDates.length) html += '<div class="meta">資料日期：'+chosenDates.slice().sort().join('、')+'</div>';
   if (page==='inventory') {
@@ -2641,7 +2641,7 @@ function showInventoryGap() {
       const isOver = r.net < 0;
       const statusColor = isLack?'#dc2626':isOver?'#d97706':'#059669';
       const statusText  = isLack?`缺 ${r.net}${r.unit}`:isOver?`溢出 ${-r.net}${r.unit}`:'足夠';
-      const statusSub   = isLack?'需生產':isOver?'庫存過剩':'';
+      const statusSub   = isLack?'需補料':isOver?'庫存過剩':'';
       body += `<div class="list-item">
         <label style="display:flex;align-items:flex-start;gap:10px;flex:1;cursor:pointer">
           <input class="gap-pick" type="checkbox" value="${r.key.replace(/"/g,'&quot;')}" data-lack="${isLack?'1':'0'}" ${isLack?'checked':''} style="width:18px;height:18px;margin-top:2px;flex-shrink:0">
@@ -2672,7 +2672,7 @@ function showInventoryGap() {
     });
     body += `</div>`;
   }
-  body += `<button class="btn-primary" onclick="exportGapPDF()" style="margin-top:14px">📄 匯出生產需求單</button>`;
+  body += `<button class="btn-primary" onclick="exportGapPDF()" style="margin-top:14px">📄 匯出補料需求單</button>`;
   document.getElementById('edit-modal-title').textContent = '📊 '+activeProject+' 庫存缺口';
   document.getElementById('edit-modal-body').innerHTML = body;
   document.getElementById('edit-save-btn').style.display = 'none';
@@ -2698,7 +2698,7 @@ function exportGapPDF() {
   const rows = getInventoryGapRows(activeProject).filter(r=>picked.has(r.key));
   let html = '';
   if (company.name) html += '<div class="company">'+company.name+'</div>';
-  html += '<h1>生產需求單</h1><div class="meta">案場：'+activeProject+'　日期：'+today+'　勾選項目：'+rows.length+' 筆</div>';
+  html += '<h1>補料需求單</h1><div class="meta">案場：'+activeProject+'　日期：'+today+'　勾選項目：'+rows.length+' 筆</div>';
   const tableRows = rows.map(function(r){
     const col = r.net>0?'color:#dc2626;font-weight:700':r.net<0?'color:#d97706;font-weight:700':'color:#166534';
     const label = r.net>0?('缺 '+r.net+r.unit):r.net<0?('溢出 '+(-r.net)+r.unit):'✅';
@@ -2707,7 +2707,7 @@ function exportGapPDF() {
   html += '<table><thead><tr><th>系列</th><th>材料</th><th>規格</th><th>厚度</th><th>總需求</th><th>已出貨</th><th>現有庫存</th><th>缺／溢</th></tr></thead><tbody>'+tableRows+'</tbody></table>';
   document.getElementById('edit-modal').classList.remove('show');
   document.getElementById('edit-save-btn').style.display = '';
-  printHTML('生產需求單 '+activeProject, html);
+  printHTML('補料需求單 '+activeProject, html);
 }
 
 // ── Allocation（置料區分配）──
