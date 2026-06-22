@@ -1929,12 +1929,15 @@ function mergeShipByRange() {
     let html = '';
     if (company.name) html += '<div class="company">'+company.name+'</div>';
     html += '<h1>出貨單（合併）</h1><div class="meta">日期：'+chosenDates.sort().join('、')+'</div>';
-    const dateMap = {};
-    items.forEach(function(s){ const d=s.date||'（無日期）'; if(!dateMap[d]) dateMap[d]=[]; dateMap[d].push(s); });
-    Object.keys(dateMap).sort((a,b)=>b.localeCompare(a)).forEach(function(date){
-      html += '<h2 style="background:#185FA5;color:#fff;padding:6px 10px;border-radius:6px">📅 '+date+'</h2>';
+    // 依（日期 + 備注）分組
+    const groupMap = {};
+    items.forEach(function(s){ const k=(s.date||'（無日期）')+'|||'+(s.note||''); if(!groupMap[k]) groupMap[k]={date:s.date||'（無日期）',note:s.note||'',items:[]}; groupMap[k].items.push(s); });
+    Object.keys(groupMap).sort((a,b)=>b.localeCompare(a)).forEach(function(gk){
+      const g = groupMap[gk];
+      const header = g.date + (g.note?' — '+g.note:'');
+      html += '<h2 style="background:#185FA5;color:#fff;padding:6px 10px;border-radius:6px">📅 '+header+'</h2>';
       const siteMap = {};
-      dateMap[date].forEach(function(s){ const k=s.site||'（未指定）'; if(!siteMap[k]) siteMap[k]=[]; siteMap[k].push(s); });
+      g.items.forEach(function(s){ const k=s.site||'（未指定）'; if(!siteMap[k]) siteMap[k]=[]; siteMap[k].push(s); });
       Object.keys(siteMap).forEach(function(site){
         const rows = siteMap[site].map(function(s){
           return '<tr><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+(s.thick||'')+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式')+'</td></tr>';
@@ -1964,7 +1967,7 @@ function exportShipDatePDF(date, note) {
     html += '<h2>🏢 '+site+'</h2><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
     html += '<div style="text-align:right;font-size:12px;color:#6b7280;margin-top:4px">小計：'+st+'</div>';
   });
-  printHTML('出貨單 '+date, html);
+  printHTML('出貨單 '+date+(note?' — '+note:''), html);
 }
 
 function renderOrder() {
@@ -2172,8 +2175,8 @@ function exportPDFByDates(page, chosenDates) {
   } else if (page==='shipment') {
     const items = shipments.filter(s=>!chosenDates || chosenDates.includes(s.date||'（無日期）'));
     if (!items.length) { showToast('⚠️ 目前無資料可匯出'); return; }
-    const rows = items.map(function(s){return '<tr><td>'+s.date+'</td><td>'+s.site+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td></tr>';}).join('');
-    html += '<table><thead><tr><th>日期</th><th>工地</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    const rows = items.map(function(s){return '<tr><td>'+s.date+'</td><td>'+s.site+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td><td>'+(s.note||'')+'</td></tr>';}).join('');
+    html += '<table><thead><tr><th>日期</th><th>工地</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th><th>備注</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='arrival') {
     const shipItems = shipments.filter(s=>!chosenDates || chosenDates.includes(s.date||'（無日期）'));
     if (!shipItems.length) { showToast('⚠️ 目前無資料可匯出'); return; }
@@ -2182,9 +2185,9 @@ function exportPDFByDates(page, chosenDates) {
     Object.keys(siteMap).forEach(function(site){
       const items = siteMap[site];
       const total = items.reduce(function(a,b){return a+b.qty;},0);
-      const rows = items.map(function(s){return '<tr><td>'+s.date+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td></tr>';}).join('');
+      const rows = items.map(function(s){return '<tr><td>'+s.date+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td><td>'+(s.note||'')+'</td></tr>';}).join('');
       html += '<h2>🏗️ '+site+'　<span style="font-weight:400;font-size:12px;color:#6b7280">合計 '+total+' 件</span></h2>';
-      html += '<table><thead><tr><th>日期</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      html += '<table><thead><tr><th>日期</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th><th>備注</th></tr></thead><tbody>'+rows+'</tbody></table>';
     });
   } else if (page==='demand') {
     const demandItems = demands.filter(d=>!chosenDates || chosenDates.includes(d.date||'（無日期）'));
