@@ -1288,14 +1288,14 @@ function findInventory(name, spec, thick, project) {
 }
 
 function addProduction() {
-  const date = document.getElementById('prod-date').value;
+  const date = document.getElementById('prod-date').value || today;
   const name = document.getElementById('prod-name').value.trim();
   const spec = document.getElementById('prod-spec').value.trim();
   const thick = document.getElementById('prod-thick').value.trim();
   const qtyRaw = document.getElementById('prod-qty').value.trim();
   const qty = evalQty(qtyRaw);
   const project = (document.getElementById('prod-project')||{}).value || '';
-  if (!date||!name||!spec||!thick||!qty||qty<=0) { showToast('⚠️ 請填寫所有欄位'); return; }
+  if (!name||!qty||qty<=0) { showToast('⚠️ 請填寫材料名稱和數量'); return; }
   const rec = {date,name,spec,thick,qty};
   if (project) rec.project = project;
   if (qtyRaw && qtyRaw !== String(qty)) rec.qtyExpr = qtyRaw;
