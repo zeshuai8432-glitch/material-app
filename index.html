@@ -3383,7 +3383,9 @@ function renderAllocation() {
       stockEl.innerHTML='<div class="empty"><div class="empty-icon">📦</div>此案場置料區無材料</div>';
     } else {
       stockEl.innerHTML = cats.map(cat=>{
-        const rows = catMap[cat].map(m=>`<div class="list-item">
+        const rows = catMap[cat].map(m=>{
+          const q = s => JSON.stringify(s).replace(/"/g,'&quot;');
+          return `<div class="list-item">
           <div style="flex:1">
             <div class="list-main">${m.name}</div>
             <div style="margin-top:3px">${specBadge(m.spec,m.thick)}</div>
@@ -3393,9 +3395,9 @@ function renderAllocation() {
               <div style="font-size:18px;font-weight:700;color:#166534">${m.remain}${m.unit}</div>
               <div style="font-size:11px;color:#9ca3af">置料區剩餘</div>
             </div>
-            <button onclick="returnFromStockyard(${JSON.stringify(m.name)},${JSON.stringify(m.spec)},${JSON.stringify(m.thick)},${JSON.stringify(m.unit)},${m.remain})" style="font-size:12px;padding:4px 10px;background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;color:#92400e;cursor:pointer">退回</button>
+            <button onclick="returnFromStockyard(${q(m.name)},${q(m.spec)},${q(m.thick)},${q(m.unit)},${m.remain})" style="font-size:12px;padding:4px 10px;background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;color:#92400e;cursor:pointer">退回</button>
           </div>
-        </div>`).join('');
+        </div>`;}).join('');
         return `<div class="cat-header">${cat}</div>${rows}`;
       }).join('');
     }
