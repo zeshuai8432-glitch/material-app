@@ -2501,38 +2501,44 @@ function deleteDemand(idx) {
 }
 
 // ── 庫存缺口分析 ──
-function showInventoryGap() {
-  if (!activeProject) { showToast('⚠️ 請先選擇案場'); return; }
-  const projectDemands = demands.filter(d=>d.project===activeProject);
-  if (!projectDemands.length) { showToast('⚠️ 此案場尚無需求'); return; }
-  // 彙總同案場所有樓層的材料需求
+const gapNorm = v => String(v==null?'':v).trim().toLowerCase();
+
+function getInventoryGapRows(project) {
+  const projectDemands = demands.filter(d=>d.project===project);
   const demandMap = {};
   projectDemands.forEach(d=>{
     const key = d.name+'|'+d.spec+'|'+(d.thick||'');
-    if (!demandMap[key]) demandMap[key] = {name:d.name,spec:d.spec,thick:d.thick||'',unit:d.unit||'',qty:0};
+    if (!demandMap[key]) demandMap[key] = {key, name:d.name,spec:d.spec,thick:d.thick||'',unit:d.unit||'',qty:0};
     demandMap[key].qty += Number(d.qty);
   });
-  // 對比庫存與已出貨（只計算屬於此案場或通用的庫存）
-  const gapNorm = v => String(v==null?'':v).trim().toLowerCase();
-  const rows = Object.values(demandMap).map(m=>{
+  const netOrder = r => r.net>0?0:r.net<0?1:2;
+  return Object.values(demandMap).map(m=>{
     const allMatching = inventory.filter(i=>
       gapNorm(i.name)===gapNorm(m.name) &&
       gapNorm(i.spec)===gapNorm(m.spec) &&
       gapNorm(i.thick||'')===gapNorm(m.thick||'')
     );
-    const projMatching = allMatching.filter(i=>!getInvProject(i) || getInvProject(i)===activeProject);
-    const inStock = projMatching.reduce((s,i)=>s+Number(i.qty),0);
-    const excludedQty = allMatching.filter(i=>getInvProject(i) && getInvProject(i)!==activeProject).reduce((s,i)=>s+Number(i.qty),0);
-    const shipped = getShippedQty(activeProject, m.name, m.spec, m.thick);
-    const net = m.qty - shipped - inStock;
-    return {...m, inStock, shipped, net, excludedQty};
-  });
-  // 找出庫存裡沒有對應到任何需求的項目
-  const matchedKeys = new Set(Object.values(demandMap).map(m=>gapNorm(m.name)+'|'+gapNorm(m.spec)+'|'+gapNorm(m.thick||'')));
-  const unmatchedInv = inventory.filter(i=>(!getInvProject(i)||getInvProject(i)===activeProject) && !matchedKeys.has(gapNorm(i.name)+'|'+gapNorm(i.spec)+'|'+gapNorm(i.thick||'')));
-  // 排序：缺貨 → 溢出 → 足夠，同類別內按系列/名稱
-  const netOrder = r => r.net>0?0:r.net<0?1:2;
-  rows.sort((a,b)=>netOrder(a)-netOrder(b)||(materialTags[a.name]||'').localeCompare(materialTags[b.name]||'')||(a.name.localeCompare(b.name,'zh-TW')));
+    const projMatching = allMatching.filter(i=>!getInvProject(i) || getInvProject(i)===project);
+    const inStock = roundQty(projMatching.reduce((s,i)=>s+Number(i.qty),0));
+    const excludedQty = roundQty(allMatching.filter(i=>getInvProject(i) && getInvProject(i)!==project).reduce((s,i)=>s+Number(i.qty),0));
+    const shipped = roundQty(getShippedQty(project, m.name, m.spec, m.thick));
+    const qty = roundQty(m.qty);
+    const net = roundQty(qty - shipped - inStock);
+    return {...m, qty, inStock, shipped, net, excludedQty};
+  }).sort((a,b)=>netOrder(a)-netOrder(b)||(materialTags[a.name]||'').localeCompare(materialTags[b.name]||'')||(a.name.localeCompare(b.name,'zh-TW')));
+}
+
+function getUnmatchedGapInventory(project, rows) {
+  const matchedKeys = new Set(rows.map(m=>gapNorm(m.name)+'|'+gapNorm(m.spec)+'|'+gapNorm(m.thick||'')));
+  return inventory.filter(i=>(!getInvProject(i)||getInvProject(i)===project) && !matchedKeys.has(gapNorm(i.name)+'|'+gapNorm(i.spec)+'|'+gapNorm(i.thick||'')));
+}
+
+function showInventoryGap() {
+  if (!activeProject) { showToast('⚠️ 請先選擇案場'); return; }
+  const projectDemands = demands.filter(d=>d.project===activeProject);
+  if (!projectDemands.length) { showToast('⚠️ 此案場尚無需求'); return; }
+  const rows = getInventoryGapRows(activeProject);
+  const unmatchedInv = getUnmatchedGapInventory(activeProject, rows);
   const lackCount = rows.filter(r=>r.net>0).length;
   const overCount = rows.filter(r=>r.net<0).length;
   const okCount   = rows.length - lackCount - overCount;
@@ -2545,6 +2551,11 @@ function showInventoryGap() {
     ${overCount?`<span class="badge badge-amber">↑ ${overCount} 種溢出</span>`:''}
     ${okCount?`<span class="badge badge-green">✅ ${okCount} 種足夠</span>`:''}
   </div>`;
+  body += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    <button class="btn-sm" type="button" onclick="setGapChecks('lack')">只勾缺貨</button>
+    <button class="btn-sm" type="button" onclick="setGapChecks('all')">全選</button>
+    <button class="btn-sm" type="button" onclick="setGapChecks('none')">全不選</button>
+  </div>`;
   sortedSeriesKeys(sm).forEach(series=>{
     body += `<div class="acc-series-label" style="margin-top:8px">📁 ${series}</div>`;
     sm[series].forEach(r=>{
@@ -2554,6 +2565,8 @@ function showInventoryGap() {
       const statusText  = isLack?`缺 ${r.net}${r.unit}`:isOver?`溢出 ${-r.net}${r.unit}`:'足夠';
       const statusSub   = isLack?'需生產':isOver?'庫存過剩':'';
       body += `<div class="list-item">
+        <label style="display:flex;align-items:flex-start;gap:10px;flex:1;cursor:pointer">
+          <input class="gap-pick" type="checkbox" value="${r.key.replace(/"/g,'&quot;')}" data-lack="${isLack?'1':'0'}" ${isLack?'checked':''} style="width:18px;height:18px;margin-top:2px;flex-shrink:0">
         <div style="flex:1">
           <div class="list-main">${r.name}</div>
           <div style="margin-top:3px">${specBadge(r.spec,r.thick)}</div>
@@ -2562,6 +2575,7 @@ function showInventoryGap() {
           </div>
           ${r.excludedQty>0?`<div style="font-size:11px;color:#d97706;margin-top:3px">⚠️ 另有 ${r.excludedQty}${r.unit} 庫存被標記為其他案場，未計入</div>`:''}
         </div>
+        </label>
         <div style="text-align:right;margin-left:12px;flex-shrink:0">
           <div style="font-size:16px;font-weight:800;color:${statusColor}">${statusText}</div>
           ${statusSub?`<div style="font-size:11px;color:${statusColor};margin-top:2px">${statusSub}</div>`:''}
@@ -2587,27 +2601,26 @@ function showInventoryGap() {
   document.getElementById('edit-modal').classList.add('show');
 }
 
+function setGapChecks(mode) {
+  document.querySelectorAll('.gap-pick').forEach(cb=>{
+    cb.checked = mode==='all' || (mode==='lack' && cb.dataset.lack==='1');
+    if (mode==='none') cb.checked = false;
+  });
+}
+
+function getPickedGapKeys() {
+  return Array.from(document.querySelectorAll('.gap-pick:checked')).map(cb=>cb.value);
+}
+
 function exportGapPDF() {
   if (!activeProject) return;
-  const projectDemands = demands.filter(d=>d.project===activeProject);
-  const demandMap = {};
-  projectDemands.forEach(d=>{
-    const key = d.name+'|'+d.spec+'|'+(d.thick||'');
-    if (!demandMap[key]) demandMap[key]={name:d.name,spec:d.spec,thick:d.thick||'',unit:d.unit||'',qty:0};
-    demandMap[key].qty += Number(d.qty);
-  });
-  const netOrder = r => r.net>0?0:r.net<0?1:2;
-  const rows = Object.values(demandMap).map(m=>{
-    const inStock = inventory
-      .filter(i=>i.name===m.name && i.spec===m.spec && (i.thick||'')===(m.thick||'') && (!getInvProject(i) || getInvProject(i)===activeProject))
-      .reduce((s,i)=>s+Number(i.qty),0);
-    const shipped = getShippedQty(activeProject, m.name, m.spec, m.thick);
-    const net = m.qty - shipped - inStock;
-    return {...m, inStock, shipped, net};
-  }).sort((a,b)=>netOrder(a)-netOrder(b)||(a.name.localeCompare(b.name,'zh-TW')));
+  const pickedKeys = getPickedGapKeys();
+  if (!pickedKeys.length) { showToast('⚠️ 請先勾選要匯出的材料'); return; }
+  const picked = new Set(pickedKeys);
+  const rows = getInventoryGapRows(activeProject).filter(r=>picked.has(r.key));
   let html = '';
   if (company.name) html += '<div class="company">'+company.name+'</div>';
-  html += '<h1>生產需求單</h1><div class="meta">案場：'+activeProject+'　日期：'+today+'</div>';
+  html += '<h1>生產需求單</h1><div class="meta">案場：'+activeProject+'　日期：'+today+'　勾選項目：'+rows.length+' 筆</div>';
   const tableRows = rows.map(function(r){
     const col = r.net>0?'color:#dc2626;font-weight:700':r.net<0?'color:#d97706;font-weight:700':'color:#166534';
     const label = r.net>0?('缺 '+r.net+r.unit):r.net<0?('溢出 '+(-r.net)+r.unit):'✅';
