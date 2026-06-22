@@ -363,7 +363,7 @@ body{background:var(--app-bg);color:var(--ink)}
     <div class="form-group"><label>日期</label><input type="date" id="ship-date"></div>
     <div class="form-group">
       <label>工地／案件名稱</label>
-      <select id="ship-site" onchange="updateDemandGap()">
+      <select id="ship-site" onchange="refreshShipDemandSelects(); updateDemandGap()">
         <option value="">-- 請選擇案件 --</option>
       </select>
     </div>
@@ -377,9 +377,9 @@ body{background:var(--app-bg);color:var(--ink)}
     <!-- 從庫存出：下拉選單 -->
     <div id="ship-stock-fields">
       <div class="form-group">
-        <label>選擇材料</label>
+        <label>選擇需求單材料</label>
         <select id="ship-inv-select" onchange="onSelectInventory()">
-          <option value="">-- 請選擇庫存材料 --</option>
+          <option value="">-- 請先選案場，再選需求單材料 --</option>
         </select>
       </div>
       <div id="ship-stock-info" style="display:none;background:#f0f7ff;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#374151">
@@ -388,6 +388,12 @@ body{background:var(--app-bg);color:var(--ink)}
     </div>
     <!-- 制式材料：手動輸入 -->
     <div id="ship-manual-fields" style="display:none">
+      <div class="form-group">
+        <label>從需求單選材料</label>
+        <select id="ship-demand-select" onchange="onSelectShipDemandMaterial()">
+          <option value="">-- 請先選案場，再選需求單材料 --</option>
+        </select>
+      </div>
       <div class="form-row">
         <div class="form-group"><label>材料名稱</label><input type="text" id="ship-name" placeholder="例：鍍鋅管" oninput="updateDemandGap()"></div>
         <div class="form-group"><label>規格</label><input type="text" id="ship-spec" placeholder="例：DN100" oninput="updateDemandGap()"></div>
@@ -961,21 +967,54 @@ function setShipType(t) {
   document.getElementById('opt-standard').className = 'radio-opt' + (t==='standard'?' active':'');
   document.getElementById('ship-stock-fields').style.display = t==='stock'?'block':'none';
   document.getElementById('ship-manual-fields').style.display = t==='standard'?'block':'none';
-  if (t==='stock') refreshInvSelect();
+  refreshShipDemandSelects();
 }
 
-function refreshInvSelect() {
-  const sel = document.getElementById('ship-inv-select');
+function demandMaterialValue(m) {
+  return encodeURIComponent(JSON.stringify({name:m.name||'', spec:m.spec||'', thick:m.thick||''}));
+}
+
+function parseDemandMaterialValue(value) {
+  if (!value) return null;
+  try { return JSON.parse(decodeURIComponent(value)); } catch(e) { return null; }
+}
+
+function getDemandMaterialOptions(site) {
+  const norm = v => String(v==null?'':v).trim();
+  let rows = demands.filter(d=>!site || norm(d.project)===norm(site));
+  if (!rows.length && site) rows = demands;
+  const map = {};
+  rows.forEach(d=>{
+    const name = norm(d.name), spec = norm(d.spec), thick = norm(d.thick);
+    if (!name || !spec) return;
+    const key = name+'|'+spec+'|'+thick;
+    if (!map[key]) map[key] = {name, spec, thick, unit:d.unit||'', count:0, qty:0};
+    map[key].count += 1;
+    map[key].qty += Number(d.qty)||0;
+  });
+  return Object.values(map).sort((a,b)=>(a.name+a.spec+a.thick).localeCompare(b.name+b.spec+b.thick,'zh-TW'));
+}
+
+function fillDemandMaterialSelect(sel, materials, placeholder) {
+  if (!sel) return;
   const prev = sel.value;
-  sel.innerHTML = '<option value="">-- 請選擇庫存材料 --</option>';
-  inventory.filter(i=>i.qty>0).forEach((i,idx)=>{
+  sel.innerHTML = '<option value="">'+placeholder+'</option>';
+  materials.forEach(m=>{
     const opt = document.createElement('option');
-    opt.value = idx;
-    opt.textContent = i.name + '　' + i.spec + '　' + i.thick + '　（庫存：' + i.qty + '）';
+    opt.value = demandMaterialValue(m);
+    opt.textContent = m.name + '　' + m.spec + (m.thick?'　'+m.thick:'') + '（需求 '+m.qty+(m.unit||'')+'）';
     sel.appendChild(opt);
   });
   if (prev) sel.value = prev;
+}
+
+function refreshShipDemandSelects() {
+  const site = document.getElementById('ship-site') ? document.getElementById('ship-site').value : '';
+  const materials = getDemandMaterialOptions(site);
+  fillDemandMaterialSelect(document.getElementById('ship-inv-select'), materials, '-- 請選擇需求單材料 --');
+  fillDemandMaterialSelect(document.getElementById('ship-demand-select'), materials, '-- 請選擇需求單材料 --');
   onSelectInventory();
+  onSelectShipDemandMaterial(false);
 }
 
 function onSelectInventory() {
@@ -983,20 +1022,30 @@ function onSelectInventory() {
   const info = document.getElementById('ship-stock-info');
   const detail = document.getElementById('ship-stock-detail');
   if (!sel.value && sel.value !== 0) { info.style.display='none'; updateDemandGap(); return; }
-  const i = inventory.filter(i=>i.qty>0)[parseInt(sel.value)];
-  if (!i) { info.style.display='none'; updateDemandGap(); return; }
+  const mat = parseDemandMaterialValue(sel.value);
+  if (!mat) { info.style.display='none'; updateDemandGap(); return; }
+  const i = findInventory(mat.name, mat.spec, mat.thick);
   info.style.display='block';
-  detail.textContent = '名稱：'+i.name+'　規格：'+i.spec+'　厚度：'+i.thick+'　庫存：'+i.qty;
+  detail.textContent = '名稱：'+mat.name+'　規格：'+mat.spec+'　厚度：'+(mat.thick||'')+'　庫存：'+(i?i.qty:0);
   updateDemandGap();
+}
+
+function onSelectShipDemandMaterial(shouldUpdate=true) {
+  const sel = document.getElementById('ship-demand-select');
+  if (!sel || !sel.value) { if (shouldUpdate) updateDemandGap(); return; }
+  const mat = parseDemandMaterialValue(sel.value);
+  if (!mat) { if (shouldUpdate) updateDemandGap(); return; }
+  document.getElementById('ship-name').value = mat.name || '';
+  document.getElementById('ship-spec').value = mat.spec || '';
+  document.getElementById('ship-thick').value = mat.thick || '';
+  if (shouldUpdate) updateDemandGap();
 }
 
 function getCurrentShipMaterial() {
   if (shipType==='stock') {
     const sel = document.getElementById('ship-inv-select');
     if (!sel.value && sel.value!==0) return null;
-    const inv = inventory.filter(i=>i.qty>0)[parseInt(sel.value)];
-    if (!inv) return null;
-    return { name: inv.name, spec: inv.spec, thick: inv.thick };
+    return parseDemandMaterialValue(sel.value);
   } else {
     const name = document.getElementById('ship-name').value.trim();
     const spec = document.getElementById('ship-spec').value.trim();
@@ -1054,10 +1103,11 @@ function addShipment() {
   if (!date||!site||!qty||qty<=0) { showToast('⚠️ 請填寫所有欄位'); return; }
   if (shipType==='stock') {
     const sel = document.getElementById('ship-inv-select');
-    if (!sel.value && sel.value!==0) { showToast('⚠️ 請選擇庫存材料'); return; }
-    const invList = inventory.filter(i=>i.qty>0);
-    const inv = invList[parseInt(sel.value)];
-    if (!inv) { showToast('❌ 找不到此材料'); return; }
+    if (!sel.value && sel.value!==0) { showToast('⚠️ 請選擇需求單材料'); return; }
+    const mat = parseDemandMaterialValue(sel.value);
+    if (!mat) { showToast('❌ 找不到此材料'); return; }
+    const inv = findInventory(mat.name, mat.spec, mat.thick);
+    if (!inv) { showToast('❌ 庫存沒有這項材料'); return; }
     if (inv.qty<qty) { showToast('❌ 庫存不足！目前：'+inv.qty); return; }
     name=inv.name; spec=inv.spec; thick=inv.thick;
     inv.qty-=qty; inv.lastUpdate=date;
@@ -1095,10 +1145,12 @@ function addShipment() {
   document.getElementById('ship-qty-preview').style.display='none';
   if (shipType==='standard') {
     ['ship-name','ship-spec','ship-thick'].forEach(id=>document.getElementById(id).value='');
+    const demandSel = document.getElementById('ship-demand-select');
+    if (demandSel) demandSel.value='';
   } else {
     document.getElementById('ship-inv-select').value='';
     document.getElementById('ship-stock-info').style.display='none';
-    refreshInvSelect();
+    refreshShipDemandSelects();
   }
   renderAll(); autoSave();
   showToast(shipType==='stock'?'✅ 已出貨，庫存已扣減':'✅ 已新增制式材料');
@@ -1118,7 +1170,7 @@ function removeOrderItem(idx) {
 // ── Render ──
 function renderAll() {
   renderInventory(); renderProductions(); renderShipments(); renderArrival(); renderOrder(); renderDemands(); renderAllocation();
-  renderInvStats(); refreshProjectSelects(); refreshCategorySelect(); refreshFloorList();
+  renderInvStats(); refreshProjectSelects(); refreshCategorySelect(); refreshFloorList(); refreshShipDemandSelects();
 }
 
 function renderInvStats() {
