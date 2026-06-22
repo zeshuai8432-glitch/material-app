@@ -644,6 +644,7 @@ let transferCounter = 0;
 let materialTags = {}; // { [materialName]: seriesLabel }
 let inventoryProjects = {}; // { [name|spec|thick]: projectName }
 let editLogs = [];
+let shipDateLabels = {}; // { [date]: labelString }
 let intakeDraftQueue = [];
 const expandedGroups = new Set();
 
@@ -1097,6 +1098,7 @@ function saveLocal(markDirty = true) {
   localStorage.setItem('mat_tags', JSON.stringify(materialTags));
   localStorage.setItem('mat_inv_projects', JSON.stringify(inventoryProjects));
   localStorage.setItem('mat_edit_logs', JSON.stringify(editLogs));
+  localStorage.setItem('mat_ship_date_labels', JSON.stringify(shipDateLabels));
   if (markDirty) {
     markLocalDirty();
     saveLocalBackup();
@@ -1123,6 +1125,8 @@ function loadLocal() {
     if (invp) { const p = JSON.parse(invp); if (p && typeof p==='object' && !Array.isArray(p)) Object.assign(inventoryProjects, p); }
     const logs = localStorage.getItem('mat_edit_logs');
     if (logs) editLogs = JSON.parse(logs);
+    const sdl = localStorage.getItem('mat_ship_date_labels');
+    if (sdl) { const p = JSON.parse(sdl); if (p && typeof p==='object' && !Array.isArray(p)) shipDateLabels = p; }
     orderNo = shipments.length + 1;
   } catch(e) {}
 }
@@ -1150,6 +1154,7 @@ async function saveToSheets() {
     inventoryProjects,
     archivedProjects,
     editLogs: editLogs.slice(-200),
+    shipDateLabels,
     clientUpdatedAt: getLocalUpdatedAt() || Date.now()
   };
   const bodyText = JSON.stringify(payload);
@@ -1281,6 +1286,7 @@ async function loadFromSheets() {
         inventoryProjects = nextInventoryProjects;
         if (Array.isArray(parsed.archivedProjects)) archivedProjects = parsed.archivedProjects;
         if (Array.isArray(parsed.editLogs)) editLogs = parsed.editLogs;
+        if (parsed.shipDateLabels && typeof parsed.shipDateLabels === 'object' && !Array.isArray(parsed.shipDateLabels)) shipDateLabels = parsed.shipDateLabels;
         orderNo = shipments.length + 1;
         saveLocal(false);
       }
@@ -1814,17 +1820,42 @@ function renderShipments() {
       }).join('');
       return `<div class="acc-series"><div class="acc-series-label">📁 ${series}</div>${nameBlocks}</div>`;
     }).join('');
+    const dateLabel = shipDateLabels[date] || '';
+    const labelHtml = dateLabel ? `<span style="font-size:12px;font-weight:400;opacity:0.9;margin-left:6px">— ${dateLabel}</span>` : '';
+    const qDate = JSON.stringify(date).replace(/"/g,'&quot;');
     return `<div class="site-group" style="margin-bottom:12px">
       <div class="site-group-header" onclick="toggleGroup('${dayGid}')" style="cursor:pointer">
-        <div class="site-group-title"><span class="acc-arrow${dayOpen?' open':''}" data-arrow="${dayGid}">▶</span> 📅 ${date}</div>
+        <div class="site-group-title"><span class="acc-arrow${dayOpen?' open':''}" data-arrow="${dayGid}">▶</span> 📅 ${date}${labelHtml}</div>
         <div style="display:flex;align-items:center;gap:6px">
           <span class="site-group-total">合計 ${dayTotal}</span>
+          <button onclick="event.stopPropagation();editShipDateLabel(${qDate})" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">備註</button>
           <button onclick="event.stopPropagation();exportShipDatePDF('${date}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
         </div>
       </div>
       <div class="site-group-body collapsible-body" id="${dayGid}" style="display:${dayOpen?'block':'none'}">${seriesBlocks}</div>
     </div>`;
   }).join('');
+}
+
+function editShipDateLabel(date) {
+  const current = shipDateLabels[date] || '';
+  showEditModal(
+    `📅 ${date} — 備註`,
+    `<div class="form-group">
+       <label>備註／命名（留空則清除）</label>
+       <input id="ship-label-input" type="text" maxlength="40" placeholder="例：第一批出貨、A案場配送…" value="${current.replace(/"/g,'&quot;')}" style="font-size:16px">
+     </div>`,
+    () => {
+      const val = (document.getElementById('ship-label-input').value || '').trim();
+      if (val) shipDateLabels[date] = val;
+      else delete shipDateLabels[date];
+      hideEditModal();
+      renderAll();
+      autoSave();
+      showToast(val ? `✅ 已設定備註「${val}」` : '✅ 已清除備註');
+    }
+  );
+  setTimeout(() => { const el = document.getElementById('ship-label-input'); if (el) { el.focus(); el.select(); } }, 100);
 }
 
 function mergeShipByRange() {
