@@ -501,9 +501,9 @@ body{background:var(--app-bg);color:var(--ink)}
   <div class="card" id="floor-excess-card">
     <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;-webkit-user-select:none" onclick="toggleFloorExcessCard()">
       <span>📍 各樓層餘料</span>
-      <span id="floor-excess-arrow" class="acc-arrow open">▶</span>
+      <span id="floor-excess-arrow" class="acc-arrow">▶</span>
     </div>
-    <div id="floor-excess-body">
+    <div id="floor-excess-body" style="display:none">
       <div style="font-size:12px;color:#6b7280;margin-bottom:8px">分配量超出需求的材料，實際仍在各樓層</div>
       <div id="alloc-floor-excess"></div>
     </div>
@@ -613,6 +613,13 @@ function toggleGroup(id) {
   wasOpen?expandedGroups.delete(id):expandedGroups.add(id);
   body.style.display=wasOpen?'none':'block';
   document.querySelectorAll('[data-arrow="'+id+'"]').forEach(a=>a.classList.toggle('open',!wasOpen));
+}
+function collapseAllGroups() {
+  expandedGroups.clear();
+  document.querySelectorAll('.acc-body,.collapsible-body').forEach(body=>{ body.style.display='none'; });
+  document.querySelectorAll('.acc-arrow').forEach(arrow=>{ arrow.classList.remove('open'); });
+  const floorExcessBody = document.getElementById('floor-excess-body');
+  if (floorExcessBody) floorExcessBody.style.display = 'none';
 }
 function specBadge(spec, thick) {
   return (spec?`<span class="spec-tag">${spec}</span>`:'')+(thick?`<span class="thick-tag">${thick}</span>`:'');
@@ -1169,6 +1176,8 @@ function renderShipments() {
   el.innerHTML = dates.map(date=>{
     const items = dateMap[date];
     const dayTotal = items.reduce((a,b)=>a+Number(b.qty),0);
+    const dayGid = 'ship-date-g-'+hashStr(date);
+    const dayOpen = expandedGroups.has(dayGid);
     const sm = groupBySeriesName(items, s=>s.name);
     const seriesBlocks = sortedSeriesKeys(sm).map(series=>{
       const nameMap = sm[series];
@@ -1201,14 +1210,14 @@ function renderShipments() {
       return `<div class="acc-series"><div class="acc-series-label">📁 ${series}</div>${nameBlocks}</div>`;
     }).join('');
     return `<div class="site-group" style="margin-bottom:12px">
-      <div class="site-group-header">
-        <div class="site-group-title">📅 ${date}</div>
+      <div class="site-group-header" onclick="toggleGroup('${dayGid}')" style="cursor:pointer">
+        <div class="site-group-title"><span class="acc-arrow${dayOpen?' open':''}" data-arrow="${dayGid}">▶</span> 📅 ${date}</div>
         <div style="display:flex;align-items:center;gap:6px">
           <span class="site-group-total">合計 ${dayTotal}</span>
-          <button onclick="exportShipDatePDF('${date}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
+          <button onclick="event.stopPropagation();exportShipDatePDF('${date}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
         </div>
       </div>
-      <div class="site-group-body">${seriesBlocks}</div>
+      <div class="site-group-body collapsible-body" id="${dayGid}" style="display:${dayOpen?'block':'none'}">${seriesBlocks}</div>
     </div>`;
   }).join('');
 }
@@ -1275,6 +1284,8 @@ function renderOrder() {
   document.getElementById('order-list').innerHTML = Object.keys(siteMap).map(site=>{
     const items = siteMap[site];
     const siteTotal = items.reduce((a,b)=>a+b.qty,0);
+    const siteGid = 'order-site-g-'+hashStr(site);
+    const siteOpen = expandedGroups.has(siteGid);
     const rows = items.map((o,idx)=>`
       <div class="order-item">
         <div class="order-info">
@@ -1284,11 +1295,11 @@ function renderOrder() {
         <button class="btn-danger-sm" onclick="removeOrderItem(${o._idx})">移除</button>
       </div>`).join('');
     return `<div class="site-group" style="margin-bottom:12px">
-      <div class="site-group-header">
-        <div class="site-group-title">🏢 ${site}</div>
+      <div class="site-group-header" onclick="toggleGroup('${siteGid}')" style="cursor:pointer">
+        <div class="site-group-title"><span class="acc-arrow${siteOpen?' open':''}" data-arrow="${siteGid}">▶</span> 🏢 ${site}</div>
         <div class="site-group-total">小計 ${siteTotal}</div>
       </div>
-      <div class="site-group-body">${rows}</div>
+      <div class="site-group-body collapsible-body" id="${siteGid}" style="display:${siteOpen?'block':'none'}">${rows}</div>
     </div>`;
   }).join('');
 }
@@ -1302,6 +1313,8 @@ function renderArrival() {
   el.innerHTML = Object.keys(siteMap).map(site=>{
     const items = siteMap[site];
     const total = items.reduce((a,b)=>a+b.qty,0);
+    const siteGid = 'arrival-site-g-'+hashStr(site);
+    const siteOpen = expandedGroups.has(siteGid);
     const rows = [...items].reverse().map(s=>`
       <div class="list-item">
         <div style="flex:1">
@@ -1319,17 +1332,18 @@ function renderArrival() {
         </div>
       </div>`).join('');
     return `<div class="site-group">
-      <div class="site-group-header">
-        <div class="site-group-title">🏗️ ${site}</div>
+      <div class="site-group-header" onclick="toggleGroup('${siteGid}')" style="cursor:pointer">
+        <div class="site-group-title"><span class="acc-arrow${siteOpen?' open':''}" data-arrow="${siteGid}">▶</span> 🏗️ ${site}</div>
         <div class="site-group-total">合計 ${total} 件</div>
       </div>
-      <div class="site-group-body">${rows}</div>
+      <div class="site-group-body collapsible-body" id="${siteGid}" style="display:${siteOpen?'block':'none'}">${rows}</div>
     </div>`;
   }).join('');
 }
 
 // ── Navigation ──
 function showPage(name, btn) {
+  collapseAllGroups();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
@@ -1812,12 +1826,14 @@ function buildDemandRow(d) {
 }
 
 function selectProjectTab(project) {
+  collapseAllGroups();
   activeProject = project;
   activeFloor = null;
   renderDemands();
 }
 
 function selectFloorTab(floor) {
+  collapseAllGroups();
   activeFloor = floor;
   renderDemands();
 }
@@ -1872,18 +1888,20 @@ function renderDemands() {
   const totalNeeded = items.reduce((a,b)=>a+b.qty,0);
   const totalAlloc = items.reduce((a,b)=>a+getAllocatedQty(b.project,b.floor,b.name,b.spec,b.thick),0);
   setFloorContext('demand-floor-context', activeProject, activeFloor, `需求 ${totalNeeded} ・ 已分配 ${totalAlloc}`);
+  const floorGid = 'dem-floor-g-'+hashStr(activeProject+activeFloor);
+  const floorOpen = expandedGroups.has(floorGid);
   let html = `<div class="site-group" style="margin-bottom:12px">
-    <div class="site-group-header">
-      <div class="site-group-title">🏢 ${activeProject}　${activeFloor}</div>
+    <div class="site-group-header" onclick="toggleGroup('${floorGid}')" style="cursor:pointer">
+      <div class="site-group-title"><span class="acc-arrow${floorOpen?' open':''}" data-arrow="${floorGid}">▶</span> 🏢 ${activeProject}　${activeFloor}</div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
         <span class="site-group-total">需${totalNeeded} 配${totalAlloc}</span>
-        <button onclick="copyFloor('${activeProject.replace(/'/g,"\\'")}','${activeFloor.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">複製此樓層</button>
-        <button onclick="deleteFloor('${activeProject.replace(/'/g,"\\'")}','${activeFloor.replace(/'/g,"\\'")}')" style="background:rgba(220,38,38,0.75);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">🗑️ 刪除此樓層</button>
-        <button onclick="exportProjectPDF('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出整個案場</button>
-        <button onclick="archiveProject('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">📦 封存</button>
+        <button onclick="event.stopPropagation();copyFloor('${activeProject.replace(/'/g,"\\'")}','${activeFloor.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">複製此樓層</button>
+        <button onclick="event.stopPropagation();deleteFloor('${activeProject.replace(/'/g,"\\'")}','${activeFloor.replace(/'/g,"\\'")}')" style="background:rgba(220,38,38,0.75);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">🗑️ 刪除此樓層</button>
+        <button onclick="event.stopPropagation();exportProjectPDF('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出整個案場</button>
+        <button onclick="event.stopPropagation();archiveProject('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">📦 封存</button>
       </div>
     </div>
-    <div class="site-group-body">`;
+    <div class="site-group-body collapsible-body" id="${floorGid}" style="display:${floorOpen?'block':'none'}">`;
   Object.keys(catMap).forEach(cat=>{
     const catItems = catMap[cat];
     const catNeeded = catItems.reduce((a,b)=>a+b.qty,0);
@@ -2354,12 +2372,14 @@ function getAllocProjects() {
 }
 
 function selectAllocTab(project) {
+  collapseAllGroups();
   allocActiveProject = project;
   allocActiveFloor = null;
   renderAllocation();
 }
 
 function selectAllocFloorTab(floor) {
+  collapseAllGroups();
   allocActiveFloor = floor;
   renderAllocation();
 }
@@ -2540,6 +2560,8 @@ function renderAllocList() {
   el.innerHTML = dates.map(date=>{
     const dateItems = dateMap[date];
     const dtotal = dateItems.filter(y=>!y.transferId).reduce((x,y)=>x+Number(y.qty),0);
+    const dateGid = 'alloc-date-g-'+hashStr((allocActiveProject||'')+(allocActiveFloor||'')+date);
+    const dateOpen = expandedGroups.has(dateGid);
     const sm = groupBySeriesName(dateItems, a=>a.name);
     const seriesBlocks = sortedSeriesKeys(sm).map(series=>{
       const aNameMap = sm[series];
@@ -2580,14 +2602,14 @@ function renderAllocList() {
       return `<div class="acc-series"><div class="acc-series-label">📁 ${series}</div>${nameBlocks}</div>`;
     }).join('');
     return `<div class="site-group" style="margin-bottom:12px">
-      <div class="site-group-header">
-        <div class="site-group-title">📅 ${date}</div>
+      <div class="site-group-header" onclick="toggleGroup('${dateGid}')" style="cursor:pointer">
+        <div class="site-group-title"><span class="acc-arrow${dateOpen?' open':''}" data-arrow="${dateGid}">▶</span> 📅 ${date}</div>
         <div style="display:flex;align-items:center;gap:6px">
           <span class="site-group-total">合計 ${dtotal}</span>
-          <button onclick="exportAllocDatePDF('${date}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
+          <button onclick="event.stopPropagation();exportAllocDatePDF('${date}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出PDF</button>
         </div>
       </div>
-      <div class="site-group-body">${seriesBlocks}</div>
+      <div class="site-group-body collapsible-body" id="${dateGid}" style="display:${dateOpen?'block':'none'}">${seriesBlocks}</div>
     </div>`;
   }).join('');
 }
