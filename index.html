@@ -515,6 +515,16 @@ body{background:var(--app-bg);color:var(--ink)}
       <div id="alloc-floor-excess"></div>
     </div>
   </div>
+  <div class="card" id="transfer-suggestion-card">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;-webkit-user-select:none" onclick="toggleTransferSuggestionCard()">
+      <span>🔁 樓層調度建議</span>
+      <span id="transfer-suggestion-arrow" class="acc-arrow">▶</span>
+    </div>
+    <div id="transfer-suggestion-body" style="display:none">
+      <div style="font-size:12px;color:#6b7280;margin-bottom:8px">依照各樓層「已分配 − 需求」自動比對，找出可從餘料樓層支援缺料樓層的材料。</div>
+      <div id="alloc-transfer-suggestions"></div>
+    </div>
+  </div>
   <div class="card">
     <div class="card-title">分配材料</div>
     <div id="alloc-current-floor" style="font-size:13px;color:#185FA5;font-weight:600;margin-bottom:10px;padding:6px 10px;background:#e6f1fb;border-radius:8px">分配到：請先選上方樓層</div>
@@ -628,6 +638,8 @@ function collapseAllGroups() {
   document.querySelectorAll('.acc-arrow').forEach(arrow=>{ arrow.classList.remove('open'); });
   const floorExcessBody = document.getElementById('floor-excess-body');
   if (floorExcessBody) floorExcessBody.style.display = 'none';
+  const transferSuggestionBody = document.getElementById('transfer-suggestion-body');
+  if (transferSuggestionBody) transferSuggestionBody.style.display = 'none';
 }
 function specBadge(spec, thick) {
   return (spec?`<span class="spec-tag">${spec}</span>`:'')+(thick?`<span class="thick-tag">${thick}</span>`:'');
@@ -2625,6 +2637,118 @@ function toggleFloorExcessCard() {
   if (arrow) arrow.classList.toggle('open', !isOpen);
 }
 
+function getFloorTransferSuggestions(project) {
+  const n = allocNorm;
+  const materialMap = {};
+  function ensure(key, base) {
+    if (!materialMap[key]) materialMap[key] = {...base, floors:{}};
+    return materialMap[key];
+  }
+  demands.filter(d=>n(d.project)===n(project)).forEach(d=>{
+    const floor = d.floor || '（未分樓層）';
+    const key = n(d.name)+'||'+n(d.spec)+'||'+n(d.thick||'');
+    const mat = ensure(key, {name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||''});
+    if (!mat.unit && d.unit) mat.unit = d.unit;
+    if (!mat.floors[floor]) mat.floors[floor] = {floor, demand:0, allocated:0, categories:new Set()};
+    mat.floors[floor].demand += Number(d.qty)||0;
+    if (d.category) mat.floors[floor].categories.add(d.category);
+  });
+  allocations.filter(a=>n(a.project)===n(project)).forEach(a=>{
+    const floor = a.floor || '（未分樓層）';
+    const key = n(a.name)+'||'+n(a.spec)+'||'+n(a.thick||'');
+    const mat = ensure(key, {name:a.name, spec:a.spec, thick:a.thick||'', unit:a.unit||''});
+    if (!mat.unit && a.unit) mat.unit = a.unit;
+    if (!mat.floors[floor]) mat.floors[floor] = {floor, demand:0, allocated:0, categories:new Set()};
+    mat.floors[floor].allocated += Number(a.qty)||0;
+    if (a.category) mat.floors[floor].categories.add(a.category);
+  });
+
+  const suggestions = [];
+  Object.values(materialMap).forEach(mat=>{
+    const floors = Object.values(mat.floors).map(f=>({
+      ...f,
+      demand: roundQty(f.demand),
+      allocated: roundQty(f.allocated),
+      balance: roundQty(f.allocated - f.demand),
+      categoryText: Array.from(f.categories).join('、')
+    }));
+    const surplus = floors.filter(f=>f.balance>0).sort((a,b)=>b.balance-a.balance);
+    const shortage = floors.filter(f=>f.balance<0).sort((a,b)=>a.balance-b.balance);
+    surplus.forEach(src=>{
+      let canGive = src.balance;
+      shortage.forEach(dst=>{
+        if (canGive <= 0) return;
+        const need = Math.abs(dst.balance);
+        const qty = Math.min(canGive, need);
+        if (qty <= 0) return;
+        suggestions.push({
+          name: mat.name,
+          spec: mat.spec,
+          thick: mat.thick,
+          unit: mat.unit||'',
+          fromFloor: src.floor,
+          toFloor: dst.floor,
+          qty: roundQty(qty),
+          fromExcess: roundQty(src.balance),
+          toShortage: roundQty(need),
+          remainingShortage: roundQty(Math.max(need - qty, 0)),
+          fromCategory: src.categoryText,
+          toCategory: dst.categoryText
+        });
+        canGive -= qty;
+      });
+    });
+  });
+  return suggestions.sort((a,b)=>
+    a.name.localeCompare(b.name,'zh-TW') ||
+    a.fromFloor.localeCompare(b.fromFloor,'zh-TW') ||
+    a.toFloor.localeCompare(b.toFloor,'zh-TW')
+  );
+}
+
+function renderTransferSuggestions() {
+  const el = document.getElementById('alloc-transfer-suggestions');
+  if (!el || !allocActiveProject) return;
+  const card = document.getElementById('transfer-suggestion-card');
+  if (card) card.style.display = '';
+  const items = getFloorTransferSuggestions(allocActiveProject);
+  if (!items.length) {
+    el.innerHTML = '<div style="color:#6b7280;font-size:13px;padding:4px 0">目前沒有可互相支援的樓層。</div>';
+    return;
+  }
+  el.innerHTML = items.map(it=>{
+    const categoryLine = (it.fromCategory || it.toCategory)
+      ? `<div style="font-size:12px;color:#64748b;margin-top:3px">分類：${it.fromCategory || '未分類'} → ${it.toCategory || '未分類'}</div>`
+      : '';
+    const remainLine = it.remainingShortage > 0
+      ? `<div style="font-size:11px;color:#b45309;margin-top:3px">調完 ${it.toFloor} 仍缺 ${it.remainingShortage}${it.unit}</div>`
+      : `<div style="font-size:11px;color:#15803d;margin-top:3px">調完可補足 ${it.toFloor}</div>`;
+    return `<div class="list-item" style="padding:10px 0">
+      <div style="flex:1;min-width:0">
+        <div class="list-main">${it.name}</div>
+        <div style="margin-top:3px">${specBadge(it.spec,it.thick)}</div>
+        <div style="font-size:13px;color:#0f172a;margin-top:6px;font-weight:700">${it.fromFloor} → ${it.toFloor}</div>
+        <div style="font-size:12px;color:#64748b;margin-top:3px">${it.fromFloor} 溢出 ${it.fromExcess}${it.unit}，${it.toFloor} 缺 ${it.toShortage}${it.unit}</div>
+        ${categoryLine}
+        ${remainLine}
+      </div>
+      <div style="text-align:right;margin-left:10px;flex-shrink:0">
+        <div style="font-size:18px;font-weight:900;color:#0f766e">${it.qty}${it.unit}</div>
+        <div style="font-size:11px;color:#64748b">可調度</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleTransferSuggestionCard() {
+  const body = document.getElementById('transfer-suggestion-body');
+  const arrow = document.getElementById('transfer-suggestion-arrow');
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  if (arrow) arrow.classList.toggle('open', !isOpen);
+}
+
 function getAllocProjects() {
   const set = [];
   shipments.forEach(s=>{ if(!set.includes(s.site) && !archivedProjects.includes(s.site)) set.push(s.site); });
@@ -2661,6 +2785,8 @@ function renderAllocation() {
     setFloorContext('alloc-floor-context');
     document.getElementById('alloc-stock-list').innerHTML='<div class="empty"><div class="empty-icon">📦</div>尚無出貨到置料區的材料</div>';
     document.getElementById('alloc-list').innerHTML='';
+    const suggestEl = document.getElementById('alloc-transfer-suggestions');
+    if (suggestEl) suggestEl.innerHTML='';
     document.getElementById('alloc-mat-select').innerHTML='<option value="">-- 尚無材料 --</option>';
     const fl = document.getElementById('alloc-current-floor'); if (fl) fl.textContent='分配到：尚無資料';
     return;
@@ -2741,6 +2867,8 @@ function renderAllocation() {
   }
   // 各樓層餘料
   renderFloorExcess();
+  // 樓層間可調度建議
+  renderTransferSuggestions();
   // 分配紀錄
   renderAllocList();
   updateAllocGap();
