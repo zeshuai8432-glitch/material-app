@@ -2518,22 +2518,27 @@ function printHTML(title, tableHTML) {
   const html = '<!DOCTYPE html><html lang="zh-TW"><head>' +
     '<meta charset="UTF-8"><title>' + title + '</title>' +
     '<style>' +
+    '@page{size:A4;margin:8mm}' +
     '*{box-sizing:border-box;margin:0;padding:0}' +
-    'body{font-family:-apple-system,BlinkMacSystemFont,"Microsoft JhengHei","PingFang TC",sans-serif;padding:20px;color:#1a1a1a;font-size:13px}' +
-    'h1{font-size:18px;font-weight:700;margin-bottom:4px;color:#185FA5}' +
-    'h2{font-size:14px;font-weight:700;margin:16px 0 6px;color:#185FA5}' +
-    '.meta{font-size:12px;color:#6b7280;margin-bottom:16px}' +
-    '.company{font-size:14px;font-weight:600;margin-bottom:2px}' +
+    'body{font-family:-apple-system,BlinkMacSystemFont,"Microsoft JhengHei","PingFang TC",sans-serif;padding:14px;color:#1a1a1a;font-size:15px}' +
+    'h1{font-size:20px;font-weight:700;margin-bottom:4px;color:#185FA5}' +
+    'h2{font-size:16px;font-weight:700;margin:16px 0 6px;color:#185FA5}' +
+    '.meta{font-size:14px;color:#6b7280;margin-bottom:16px}' +
+    '.company{font-size:16px;font-weight:600;margin-bottom:2px}' +
     'table{width:100%;border-collapse:collapse;margin-top:8px}' +
-    'th{background:#185FA5;color:#fff;padding:8px 10px;text-align:left;font-size:12px;font-weight:600}' +
-    'td{padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:12px}' +
+    'th{background:#185FA5;color:#fff;padding:9px 11px;text-align:left;font-size:14px;font-weight:600}' +
+    'td{padding:9px 11px;border-bottom:1px solid #e5e7eb;font-size:14px}' +
     'tr:nth-child(even) td{background:#f8fafc}' +
-    '.total{margin-top:12px;text-align:right;font-weight:700;font-size:14px}' +
-    '.footer{margin-top:24px;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:8px}' +
-    '@media print{body{padding:10px}}' +
+    '.total{margin-top:12px;text-align:right;font-weight:700;font-size:16px}' +
+    '.footer{margin-top:24px;font-size:13px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:8px}' +
+    '@media print{body{padding:0}}' +
     '</style></head><body>' + tableHTML +
     '<div class="footer">此文件由材料管理系統產生・' + today + '</div>' +
-    '<script>window.onload=function(){window.print()}<\/script>' +
+    '<script>window.onload=function(){' +
+    'var pageH=1040,cH=document.body.scrollHeight;' +
+    'if(cH>0&&cH<pageH*0.88){document.body.style.zoom=Math.min(pageH/cH,2.2).toFixed(3);}' +
+    'window.print();' +
+    '}<\/script>' +
     '</body></html>';
   w.document.write(html);
   w.document.close();
