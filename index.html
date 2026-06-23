@@ -727,6 +727,10 @@ function getInvLooseKey(i) {
   return invLooseKey(i.name, i.spec, getInvProject(i));
 }
 
+function cmpText(a, b) {
+  return String(a==null?'':a).localeCompare(String(b==null?'':b), 'zh-TW', { numeric:true });
+}
+
 function evalQty(str) {
   if (str===null||str===undefined) return 0;
   const s = String(str).trim().replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-');
@@ -976,7 +980,7 @@ function groupBySeriesName(items, getNameFn) {
   return sm;
 }
 function sortedSeriesKeys(sm) {
-  return Object.keys(sm).sort((a,b)=>{ if(a==='未設定系列') return 1; if(b==='未設定系列') return -1; return a.localeCompare(b,'zh-TW'); });
+  return Object.keys(sm).sort((a,b)=>{ if(a==='未設定系列') return 1; if(b==='未設定系列') return -1; return cmpText(a,b); });
 }
 
 const today = new Date().toISOString().slice(0,10);
@@ -1505,7 +1509,7 @@ function getDemandMaterialOptions(site) {
     map[key].count += 1;
     map[key].qty += Number(d.qty)||0;
   });
-  return Object.values(map).sort((a,b)=>(a.name+a.spec+a.thick).localeCompare(b.name+b.spec+b.thick,'zh-TW'));
+  return Object.values(map).sort((a,b)=>cmpText(a.name+a.spec+a.thick, b.name+b.spec+b.thick));
 }
 
 function fillDemandMaterialSelect(sel, materials, placeholder) {
@@ -1557,7 +1561,7 @@ function _buildShipDemandPreview(site, body) {
     const f = d.floor||'（未指定）';
     map[k].floors[f] = (map[k].floors[f]||0) + (Number(d.qty)||0);
   });
-  const rows = Object.values(map).sort((a,b)=>a.name.localeCompare(b.name,'zh-TW'));
+  const rows = Object.values(map).sort((a,b)=>cmpText(a.name,b.name));
   let html = '<div style="font-size:12px;color:#6b7280;margin-bottom:8px">案場：'+site+'　顯示總需求 vs 已出貨</div>';
   rows.forEach(r => {
     const shipped = getShippedQty(site, r.name, r.spec, r.thick);
@@ -1654,7 +1658,7 @@ function updateDemandGap() {
   // 彙整各樓層需求
   const floorMap = {};
   matched.forEach(d=>{ const f=d.floor||'（未指定）'; floorMap[f]=(floorMap[f]||0)+Number(d.qty); });
-  const floorRows = Object.entries(floorMap).sort((a,b)=>a[0].localeCompare(b[0],'zh-TW'));
+  const floorRows = Object.entries(floorMap).sort((a,b)=>cmpText(a[0],b[0]));
   // 顏色狀態
   let headerBg, headerColor, statusText;
   if (remaining > 0) {
@@ -1798,7 +1802,7 @@ function renderInventory() {
     const existingProjs = [...new Set(inventory.map(i=>getInvProject(i)).filter(Boolean))];
     const currentVal = pfSel.value;
     pfSel.innerHTML = '<option value="">全部</option><option value="__global__">通用（未指定）</option>';
-    existingProjs.sort((a,b)=>a.localeCompare(b,'zh-TW')).forEach(p=>{
+    existingProjs.sort((a,b)=>cmpText(a,b)).forEach(p=>{
       const o=document.createElement('option'); o.value=p; o.textContent='🏢 '+p; pfSel.appendChild(o);
     });
     pfSel.value = currentVal;
@@ -1810,11 +1814,11 @@ function renderInventory() {
     return true;
   });
   const filtered = buildInventoryDisplayRows(filteredRaw).sort((a,b)=>{
-    const byName = a.name.localeCompare(b.name,'zh-TW');
+    const byName = cmpText(a.name, b.name);
     if (byName) return byName;
-    const bySpec = a.spec.localeCompare(b.spec,'zh-TW');
+    const bySpec = cmpText(a.spec, b.spec);
     if (bySpec) return bySpec;
-    return (a.project||'').localeCompare(b.project||'','zh-TW');
+    return cmpText(a.project, b.project);
   });
   const el = document.getElementById('inv-list');
   if (!filtered.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📦</div>目前無庫存資料</div>'; return; }
@@ -1828,11 +1832,11 @@ function renderInventory() {
   });
   const seriesKeys = Object.keys(seriesMap).sort((a,b)=>{
     if (a==='未設定系列') return 1; if (b==='未設定系列') return -1;
-    return a.localeCompare(b,'zh-TW');
+    return cmpText(a,b);
   });
   el.innerHTML = seriesKeys.map(series=>{
     const nameMap = seriesMap[series];
-    const names = Object.keys(nameMap).sort((a,b)=>a.localeCompare(b,'zh-TW'));
+    const names = Object.keys(nameMap).sort((a,b)=>cmpText(a,b));
     const blocks = names.map(name=>{
       const items = nameMap[name];
       const totalQty = items.reduce((a,b)=>a+b.qty,0);
@@ -1889,7 +1893,7 @@ function renderProductions() {
   const sm = groupBySeriesName(reversed, p=>p.name);
   el.innerHTML = sortedSeriesKeys(sm).map(series=>{
     const nameMap = sm[series];
-    const blocks = Object.keys(nameMap).sort((a,b)=>a.localeCompare(b,'zh-TW')).map(name=>{
+    const blocks = Object.keys(nameMap).sort((a,b)=>cmpText(a,b)).map(name=>{
       const items = nameMap[name];
       const totalQty = items.reduce((a,b)=>a+b.qty,0);
       const gid = 'prod-g-'+hashStr(series+name);
@@ -1942,7 +1946,7 @@ function renderShipments() {
     const sm = groupBySeriesName(items, s=>s.name);
     const seriesBlocks = sortedSeriesKeys(sm).map(series=>{
       const nameMap = sm[series];
-      const nameBlocks = Object.keys(nameMap).sort((a,b)=>a.localeCompare(b,'zh-TW')).map(name=>{
+      const nameBlocks = Object.keys(nameMap).sort((a,b)=>cmpText(a,b)).map(name=>{
         const ni = nameMap[name];
         const nameQty = ni.reduce((a,b)=>a+Number(b.qty),0);
         const gid = 'ship-g-'+hashStr(gk+series+name);
@@ -2051,7 +2055,7 @@ function editShipDateLabel(date, note) {
 
 function mergeShipByRange() {
   if (!shipments.length) { showToast('⚠️ 尚無出貨紀錄'); return; }
-  const dates = Array.from(new Set(shipments.map(s=>s.date||'（無日期）'))).sort((a,b)=>b.localeCompare(a));
+  const dates = Array.from(new Set(shipments.map(s=>s.date||'（無日期）'))).sort((a,b)=>cmpText(b,a));
   const options = dates.map(d=>{
     const cnt = shipments.filter(s=>(s.date||'（無日期）')===d).length;
     return { value:d, label:'📅 '+d+'（'+cnt+'筆）' };
@@ -2065,7 +2069,7 @@ function mergeShipByRange() {
     // 依（日期 + 備注）分組
     const groupMap = {};
     items.forEach(function(s){ const k=(s.date||'（無日期）')+'|||'+(s.note||''); if(!groupMap[k]) groupMap[k]={date:s.date||'（無日期）',note:s.note||'',items:[]}; groupMap[k].items.push(s); });
-    Object.keys(groupMap).sort((a,b)=>b.localeCompare(a)).forEach(function(gk){
+    Object.keys(groupMap).sort((a,b)=>cmpText(b,a)).forEach(function(gk){
       const g = groupMap[gk];
       const header = g.date + (g.note?' — '+g.note:'');
       html += '<h2 style="background:#185FA5;color:#fff;padding:6px 10px;border-radius:6px">📅 '+header+'</h2>';
@@ -2285,7 +2289,7 @@ function exportPDF(page) {
   const datePages = {production:productions, shipment:shipments, arrival:shipments, demand:demands};
   const source = datePages[page];
   if (source) {
-    const dates = Array.from(new Set(source.map(r=>r.date||'（無日期）'))).sort((a,b)=>b.localeCompare(a));
+    const dates = Array.from(new Set(source.map(r=>r.date||'（無日期）'))).sort((a,b)=>cmpText(b,a));
     if (!dates.length) { showToast('⚠️ 目前無資料可匯出'); return; }
     const options = dates.map(d=>({value:d,label:'📅 '+d+'（'+source.filter(r=>(r.date||'（無日期）')===d).length+'筆）'}));
     showPicker('選擇要匯出的日期', options, chosenDates=>exportPDFByDates(page, chosenDates), '匯出 PDF');
@@ -2815,7 +2819,7 @@ function renderDemands() {
       const dNameMap = sm[series];
       const hasMultipleSeries = Object.keys(sm).length > 1;
       if (hasMultipleSeries) html += `<div class="acc-series-label" style="margin-top:6px">📁 ${series}</div>`;
-      Object.keys(dNameMap).sort((a,b)=>a.localeCompare(b,'zh-TW')).forEach(name=>{
+      Object.keys(dNameMap).sort((a,b)=>cmpText(a,b)).forEach(name=>{
         const di = dNameMap[name];
         const gid = 'dem-g-'+hashStr(activeProject+activeFloor+cat+series+name);
         const isOpen = expandedGroups.has(gid);
@@ -2907,7 +2911,7 @@ function exportProjectPDF(project, chosenDates) {
   const allItems = demands.filter(d=>d.project===project);
   if (!chosenDates) {
     if (!allItems.length) { showToast('⚠️ 此案場無需求'); return; }
-    const dates = Array.from(new Set(allItems.map(d=>d.date||'（無日期）'))).sort((a,b)=>b.localeCompare(a));
+    const dates = Array.from(new Set(allItems.map(d=>d.date||'（無日期）'))).sort((a,b)=>cmpText(b,a));
     const options = dates.map(d=>({value:d,label:'📅 '+d+'（'+allItems.filter(x=>(x.date||'（無日期）')===d).length+'筆）'}));
     showPicker('選擇要匯出的需求日期', options, picked=>exportProjectPDF(project, picked), '匯出 PDF');
     return;
@@ -3114,7 +3118,7 @@ function getInventoryGapRows(project) {
     const row = {...m, qty, inStock, shipped, net, excludedQty};
     delete row._thicks;
     return row;
-  }).sort((a,b)=>netOrder(a)-netOrder(b)||(materialTags[a.name]||'').localeCompare(materialTags[b.name]||'')||(a.name.localeCompare(b.name,'zh-TW')));
+  }).sort((a,b)=>netOrder(a)-netOrder(b)||cmpText(materialTags[a.name],materialTags[b.name])||(cmpText(a.name,b.name)));
 }
 
 function getUnmatchedGapInventory(project, rows) {
@@ -3352,7 +3356,7 @@ function renderFloorExcess() {
   }
   const floorMap = {};
   items.forEach(it=>{ if(!floorMap[it.floor]) floorMap[it.floor]={}; const cm=floorMap[it.floor]; if(!cm[it.category]) cm[it.category]=[]; cm[it.category].push(it); });
-  const floors = Object.keys(floorMap).sort((a,b)=>a.localeCompare(b,'zh-TW'));
+  const floors = Object.keys(floorMap).sort((a,b)=>cmpText(a,b));
   el.innerHTML = floors.map(floor=>{
     const catMap = floorMap[floor];
     const allFloorItems = Object.values(catMap).flat();
@@ -3452,9 +3456,9 @@ function getFloorTransferSuggestions(project) {
     });
   });
   return suggestions.sort((a,b)=>
-    a.name.localeCompare(b.name,'zh-TW') ||
-    a.fromFloor.localeCompare(b.fromFloor,'zh-TW') ||
-    a.toFloor.localeCompare(b.toFloor,'zh-TW')
+    cmpText(a.name,b.name) ||
+    cmpText(a.fromFloor,b.fromFloor) ||
+    cmpText(a.toFloor,b.toFloor)
   );
 }
 
@@ -3473,7 +3477,7 @@ function renderTransferSuggestions() {
   const filterDiv = document.getElementById('transfer-floor-filter');
   const cbContainer = document.getElementById('transfer-floor-checkboxes');
   if (filterDiv && cbContainer) {
-    const allFloors = [...new Set([...allItems.map(i=>i.fromFloor), ...allItems.map(i=>i.toFloor)])].sort((a,b)=>a.localeCompare(b,'zh-TW'));
+    const allFloors = [...new Set([...allItems.map(i=>i.fromFloor), ...allItems.map(i=>i.toFloor)])].sort((a,b)=>cmpText(a,b));
     if (allFloors.length > 1) {
       filterDiv.style.display = '';
       // Keep existing checked state if available, default all checked
@@ -3768,7 +3772,7 @@ function renderAllocList() {
   if (!items.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>此樓層尚無分配紀錄</div>'; return; }
   const dateMap = {};
   items.forEach(a=>{ const d=a.date||'（無日期）'; if(!dateMap[d]) dateMap[d]=[]; dateMap[d].push(a); });
-  const dates = Object.keys(dateMap).sort((a,b)=>b.localeCompare(a));
+  const dates = Object.keys(dateMap).sort((a,b)=>cmpText(b,a));
   el.innerHTML = dates.map(date=>{
     const dateItems = dateMap[date];
     const dtotal = dateItems.filter(y=>!y.transferId).reduce((x,y)=>x+Number(y.qty),0);
@@ -3777,7 +3781,7 @@ function renderAllocList() {
     const sm = groupBySeriesName(dateItems, a=>a.name);
     const seriesBlocks = sortedSeriesKeys(sm).map(series=>{
       const aNameMap = sm[series];
-      const nameBlocks = Object.keys(aNameMap).sort((a,b)=>a.localeCompare(b,'zh-TW')).map(name=>{
+      const nameBlocks = Object.keys(aNameMap).sort((a,b)=>cmpText(a,b)).map(name=>{
         const ai = aNameMap[name];
         const gid = 'alloc-g-'+hashStr(date+(allocActiveProject||'')+(allocActiveFloor||'')+series+name);
         const isOpen = expandedGroups.has(gid);
@@ -3832,7 +3836,7 @@ function exportAllocPDF(chosenDates) {
   const allItems = allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject));
   if (!chosenDates) {
     if (!allItems.length) { showToast('⚠️ 此案場尚無分配紀錄'); return; }
-    const dates = Array.from(new Set(allItems.map(a=>a.date||'（無日期）'))).sort((a,b)=>b.localeCompare(a));
+    const dates = Array.from(new Set(allItems.map(a=>a.date||'（無日期）'))).sort((a,b)=>cmpText(b,a));
     const options = dates.map(d=>({value:d,label:'📅 '+d+'（'+allItems.filter(x=>(x.date||'（無日期）')===d).length+'筆）'}));
     showPicker('選擇要匯出的搬運日期', options, picked=>exportAllocPDF(picked), '匯出 PDF');
     return;
@@ -3942,7 +3946,7 @@ function buildAllocHTML(items, headerMeta) {
   html += '<div class="meta">'+headerMeta+'</div>';
   const dateMap = {};
   items.forEach(function(a){ const d=a.date||'（無日期）'; if(!dateMap[d]) dateMap[d]=[]; dateMap[d].push(a); });
-  Object.keys(dateMap).sort((a,b)=>b.localeCompare(a)).forEach(function(date){
+  Object.keys(dateMap).sort((a,b)=>cmpText(b,a)).forEach(function(date){
     html += '<h1 style="margin-top:14px;border-top:2px solid #185FA5;padding-top:8px">📅 '+date+'</h1>';
     const floorMap = {};
     dateMap[date].forEach(function(a){ const f=a.floor||'（未分樓層）'; if(!floorMap[f]) floorMap[f]=[]; floorMap[f].push(a); });
@@ -3993,7 +3997,7 @@ function allocAllToFloor() {
 
 function mergeAllocByDate() {
   if (!allocActiveProject) { showToast('⚠️ 請先選案場'); return; }
-  const dates = Array.from(new Set(allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject)).map(a=>a.date||'（無日期）'))).sort((a,b)=>b.localeCompare(a));
+  const dates = Array.from(new Set(allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject)).map(a=>a.date||'（無日期）'))).sort((a,b)=>cmpText(b,a));
   if (!dates.length) { showToast('⚠️ 此案場尚無分配紀錄'); return; }
   const options = dates.map(d=>{
     const cnt = allocations.filter(a=>allocNorm(a.project)===allocNorm(allocActiveProject) && (a.date||'（無日期）')===d).length;
