@@ -573,7 +573,10 @@ body{background:var(--app-bg);color:var(--ink)}
       <span id="transfer-log-arrow" class="acc-arrow">▶</span>
     </div>
     <div id="transfer-log-body" style="display:none">
-      <button class="btn-secondary" onclick="exportTransferLogPDF()" style="margin-bottom:10px;width:100%">📄 匯出調撥紀錄 PDF</button>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <button class="btn-secondary" onclick="toggleTransferLogSelectAll()" id="transfer-log-select-all-btn" style="flex:1">☐ 全選</button>
+        <button class="btn-primary" onclick="exportTransferLogPDF()" style="flex:2">📄 匯出已勾選 PDF（依調撥方向分頁）</button>
+      </div>
       <div id="alloc-transfer-log"></div>
     </div>
   </div>
@@ -4099,13 +4102,14 @@ function renderTransferLog() {
     el.innerHTML = '<div style="color:#6b7280;font-size:13px;padding:4px 0">尚無調撥紀錄</div>';
     return;
   }
-  el.innerHTML = log.map(r => {
+  el.innerHTML = log.map((r, i) => {
     const sameProject = allocNorm(r.fromProject) === allocNorm(r.toProject);
     const fromLabel = sameProject ? r.fromFloor : `${r.fromProject} ${r.fromFloor}`;
     const toLabel   = sameProject ? r.toFloor   : `${r.toProject} ${r.toFloor}`;
     return `
-    <div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:8px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+    <label style="display:block;border:1.5px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:border-color 0.15s" onclick="onTransferLogCbClick(event,this)">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <input type="checkbox" data-tid="${r.transferId}" style="margin-top:4px;width:16px;height:16px;flex-shrink:0;cursor:pointer" onchange="onTransferLogCbChange(this)">
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:14px;color:#0f172a">${r.name}</div>
           <div style="margin-top:3px">${specBadge(r.spec, r.thick)}</div>
@@ -4116,13 +4120,34 @@ function renderTransferLog() {
           </div>
           <div style="font-size:11px;color:#9ca3af;margin-top:5px">${r.date||'—'}</div>
         </div>
-        <div style="text-align:right;flex-shrink:0;margin-left:12px">
+        <div style="text-align:right;flex-shrink:0">
           <div style="font-size:20px;font-weight:900;color:#0f766e">${r.qty}${r.unit}</div>
-          <button class="btn-sm" style="margin-top:6px;color:#dc2626;border-color:#dc2626" onclick="deleteTransfer('${r.transferId}')">刪除</button>
+          <button class="btn-sm" style="margin-top:6px;color:#dc2626;border-color:#dc2626" onclick="event.stopPropagation();deleteTransfer('${r.transferId}')">刪除</button>
         </div>
       </div>
-    </div>`;
+    </label>`;
   }).join('');
+}
+
+function onTransferLogCbClick(e, label) {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+  const cb = label.querySelector('input[type=checkbox]');
+  if (cb) { cb.checked = !cb.checked; onTransferLogCbChange(cb); }
+}
+
+function onTransferLogCbChange(cb) {
+  const label = cb.closest('label');
+  if (label) label.style.borderColor = cb.checked ? '#185FA5' : '#e2e8f0';
+  const allCbs = document.querySelectorAll('#alloc-transfer-log input[type=checkbox]');
+  const checked = [...allCbs].filter(c=>c.checked).length;
+  const btn = document.getElementById('transfer-log-select-all-btn');
+  if (btn) btn.textContent = checked === allCbs.length ? '☑ 取消全選' : '☐ 全選';
+}
+
+function toggleTransferLogSelectAll() {
+  const allCbs = document.querySelectorAll('#alloc-transfer-log input[type=checkbox]');
+  const allChecked = [...allCbs].every(c=>c.checked);
+  allCbs.forEach(cb=>{ cb.checked = !allChecked; onTransferLogCbChange(cb); });
 }
 
 function deleteTransfer(tid) {
@@ -4135,28 +4160,55 @@ function deleteTransfer(tid) {
 
 function exportTransferLogPDF() {
   if (!allocActiveProject) { showToast('⚠️ 請先選擇案場'); return; }
-  const log = getTransferLog(allocActiveProject);
-  if (!log.length) { showToast('⚠️ 尚無調撥紀錄'); return; }
-  const rows = log.map(r=>`
-    <tr>
-      <td>${r.date||'—'}</td>
-      <td>${r.name}</td>
-      <td>${r.spec||''}${r.thick?' / '+r.thick:''}</td>
-      <td style="text-align:center;font-weight:700;color:#0f766e">${r.fromFloor} → ${r.toFloor}</td>
-      <td style="text-align:right;font-weight:700">${r.qty}${r.unit}</td>
-    </tr>`).join('');
-  const html = `<style>
-    body{font-family:sans-serif;font-size:13px}
-    table{width:100%;border-collapse:collapse}
+  const checkedTids = new Set(
+    [...document.querySelectorAll('#alloc-transfer-log input[type=checkbox]:checked')].map(c=>c.dataset.tid)
+  );
+  if (!checkedTids.size) { showToast('⚠️ 請先勾選要匯出的紀錄'); return; }
+  const log = getTransferLog(allocActiveProject).filter(r => checkedTids.has(r.transferId));
+
+  // group by fromFloor→toFloor direction
+  const dirMap = {};
+  log.forEach(r => {
+    const sameProject = allocNorm(r.fromProject) === allocNorm(r.toProject);
+    const fromLabel = sameProject ? r.fromFloor : `${r.fromProject} ${r.fromFloor}`;
+    const toLabel   = sameProject ? r.toFloor   : `${r.toProject} ${r.toFloor}`;
+    const key = fromLabel + ' → ' + toLabel;
+    if (!dirMap[key]) dirMap[key] = { fromLabel, toLabel, items: [] };
+    dirMap[key].items.push(r);
+  });
+
+  const style = `<style>
+    body{font-family:sans-serif;font-size:13px;margin:0;padding:16px}
+    h2{font-size:16px;margin:0 0 4px}
+    h3{font-size:13px;color:#374151;margin:0 0 8px;font-weight:600}
+    table{width:100%;border-collapse:collapse;margin-bottom:8px}
     th,td{border:1px solid #ccc;padding:6px 8px;vertical-align:top}
     th{background:#f1f5f9;font-weight:700}
-  </style>
-  <h2 style="margin-bottom:12px">調撥紀錄 — ${allocActiveProject}</h2>
-  <table>
-    <thead><tr><th>日期</th><th>材料</th><th>規格/厚度</th><th>調撥方向</th><th>數量</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
-  printHTML('調撥紀錄 '+allocActiveProject, html);
+    .dir{font-size:15px;font-weight:900;color:#0f766e;margin-bottom:6px}
+    .page-break{page-break-after:always}
+  </style>`;
+
+  const pages = Object.values(dirMap);
+  const body = pages.map((dir, idx) => {
+    const rows = dir.items.map(r=>`
+      <tr>
+        <td>${r.date||'—'}</td>
+        <td style="font-weight:600">${r.name}</td>
+        <td>${r.spec||''}${r.thick?' / '+r.thick:''}</td>
+        <td style="text-align:right;font-weight:700">${r.qty}${r.unit}</td>
+      </tr>`).join('');
+    const isLast = idx === pages.length - 1;
+    return `<div class="${isLast ? '' : 'page-break'}">
+      <h2>調撥紀錄 — ${allocActiveProject}</h2>
+      <div class="dir">📤 ${dir.fromLabel} &nbsp;→&nbsp; 📥 ${dir.toLabel}</div>
+      <table>
+        <thead><tr><th>日期</th><th>材料</th><th>規格/厚度</th><th>數量</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  printHTML('調撥紀錄 '+allocActiveProject, style + body);
 }
 
 function getAllocProjects() {
