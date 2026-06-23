@@ -4414,6 +4414,24 @@ function renderTransferLog() {
   const groupTextColors = ['#6d28d9','#1d4ed8','#065f46','#854d0e','#9d174d','#9a3412'];
   const groupNames = Object.keys(groupMap);
   let html = '';
+  // Ungrouped first
+  if (ungrouped.length) {
+    const hasGroups = groupNames.length > 0;
+    const collapsed = _transferGroupCollapsed.has('__ungrouped__');
+    const arrow = collapsed ? '▶' : '▾';
+    if (hasGroups) {
+      html += `<div style="margin-bottom:6px">
+        <div style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:600;color:#6b7280;padding:4px 0;border-bottom:1px solid #e2e8f0" onclick="toggleTransferGroup('__ungrouped__')">
+          <span style="flex:1">未分組（${ungrouped.length} 筆）</span>
+          <span>${arrow}</span>
+        </div>
+      </div>`;
+    }
+    html += `<div style="display:${collapsed&&hasGroups?'none':'block'}">`;
+    html += ungrouped.map(_renderTransferLogItem).join('');
+    html += '</div>';
+  }
+  // Named groups below
   groupNames.forEach((gname, gi) => {
     const bg = groupColors[gi % groupColors.length];
     const fg = groupTextColors[gi % groupTextColors.length];
@@ -4434,22 +4452,6 @@ function renderTransferLog() {
       </div>
     </div>`;
   });
-  if (ungrouped.length) {
-    const hasGroups = groupNames.length > 0;
-    const collapsed = _transferGroupCollapsed.has('__ungrouped__');
-    const arrow = collapsed ? '▶' : '▾';
-    if (hasGroups) {
-      html += `<div style="margin-bottom:6px">
-        <div style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:600;color:#6b7280;padding:4px 0;border-bottom:1px solid #e2e8f0" onclick="toggleTransferGroup('__ungrouped__')">
-          <span style="flex:1">未分組（${ungrouped.length} 筆）</span>
-          <span>${arrow}</span>
-        </div>
-      </div>`;
-    }
-    html += `<div style="display:${collapsed&&hasGroups?'none':'block'}">`;
-    html += ungrouped.map(_renderTransferLogItem).join('');
-    html += '</div>';
-  }
   el.innerHTML = html;
 }
 
