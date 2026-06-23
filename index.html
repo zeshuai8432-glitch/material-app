@@ -3964,7 +3964,7 @@ function _renderFilteredSuggestions() {
   if (!el) return;
   const items = _transferFloorFilter.size === 0
     ? _transferSuggestions
-    : _transferSuggestions.filter(it => _transferFloorFilter.has(it.fromFloor) || _transferFloorFilter.has(it.toFloor));
+    : _transferSuggestions.filter(it => _transferFloorFilter.has(it.fromFloor) && _transferFloorFilter.has(it.toFloor));
 
   if (!items.length) {
     el.innerHTML = '<div style="color:#6b7280;font-size:13px;padding:4px 0">目前沒有可互相支援的樓層。</div>';
