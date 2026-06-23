@@ -3832,7 +3832,7 @@ function _mergeByFloorGroups(project, items) {
   items.forEach(item=>{
     const grp = groups.find(g=>g.floors.some(f=>n(f)===n(item.floor)));
     const floorKey = grp ? '__grp__'+grp.name : item.floor;
-    const matKey = floorKey+'||'+n(item.name)+'||'+n(item.spec)+'||'+n(item.thick||'');
+    const matKey = floorKey+'||'+n(item.name)+'||'+n(item.spec);
     if (!merged[matKey]) {
       merged[matKey] = {...item, floor: grp ? grp.name : item.floor, isGroup:!!grp, groupFloors: grp ? [...grp.floors] : null};
     } else {
