@@ -3035,6 +3035,7 @@ function renderDemands() {
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
         <span class="site-group-total">需${totalNeeded} 配${totalAlloc}</span>
         <button onclick="event.stopPropagation();copyFloor('${activeProject.replace(/'/g,"\\'")}','${activeFloor.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">複製此樓層</button>
+        <button onclick="event.stopPropagation();exportFloorPDF('${activeProject.replace(/'/g,"\\'")}','${activeFloor.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">📄 匯出此樓層</button>
         <button onclick="event.stopPropagation();deleteFloor('${activeProject.replace(/'/g,"\\'")}','${activeFloor.replace(/'/g,"\\'")}')" style="background:rgba(220,38,38,0.75);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">🗑️ 刪除此樓層</button>
         <button onclick="event.stopPropagation();exportProjectPDF('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出整個案場</button>
         <button onclick="event.stopPropagation();archiveProject('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">📦 封存</button>
@@ -3136,6 +3137,27 @@ function copyProject(project) {
   activeProject = trimmed;
   renderAll(); autoSave();
   showToast('✅ 已複製到「'+trimmed+'」（'+items.length+'筆）');
+}
+
+function exportFloorPDF(project, floor) {
+  const items = demands.filter(d=>d.project===project && (d.floor||'（未分樓層）')===floor);
+  if (!items.length) { showToast('⚠️ 此樓層無需求'); return; }
+  let html = '';
+  if (company.name) html += '<div class="company">'+company.name+'</div>';
+  html += '<h1>需求單 - '+project+'</h1><div class="meta">樓層：'+floor+'　匯出日期：'+today+'</div>';
+  html += '<h2 style="background:#185FA5;color:#fff;padding:6px 10px;border-radius:6px">🏢 '+floor+'</h2>';
+  const catMap = {};
+  items.forEach(function(d){ const c=d.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(d); });
+  Object.keys(catMap).forEach(function(cat){
+    const rows = catMap[cat].map(function(d){
+      const allocated = getAllocatedQty(d.project,d.floor,d.name,d.spec,d.thick);
+      const remaining = d.qty - allocated;
+      const unit = d.unit||'';
+      return '<tr><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+allocated+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
+    }).join('');
+    html += '<h3 style="margin:8px 0 4px">📐 '+cat+'</h3><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  });
+  printHTML('需求單 '+project+' '+floor, html);
 }
 
 function exportProjectPDF(project, chosenDates) {
