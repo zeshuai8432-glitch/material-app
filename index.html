@@ -3807,7 +3807,7 @@ function renderFloorExcess() {
   const floorMap = {};
   items.forEach(it=>{ if(!floorMap[it.floor]) floorMap[it.floor]={}; const cm=floorMap[it.floor]; if(!cm[it.category]) cm[it.category]=[]; cm[it.category].push(it); });
   const floors = Object.keys(floorMap).sort((a,b)=>cmpText(a,b));
-  el.innerHTML = floors.map(floor=>{
+  el.innerHTML = floors.map((floor, fi)=>{
     const catMap = floorMap[floor];
     const allFloorItems = Object.values(catMap).flat();
     const catBlocks = Object.keys(catMap).map(cat=>{
@@ -3826,12 +3826,27 @@ function renderFloorExcess() {
         </div>`).join('');
       return `<div class="cat-header" style="margin-top:6px">${cat}</div>${rows}`;
     }).join('');
-    return `<div style="margin-bottom:10px">
-      <div style="font-size:12px;font-weight:700;color:#7c3aed;padding:5px 4px 4px;border-bottom:1.5px solid #e9d5ff;margin-bottom:5px;display:flex;justify-content:space-between;align-items:center">
+    const bid = 'fexbody-'+fi;
+    return `<div style="margin-bottom:6px">
+      <div onclick="toggleFexFloor('${bid}',this)" style="font-size:12px;font-weight:700;color:#7c3aed;padding:7px 4px 6px;border-bottom:1.5px solid #e9d5ff;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;-webkit-user-select:none">
         <span>📍 ${floor}</span>
-        <span style="color:#d97706;font-weight:600">${allFloorItems.reduce((a,b)=>a+b.excess,0)} 件餘料</span>
-      </div>${catBlocks}</div>`;
+        <span style="display:flex;align-items:center;gap:8px">
+          <span style="color:#d97706;font-weight:600">${allFloorItems.reduce((a,b)=>a+b.excess,0)} 件餘料</span>
+          <span class="acc-arrow open" style="font-size:11px">▶</span>
+        </span>
+      </div>
+      <div id="${bid}">${catBlocks}</div>
+    </div>`;
   }).join('');
+}
+
+function toggleFexFloor(bid, hdr) {
+  const body = document.getElementById(bid);
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  const arrow = hdr && hdr.querySelector('.acc-arrow');
+  if (arrow) arrow.classList.toggle('open', !isOpen);
 }
 
 function toggleFloorExcessCard() {
