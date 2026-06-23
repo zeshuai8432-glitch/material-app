@@ -1946,7 +1946,10 @@ function renderProductions() {
 function renderShipments() {
   const el = document.getElementById('ship-list');
   if (!shipments.length) { el.innerHTML='<div class="empty"><div class="empty-icon">🚛</div>尚無出貨紀錄</div>'; return; }
-  const withIdx = shipments.map((s,i)=>({...s,_idx:i}));
+  const returnedKeys = new Set(shipments.filter(s=>Number(s.qty)<0 && (s.note||'').includes('退回')).map(s=>s.returnOf || shipmentReturnKey(s)));
+  const withIdx = shipments
+    .map((s,i)=>({...s,_idx:i}))
+    .filter(s=>Number(s.qty)!==0 && !(Number(s.qty)>0 && returnedKeys.has(shipmentReturnKey(s))));
   // 依（日期 + 備註）分組
   const groupMap = {};
   withIdx.forEach(s=>{
@@ -2556,13 +2559,16 @@ function deleteShipment(idx) {
   const returnKey = shipmentReturnKey(s);
   const returned = shipments.some(r=>Number(r.qty)<0 && (r.returnOf===returnKey || shipmentReturnKey(r)===returnKey) && (r.note||'').includes('退回'));
   if (returned) { alert('這筆出貨已經退回過，沒有重複新增。'); return; }
+  const originalQty = Math.abs(Number(s.qty)||0);
   // 庫存出：把數量還給庫存
   if (s.type==='stock') {
     const inv = findInventory(s.name, s.spec, s.thick);
-    if (inv) { inv.qty = roundQty(Number(inv.qty) + Number(s.qty)); inv.lastUpdate = today; }
+    if (inv) { inv.qty = roundQty(Number(inv.qty) + originalQty); inv.lastUpdate = today; }
   }
+  s.qty = 0;
+  s.note = s.note ? s.note + '（已退回）' : '已退回';
   // 新增退回紀錄（負數）
-  shipments.push({date:today, site:s.site, name:s.name, spec:s.spec, thick:s.thick, unit:s.unit||'', qty:-Math.abs(Number(s.qty)), type:s.type, note:'退回', returnOf:returnKey});
+  shipments.push({date:today, site:s.site, name:s.name, spec:s.spec, thick:s.thick, unit:s.unit||'', qty:-originalQty, type:s.type, note:'退回', returnOf:returnKey});
   renderAll(); saveLocal(); showToast(s.type==='stock'?'✅ 已退回，庫存已還原':'✅ 已新增退回紀錄');
   autoSave();
 }
