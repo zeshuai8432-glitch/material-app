@@ -683,6 +683,38 @@ function specBadge(spec, thick) {
   return (spec?`<span class="spec-tag">${spec}</span>`:'')+(thick?`<span class="thick-tag">${thick}</span>`:'');
 }
 
+function buildInventoryDisplayRows(items) {
+  const groups = {};
+  items.forEach(i=>{
+    const project = getInvProject(i);
+    const key = [i.name||'', i.spec||'', project||''].join('\u0001');
+    if (!groups[key]) {
+      groups[key] = {
+        name: i.name || '',
+        spec: i.spec || '',
+        thick: i.thick || '',
+        project,
+        qty: 0,
+        lastUpdate: i.lastUpdate || '',
+        _idx: inventory.indexOf(i),
+        _items: []
+      };
+    }
+    const row = groups[key];
+    const itemQty = Number(i.qty) || 0;
+    row.qty = roundQty(row.qty + itemQty);
+    if ((i.lastUpdate || '') > (row.lastUpdate || '')) row.lastUpdate = i.lastUpdate || '';
+    if ((row.thick || '') !== (i.thick || '')) row._mixedThick = true;
+    row._items.push({...i, _idx: inventory.indexOf(i), _project: project});
+  });
+  return Object.values(groups).map(row=>{
+    row._items.sort((a,b)=>(b.lastUpdate||'').localeCompare(a.lastUpdate||''));
+    row.thick = row._mixedThick ? '多厚度' : row.thick;
+    row.qtyFormula = row._items.length > 1 ? row._items.map(i=>roundQty(i.qty)).join(' + ') + ' = ' + row.qty : '';
+    return row;
+  });
+}
+
 function evalQty(str) {
   if (str===null||str===undefined) return 0;
   const s = String(str).trim().replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-');
@@ -1670,9 +1702,10 @@ function renderAll() {
 }
 
 function renderInvStats() {
-  const total = inventory.reduce((a,i)=>a+i.qty,0);
+  const displayRows = buildInventoryDisplayRows(inventory);
+  const total = displayRows.reduce((a,i)=>a+i.qty,0);
   document.getElementById('inv-stats').innerHTML = `
-    <div class="stat-card"><div class="stat-label">材料種類</div><div class="stat-val">${inventory.length}</div></div>
+    <div class="stat-card"><div class="stat-label">材料種類</div><div class="stat-val">${displayRows.length}</div></div>
     <div class="stat-card"><div class="stat-label">總庫存數</div><div class="stat-val">${total}</div></div>
     <div class="stat-card"><div class="stat-label">入庫次數</div><div class="stat-val">${productions.length}</div></div>
     <div class="stat-card"><div class="stat-label">出貨次數</div><div class="stat-val">${shipments.length}</div></div>
@@ -1694,11 +1727,18 @@ function renderInventory() {
     });
     pfSel.value = currentVal;
   }
-  const filtered = inventory.filter(i=>{
+  const filteredRaw = inventory.filter(i=>{
     if (q && !(txt(i.name).includes(q)||txt(i.spec).includes(q)||txt(i.thick).includes(q))) return false;
     if (projFilter==='__global__') return !getInvProject(i);
     if (projFilter) return getInvProject(i)===projFilter;
     return true;
+  });
+  const filtered = buildInventoryDisplayRows(filteredRaw).sort((a,b)=>{
+    const byName = a.name.localeCompare(b.name,'zh-TW');
+    if (byName) return byName;
+    const bySpec = a.spec.localeCompare(b.spec,'zh-TW');
+    if (bySpec) return bySpec;
+    return (a.project||'').localeCompare(b.project||'','zh-TW');
   });
   const el = document.getElementById('inv-list');
   if (!filtered.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📦</div>目前無庫存資料</div>'; return; }
@@ -1708,7 +1748,7 @@ function renderInventory() {
     const series = materialTags[i.name] || '未設定系列';
     if (!seriesMap[series]) seriesMap[series] = {};
     if (!seriesMap[series][i.name]) seriesMap[series][i.name] = [];
-    seriesMap[series][i.name].push({...i, _idx: inventory.indexOf(i)});
+    seriesMap[series][i.name].push(i);
   });
   const seriesKeys = Object.keys(seriesMap).sort((a,b)=>{
     if (a==='未設定系列') return 1; if (b==='未設定系列') return -1;
@@ -1722,26 +1762,43 @@ function renderInventory() {
       const totalQty = items.reduce((a,b)=>a+b.qty,0);
       const gid = 'inv-g-'+hashStr(series+name);
       const isOpen = expandedGroups.has(gid);
-      const rows = items.map(i=>`
+      const rows = items.map(i=>{
+        const detailId = 'inv-detail-'+hashStr(i.name+i.spec+i.project+i.qtyFormula+i.lastUpdate);
+        const detailOpen = expandedGroups.has(detailId);
+        const canEditSingle = i._items.length === 1;
+        const details = i._items.map(part=>`
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 0;border-top:1px dashed #e5e7eb">
+            <div style="font-size:12px;color:#64748b">
+              ${specBadge(part.spec,part.thick)}
+              <div style="margin-top:3px">更新：${part.lastUpdate || ''}　數量：${roundQty(part.qty)}</div>
+            </div>
+            <div style="display:flex;gap:4px;flex-shrink:0">
+              <button class="btn-sm" onclick="editInventory(${part._idx})">編輯</button>
+              <button class="btn-danger-sm" onclick="deleteInventory(${part._idx})">刪除</button>
+            </div>
+          </div>`).join('');
+        return `
         <div class="list-item">
           <div style="flex:1">
             <div>${specBadge(i.spec,i.thick)}</div>
             <div style="font-size:11px;color:#94a3b8;margin-top:4px">更新：${i.lastUpdate}</div>
-            <div style="margin-top:4px">${getInvProject(i)?`<span class="badge badge-blue" style="font-size:11px">🏢 ${getInvProject(i)}</span>`:'<span style="font-size:11px;color:#94a3b8">通用</span>'}</div>
+            <div style="margin-top:4px">${i.project?`<span class="badge badge-blue" style="font-size:11px">🏢 ${i.project}</span>`:'<span style="font-size:11px;color:#94a3b8">通用</span>'}</div>
+            ${i.qtyFormula?`<div style="font-size:12px;color:#475569;margin-top:6px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px">計算式：${i.qtyFormula}</div>`:''}
+            ${i._items.length>1?`<div id="${detailId}" style="display:${detailOpen?'block':'none'};margin-top:6px">${details}</div>`:''}
           </div>
           <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
             <div class="list-qty">${i.qty}</div>
             <span class="badge ${i.qty>0?'badge-green':'badge-red'}">${i.qty>0?'有庫存':'缺貨'}</span>
             <div style="display:flex;gap:4px;margin-top:2px">
-              <button class="btn-sm" onclick="editInventory(${i._idx})">編輯</button>
-              <button class="btn-danger-sm" onclick="deleteInventory(${i._idx})">刪除</button>
+              ${canEditSingle?`<button class="btn-sm" onclick="editInventory(${i._idx})">編輯</button><button class="btn-danger-sm" onclick="deleteInventory(${i._idx})">刪除</button>`:`<button class="btn-sm" onclick="toggleGroup('${detailId}')">${detailOpen?'收合':'明細'}</button>`}
             </div>
           </div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
       return `<div class="acc-name-header" onclick="toggleGroup('${gid}')">
           <span class="acc-arrow${isOpen?' open':''}" data-arrow="${gid}">▶</span>
           <span class="acc-name">${name}</span>
-          <span class="acc-count">${items.length}規格・庫存${totalQty}</span>
+          <span class="acc-count">${items.length}規格/案場・庫存${totalQty}</span>
         </div>
         <div class="acc-body" id="${gid}" style="display:${isOpen?'block':'none'}">${rows}</div>`;
     }).join('');
