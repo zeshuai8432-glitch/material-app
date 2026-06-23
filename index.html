@@ -566,6 +566,27 @@ body{background:var(--app-bg);color:var(--ink)}
   <div class="flow-hint">🔄 查看各樓層缺料與餘料，建立調撥建議並執行及記錄調撥。</div>
   <div id="transfer-project-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;flex-wrap:nowrap"></div>
   <button class="btn-outline" onclick="showTransferForm()" style="width:100%;margin-bottom:12px;border-color:#ddd6fe;color:#7c3aed;background:#f5f3ff">🔄 手動樓層調撥</button>
+  <div class="card" id="floor-group-card">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;-webkit-user-select:none" onclick="toggleFloorGroupCard()">
+      <span>🏢 樓層群組設定 <span id="floor-group-badge" style="font-size:11px;font-weight:400;color:#6b7280;margin-left:4px"></span></span>
+      <span id="floor-group-arrow" class="acc-arrow">▶</span>
+    </div>
+    <div id="floor-group-body" style="display:none">
+      <div style="font-size:12px;color:#6b7280;margin-bottom:10px">將同樓層的不同單位（如 12F + 12EXS）合併計算缺料、餘料與調撥建議。</div>
+      <div id="floor-group-list"></div>
+      <div id="floor-group-form" style="display:none;margin-top:10px;padding:10px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">
+        <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px">新增樓層群組</div>
+        <input id="floor-group-name-input" type="text" placeholder="群組名稱（如：12層）" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
+        <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">選擇要合併的樓層：</div>
+        <div id="floor-group-floor-checkboxes" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-primary" style="flex:1" onclick="saveFloorGroup()">✅ 確認新增</button>
+          <button class="btn-secondary" style="flex:1" onclick="hideAddFloorGroupForm()">取消</button>
+        </div>
+      </div>
+      <button class="btn-outline" style="width:100%;margin-top:8px;border-color:#0ea5e9;color:#0ea5e9" onclick="showAddFloorGroupForm()">+ 新增群組</button>
+    </div>
+  </div>
   <div class="card" id="floor-shortage-card">
     <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;-webkit-user-select:none" onclick="toggleFloorShortageCard()">
       <span>⚠️ 各樓層缺料 <span id="floor-shortage-badge" style="font-size:11px;font-weight:400;color:#dc2626;margin-left:4px"></span></span>
@@ -683,6 +704,7 @@ let allocActiveProject = null;
 let allocActiveFloor = null;
 let transferActiveProject = null;
 let transferLogGroups = {}; // { [transferId]: groupName }
+let floorGroups = {}; // { [project]: [{name, floors:[]}] }
 let productions = [];
 let shipments = [];
 let currentOrder = [];
@@ -1196,6 +1218,7 @@ function saveLocal(markDirty = true) {
   localStorage.setItem('mat_edit_logs', JSON.stringify(editLogs));
   localStorage.setItem('mat_ship_date_labels', JSON.stringify(shipDateLabels));
   localStorage.setItem('mat_transfer_groups', JSON.stringify(transferLogGroups));
+  localStorage.setItem('mat_floor_groups', JSON.stringify(floorGroups));
   if (markDirty) {
     markLocalDirty();
     saveLocalBackup();
@@ -1226,6 +1249,8 @@ function loadLocal() {
     if (sdl) { const p = JSON.parse(sdl); if (p && typeof p==='object' && !Array.isArray(p)) shipDateLabels = p; }
     const tlg = localStorage.getItem('mat_transfer_groups');
     if (tlg) { const p = JSON.parse(tlg); if (p && typeof p==='object' && !Array.isArray(p)) transferLogGroups = p; }
+    const fgrp = localStorage.getItem('mat_floor_groups');
+    if (fgrp) { const p = JSON.parse(fgrp); if (p && typeof p==='object' && !Array.isArray(p)) floorGroups = p; }
     orderNo = shipments.length + 1;
   } catch(e) {}
 }
@@ -3734,45 +3759,64 @@ function getStockYardMaterials(project) {
   return Object.values(map).filter(m=>m.remain > 0);
 }
 
-function getFloorExcessItems(project) {
+// Compute per-floor-per-material balance (allocated − demanded) for all floors in a project.
+// Returns array of {floor, name, spec, thick, unit, category, allocated, demanded, balance}.
+function _getAllFloorBalances(project) {
   const n = allocNorm;
   const keySet = {};
   allocations.filter(a=>n(a.project)===n(project) && !a.transferId).forEach(a=>{
     const floor = a.floor||'（未分樓層）';
-    const key = floor+'||'+a.name+'||'+a.spec+'||'+(a.thick||'');
+    const key = floor+'||'+n(a.name)+'||'+n(a.spec)+'||'+n(a.thick||'');
     if (!keySet[key]) keySet[key] = {floor, name:a.name, spec:a.spec, thick:a.thick||'', unit:a.unit||'', category:a.category||''};
   });
-  const result = [];
-  Object.values(keySet).forEach(m=>{
+  demands.filter(d=>n(d.project)===n(project)).forEach(d=>{
+    const floor = d.floor||'（未分樓層）';
+    const key = floor+'||'+n(d.name)+'||'+n(d.spec)+'||'+n(d.thick||'');
+    if (!keySet[key]) keySet[key] = {floor, name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||'', category:d.category||'未分類'};
+  });
+  return Object.values(keySet).map(m=>{
     const allocated = getAllocatedQty(project, m.floor, m.name, m.spec, m.thick);
-    const demanded = demands.filter(d=>n(d.project)===n(project) && n(d.floor)===n(m.floor) && n(d.name)===n(m.name) && n(d.spec)===n(m.spec) && n(d.thick)===n(m.thick)).reduce((x,b)=>x+Number(b.qty),0);
-    const excess = allocated - demanded;
-    if (excess > 0) {
-      let unit = m.unit;
-      let category = m.category;
-      if (!unit || !category) { const d = demands.find(d=>n(d.project)===n(project) && n(d.name)===n(m.name) && n(d.spec)===n(m.spec) && n(d.thick)===n(m.thick)); if (d) { if(!unit) unit=d.unit||''; if(!category) category=d.category||''; } }
-      result.push({floor:m.floor, name:m.name, spec:m.spec, thick:m.thick, unit, category:category||'未分類', allocated, demanded, excess});
+    const demanded = demands.filter(d=>n(d.project)===n(project)&&n(d.floor)===n(m.floor)&&n(d.name)===n(m.name)&&n(d.spec)===n(m.spec)&&n(d.thick)===n(m.thick)).reduce((x,b)=>x+Number(b.qty),0);
+    let unit = m.unit, category = m.category;
+    if (!unit || !category) { const d = demands.find(d=>n(d.project)===n(project)&&n(d.name)===n(m.name)&&n(d.spec)===n(m.spec)); if (d) { if(!unit) unit=d.unit||''; if(!category) category=d.category||'未分類'; } }
+    return {...m, unit, category:category||'未分類', allocated, demanded, balance: roundQty(allocated - demanded)};
+  });
+}
+
+// Merge floor balance items by floor group. Items in the same group are summed.
+// Returns items where floor is replaced by group name; adds isGroup/groupFloors fields.
+function _mergeByFloorGroups(project, items) {
+  const groups = floorGroups[project] || [];
+  if (!groups.length) return items.map(i=>({...i, isGroup:false, groupFloors:null}));
+  const n = allocNorm;
+  const merged = {};
+  items.forEach(item=>{
+    const grp = groups.find(g=>g.floors.some(f=>n(f)===n(item.floor)));
+    const floorKey = grp ? '__grp__'+grp.name : item.floor;
+    const matKey = floorKey+'||'+n(item.name)+'||'+n(item.spec)+'||'+n(item.thick||'');
+    if (!merged[matKey]) {
+      merged[matKey] = {...item, floor: grp ? grp.name : item.floor, isGroup:!!grp, groupFloors: grp ? [...grp.floors] : null};
+    } else {
+      merged[matKey].balance = roundQty(merged[matKey].balance + item.balance);
+      merged[matKey].allocated = roundQty(merged[matKey].allocated + item.allocated);
+      merged[matKey].demanded = roundQty(merged[matKey].demanded + item.demanded);
     }
   });
-  return result;
+  return Object.values(merged);
+}
+
+function getFloorExcessItems(project) {
+  const balances = _getAllFloorBalances(project);
+  return _mergeByFloorGroups(project, balances)
+    .filter(m=>m.balance > 0)
+    .map(m=>({...m, excess: m.balance}));
 }
 
 function getFloorShortageItems(project) {
-  const n = allocNorm;
-  const keySet = {};
-  demands.filter(d=>n(d.project)===n(project)).forEach(d=>{
-    const floor = d.floor||'（未分樓層）';
-    const key = floor+'||'+d.name+'||'+d.spec+'||'+(d.thick||'');
-    if (!keySet[key]) keySet[key] = {floor, name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||'', category:d.category||'未分類'};
-  });
-  const result = [];
-  Object.values(keySet).forEach(m=>{
-    const allocated = getAllocatedQty(project, m.floor, m.name, m.spec, m.thick);
-    const demanded = demands.filter(d=>n(d.project)===n(project)&&n(d.floor)===n(m.floor)&&n(d.name)===n(m.name)&&n(d.spec)===n(m.spec)&&n(d.thick)===n(m.thick)).reduce((x,b)=>x+Number(b.qty),0);
-    const shortage = roundQty(demanded - allocated);
-    if (shortage > 0) result.push({floor:m.floor, name:m.name, spec:m.spec, thick:m.thick, unit:m.unit||'', category:m.category||'未分類', allocated, demanded, shortage});
-  });
-  return result;
+  const balances = _getAllFloorBalances(project);
+  return _mergeByFloorGroups(project, balances)
+    .filter(m=>m.balance < 0)
+    .map(m=>({...m, shortage: roundQty(-m.balance)}));
 }
 
 function renderFloorShortage() {
@@ -3811,7 +3855,7 @@ function renderFloorShortage() {
     const bid = 'fshbody-'+fi;
     return `<div style="margin-bottom:6px">
       <div onclick="toggleFshFloor('${bid}',this)" style="font-size:12px;font-weight:700;color:#dc2626;padding:7px 4px 6px;border-bottom:1.5px solid #fecaca;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;-webkit-user-select:none">
-        <span>⚠️ ${floor}</span>
+        <span>⚠️ ${floor}${allFloorItems[0]&&allFloorItems[0].isGroup?`<span style="font-weight:400;color:#9ca3af;font-size:11px;margin-left:4px">(${allFloorItems[0].groupFloors.join(' + ')})</span>`:''}</span>
         <span style="display:flex;align-items:center;gap:8px">
           <span style="font-weight:600">${roundQty(allFloorItems.reduce((a,b)=>a+b.shortage,0))} 件缺料</span>
           <span class="acc-arrow" style="font-size:11px">▶</span>
@@ -3868,7 +3912,7 @@ function renderFloorExcess() {
     const bid = 'fexbody-'+fi;
     return `<div style="margin-bottom:6px">
       <div onclick="toggleFexFloor('${bid}',this)" style="font-size:12px;font-weight:700;color:#7c3aed;padding:7px 4px 6px;border-bottom:1.5px solid #e9d5ff;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;-webkit-user-select:none">
-        <span>📍 ${floor}</span>
+        <span>📍 ${floor}${allFloorItems[0]&&allFloorItems[0].isGroup?`<span style="font-weight:400;color:#9ca3af;font-size:11px;margin-left:4px">(${allFloorItems[0].groupFloors.join(' + ')})</span>`:''}</span>
         <span style="display:flex;align-items:center;gap:8px">
           <span style="color:#d97706;font-weight:600">${allFloorItems.reduce((a,b)=>a+b.excess,0)} 件餘料</span>
           <span class="acc-arrow" style="font-size:11px">▶</span>
@@ -3904,6 +3948,91 @@ function toggleFloorExcessCard() {
   const isOpen = body.style.display !== 'none';
   body.style.display = isOpen ? 'none' : '';
   if (arrow) arrow.classList.toggle('open', !isOpen);
+}
+
+function toggleFloorGroupCard() {
+  const body = document.getElementById('floor-group-body');
+  const arrow = document.getElementById('floor-group-arrow');
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  if (arrow) arrow.classList.toggle('open', !isOpen);
+}
+
+function renderFloorGroups() {
+  const project = transferActiveProject;
+  const listEl = document.getElementById('floor-group-list');
+  const badge = document.getElementById('floor-group-badge');
+  if (!listEl || !project) return;
+  const groups = floorGroups[project] || [];
+  if (badge) badge.textContent = groups.length ? `（${groups.length} 個群組）` : '';
+  if (!groups.length) {
+    listEl.innerHTML = '<div style="color:#6b7280;font-size:12px;margin-bottom:6px">尚無群組設定</div>';
+    return;
+  }
+  listEl.innerHTML = groups.map((g, i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:#f1f5f9;border-radius:8px;margin-bottom:6px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:13px;color:#0f172a">🏢 ${g.name}</div>
+        <div style="font-size:11px;color:#6b7280;margin-top:2px">${g.floors.join(' + ')}</div>
+      </div>
+      <button class="btn-sm" style="color:#dc2626;border-color:#dc2626;flex-shrink:0" onclick="deleteFloorGroup(${i})">刪除</button>
+    </div>`).join('');
+}
+
+function showAddFloorGroupForm() {
+  const project = transferActiveProject;
+  if (!project) { showToast('⚠️ 請先選擇案場'); return; }
+  const formEl = document.getElementById('floor-group-form');
+  const cbContainer = document.getElementById('floor-group-floor-checkboxes');
+  const nameInput = document.getElementById('floor-group-name-input');
+  if (!formEl || !cbContainer) return;
+  const usedFloors = new Set((floorGroups[project]||[]).flatMap(g=>g.floors));
+  const floors = getAllocFloors(project).filter(f => !usedFloors.has(f));
+  if (floors.length < 2) { showToast('⚠️ 沒有足夠的未分組樓層可合併'); return; }
+  if (nameInput) nameInput.value = '';
+  cbContainer.innerHTML = floors.map(f => `
+    <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 10px;border-radius:20px;border:2px solid #e2e8f0;cursor:pointer;background:#fff;user-select:none;-webkit-user-select:none" id="fgcb-label-${f.replace(/\W/g,'_')}">
+      <input type="checkbox" value="${f.replace(/"/g,'&quot;')}" style="position:absolute;opacity:0;width:0;height:0" onchange="this.closest('label').style.cssText=this.checked?'display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 10px;border-radius:20px;border:2px solid #185FA5;cursor:pointer;background:#185FA5;color:#fff;user-select:none;-webkit-user-select:none':'display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 10px;border-radius:20px;border:2px solid #e2e8f0;cursor:pointer;background:#fff;color:inherit;user-select:none;-webkit-user-select:none'">
+      ${f}
+    </label>`).join('');
+  formEl.style.display = '';
+}
+
+function hideAddFloorGroupForm() {
+  const formEl = document.getElementById('floor-group-form');
+  if (formEl) formEl.style.display = 'none';
+}
+
+function saveFloorGroup() {
+  const project = transferActiveProject;
+  const nameInput = document.getElementById('floor-group-name-input');
+  const name = nameInput ? nameInput.value.trim() : '';
+  if (!name) { showToast('⚠️ 請輸入群組名稱'); return; }
+  const checked = [...document.querySelectorAll('#floor-group-floor-checkboxes input[type=checkbox]:checked')].map(c=>c.value);
+  if (checked.length < 2) { showToast('⚠️ 請至少選擇 2 個樓層'); return; }
+  if (!floorGroups[project]) floorGroups[project] = [];
+  const existing = floorGroups[project].find(g=>g.name===name);
+  if (existing) { showToast('⚠️ 群組名稱已存在'); return; }
+  floorGroups[project].push({name, floors: checked});
+  hideAddFloorGroupForm();
+  renderFloorGroups();
+  renderTransferPage();
+  autoSave();
+  showToast(`✅ 已新增群組「${name}」（${checked.join(' + ')}）`);
+}
+
+function deleteFloorGroup(idx) {
+  const project = transferActiveProject;
+  const groups = floorGroups[project] || [];
+  if (!groups[idx]) return;
+  const name = groups[idx].name;
+  if (!confirm(`確定刪除群組「${name}」？`)) return;
+  groups.splice(idx, 1);
+  renderFloorGroups();
+  renderTransferPage();
+  autoSave();
+  showToast(`✅ 已刪除群組「${name}」`);
 }
 
 function getFloorTransferSuggestions(project, floorFilter) {
@@ -3979,7 +4108,7 @@ function renderTransferSuggestions() {
   if (card) card.style.display = '';
 
   // Build floor list from ALL suggestions (unfiltered) for checkboxes
-  const allItems = getFloorTransferSuggestions(allocActiveProject, null);
+  const allItems = getFloorTransferSuggestions(transferActiveProject, null);
   const filterDiv = document.getElementById('transfer-floor-filter');
   const cbContainer = document.getElementById('transfer-floor-checkboxes');
   if (filterDiv && cbContainer) {
@@ -4378,6 +4507,7 @@ function renderTransferPage() {
       `<button class="dtab ${p===transferActiveProject?'active':''}" onclick="selectTransferProject('${p.replace(/'/g,"\\'")}')">🏢 ${p}</button>`
     ).join('');
   }
+  renderFloorGroups();
   renderFloorShortage();
   renderFloorExcess();
   renderTransferSuggestions();
