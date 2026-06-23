@@ -417,6 +417,7 @@ body{background:var(--app-bg);color:var(--ink)}
     <div class="qty-preview" id="ship-qty-preview"></div></div>
     <div class="form-group"><label>備註（選填，相同備注歸同一組）</label><input type="text" id="ship-note" placeholder="例：第一批、急件… 留空不分組" maxlength="50" autocomplete="off"></div>
     <div id="demand-gap-box" style="display:none;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
+    <button class="btn-outline" onclick="addAllStockShipments()" style="width:100%;margin-bottom:8px">一鍵全部出貨（依需求單）</button>
     <button class="btn-primary" onclick="addShipment()">加入出貨清單</button>
   </div>
 
@@ -1821,6 +1822,63 @@ function addShipment() {
   }
   renderAll(); autoSave();
   showToast(shipType==='stock'?'✅ 已出貨，庫存已扣減':'✅ 已新增制式材料');
+}
+
+function addAllStockShipments() {
+  const date = document.getElementById('ship-date').value;
+  const site = document.getElementById('ship-site').value;
+  const noteEl = document.getElementById('ship-note');
+  const note = noteEl ? (noteEl.value || '').trim() : '';
+  if (!date || !site) { showToast('⚠️ 請先選日期和案場'); return; }
+  const norm = v => String(v==null?'':v).trim();
+  const rows = demands.filter(d=>norm(d.project)===norm(site));
+  if (!rows.length) { showToast('⚠️ 此案場沒有需求單資料'); return; }
+  const map = {};
+  rows.forEach(d=>{
+    const k = norm(d.name)+'|'+norm(d.spec)+'|'+norm(d.thick||'');
+    if (!map[k]) map[k] = {name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||'', demand:0};
+    map[k].demand += Number(d.qty)||0;
+  });
+  const plans = [];
+  const shortages = [];
+  Object.values(map).forEach(m=>{
+    const shipped = getShippedQty(site, m.name, m.spec, m.thick);
+    const remain = roundQty(m.demand - shipped);
+    if (remain <= 0) return;
+    const inv = findInventory(m.name, m.spec, m.thick);
+    const stockQty = inv ? Number(inv.qty)||0 : 0;
+    if (stockQty <= 0) {
+      shortages.push(m.name+' '+m.spec+(m.thick?' '+m.thick:'')+' 缺 '+remain+(m.unit||''));
+      return;
+    }
+    const qty = Math.min(remain, stockQty);
+    plans.push({material:m, inv, qty, remain, stockQty});
+    if (qty < remain) shortages.push(m.name+' '+m.spec+(m.thick?' '+m.thick:'')+' 還缺 '+(remain-qty)+(m.unit||''));
+  });
+  if (!plans.length) {
+    alert(shortages.length ? '目前沒有可從庫存出貨的項目。\n\n' + shortages.slice(0,12).join('\n') : '此案場需求都已出貨完成。');
+    return;
+  }
+  const totalQty = plans.reduce((s,p)=>s+p.qty,0);
+  const preview = plans.slice(0,12).map(p=>p.material.name+' '+p.material.spec+(p.material.thick?' '+p.material.thick:'')+'：'+p.qty+(p.material.unit||'')).join('\n');
+  const more = plans.length > 12 ? '\n...另有 '+(plans.length-12)+' 筆' : '';
+  const shortageText = shortages.length ? '\n\n庫存不足項目：\n' + shortages.slice(0,8).join('\n') + (shortages.length>8?'\n...另有 '+(shortages.length-8)+' 筆':'') : '';
+  if (!confirm('確定要一鍵出貨 '+plans.length+' 筆，共 '+totalQty+'？\n\n'+preview+more+shortageText+'\n\n備註：'+(note||'無'))) return;
+  plans.forEach(p=>{
+    p.inv.qty = roundQty(Number(p.inv.qty) - p.qty);
+    p.inv.lastUpdate = date;
+    const record = {date, site, name:p.material.name, spec:p.material.spec, thick:p.material.thick, qty:p.qty, type:'stock'};
+    if (note) record.note = note;
+    shipments.push(record);
+    currentOrder.push(record);
+  });
+  document.getElementById('ship-qty').value='';
+  document.getElementById('ship-qty-preview').style.display='none';
+  document.getElementById('ship-inv-select').value='';
+  document.getElementById('ship-stock-info').style.display='none';
+  refreshShipDemandSelects();
+  renderAll(); autoSave();
+  showToast('✅ 已一鍵出貨 '+plans.length+' 筆');
 }
 
 function clearOrder() {
