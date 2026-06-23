@@ -3056,6 +3056,46 @@ function getProjectFloors(project) {
   return floors;
 }
 
+// Render floor tabs with group collapsing.
+// selectFnName: string name of the onclick function (e.g. 'selectFloorTab')
+function renderGroupedFloorTabs(containerEl, project, curFloor, floors, selectFnName) {
+  const n = allocNorm;
+  const groups = (floorGroups[project] || [])
+    .map(g => ({...g, floors: g.floors.filter(f => floors.some(pf => n(pf)===n(f)))}))
+    .filter(g => g.floors.length > 0);
+  const groupedNorms = new Set(groups.flatMap(g => g.floors.map(f => n(f))));
+  const ungrouped = floors.filter(f => !groupedNorms.has(n(f)));
+  let html = '';
+  groups.forEach(g => {
+    const key = (project+'||'+g.name).replace(/'/g,"\\'");
+    const expanded = _floorTabGroupExpanded.has(project+'||'+g.name);
+    const hasActive = g.floors.some(f => n(f)===n(curFloor));
+    const grpActive = hasActive && !expanded;
+    html += `<button class="dtab${grpActive?' active':''}" style="${grpActive?'':'background:#f5f3ff;border-color:#7c3aed;color:#7c3aed'}" onclick="_toggleFloorTabGroup('${key}')">🏢 ${g.name} <span style="font-size:10px">${expanded?'▾':'▶'}</span></button>`;
+    if (expanded) {
+      g.floors.forEach(f => {
+        const isActive = n(f)===n(curFloor);
+        html += `<button class="dtab${isActive?' active':''}" style="${isActive?'':'background:#ede9fe;border-color:#c4b5fd;color:#5b21b6'}" onclick="${selectFnName}('${f.replace(/'/g,"\\'")}')">↳ ${f}</button>`;
+      });
+    }
+  });
+  ungrouped.forEach(f => {
+    const isActive = n(f)===n(curFloor);
+    html += `<button class="dtab${isActive?' active':''}" style="${isActive?'':'background:#fff;border-color:#cbd5e1'}" onclick="${selectFnName}('${f.replace(/'/g,"\\'")}')"> ${f}</button>`;
+  });
+  containerEl.innerHTML = html;
+}
+
+function _toggleFloorTabGroup(key) {
+  if (_floorTabGroupExpanded.has(key)) _floorTabGroupExpanded.delete(key);
+  else _floorTabGroupExpanded.add(key);
+  // lightweight re-render of just the tab rows
+  const demEl = document.getElementById('demand-floor-tabs');
+  if (demEl && activeProject) renderGroupedFloorTabs(demEl, activeProject, activeFloor, getProjectFloors(activeProject), 'selectFloorTab');
+  const alcEl = document.getElementById('alloc-floor-tabs');
+  if (alcEl && allocActiveProject) renderGroupedFloorTabs(alcEl, allocActiveProject, allocActiveFloor, getAllocFloors(allocActiveProject), 'selectAllocFloorTab');
+}
+
 function renderDemands() {
   const tabsEl = document.getElementById('demand-tabs');
   const floorTabsEl = document.getElementById('demand-floor-tabs');
@@ -3088,11 +3128,7 @@ function renderDemands() {
   // 第二層：樓層頁籤
   const floors = getProjectFloors(activeProject);
   if (!activeFloor || !floors.includes(activeFloor)) activeFloor = floors[0];
-  if (floorTabsEl) {
-    floorTabsEl.innerHTML = floors.map(f=>
-      `<button class="dtab ${f===activeFloor?'active':''}" style="${f===activeFloor?'':'background:#fff;border-color:#cbd5e1'}" onclick="selectFloorTab('${f.replace(/'/g,"\\'")}')">${f}</button>`
-    ).join('');
-  }
+  if (floorTabsEl) renderGroupedFloorTabs(floorTabsEl, activeProject, activeFloor, floors, 'selectFloorTab');
   // 顯示目前案場+樓層的需求，依分類分組
   const items = demands.map((d,i)=>({...d,_idx:i})).filter(d=>d.project===activeProject && (d.floor||'（未分樓層）')===activeFloor);
   const catMap = {};
@@ -4151,6 +4187,7 @@ function getFloorTransferSuggestions(project, floorFilter) {
 let _transferSuggestions = [];
 let _transferFloorFilter = new Set();
 let _transferGroupCollapsed = new Set(); // group names that are currently collapsed
+let _floorTabGroupExpanded = new Set(); // keys = project+'||'+groupName for expanded floor-tab groups
 
 function renderTransferSuggestions() {
   const el = document.getElementById('alloc-transfer-suggestions');
@@ -4604,11 +4641,7 @@ function renderAllocation() {
   // 第二層：樓層頁籤
   const floors = getAllocFloors(allocActiveProject);
   if (!allocActiveFloor || !floors.includes(allocActiveFloor)) allocActiveFloor = floors[0] || null;
-  if (floorTabsEl) {
-    floorTabsEl.innerHTML = floors.map(f=>
-      `<button class="dtab ${f===allocActiveFloor?'active':''}" style="${f===allocActiveFloor?'':'background:#fff;border-color:#cbd5e1'}" onclick="selectAllocFloorTab('${f.replace(/'/g,"\\'")}')">${f}</button>`
-    ).join('');
-  }
+  if (floorTabsEl) renderGroupedFloorTabs(floorTabsEl, allocActiveProject, allocActiveFloor, floors, 'selectAllocFloorTab');
   const fl = document.getElementById('alloc-current-floor');
   if (fl) fl.textContent = '分配到：' + allocActiveProject + '　' + (allocActiveFloor||'（請先在需求單建立樓層）');
   setFloorContext('alloc-floor-context', allocActiveProject, allocActiveFloor || '（請先在需求單建立樓層）', '分配與餘料查看中');
