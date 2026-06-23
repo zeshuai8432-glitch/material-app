@@ -4272,25 +4272,55 @@ function _renderFilteredSuggestions() {
   }).join('');
 }
 
+// If floorOrGroup is a group name, resolve it to the best actual member floor.
+// pickMode 'excess'  → member floor with most allocated qty (transfer source)
+// pickMode 'shortage' → member floor with most shortage (transfer destination)
+function resolveGroupToFloor(project, floorOrGroup, name, spec, thick, pickMode) {
+  const n = allocNorm;
+  const grp = (floorGroups[project] || []).find(g => g.name === floorOrGroup);
+  if (!grp) return floorOrGroup; // not a group
+  let best = grp.floors[0], bestVal = -Infinity;
+  grp.floors.forEach(f => {
+    const alloc = getAllocatedQty(project, f, name, spec, thick);
+    const demanded = demands.filter(d => n(d.project)===n(project)&&n(d.floor)===n(f)&&n(d.name)===n(name)&&n(d.spec)===n(spec)).reduce((s,d)=>s+Number(d.qty),0);
+    const val = pickMode === 'excess' ? alloc : (demanded - alloc);
+    if (val > bestVal) { bestVal = val; best = f; }
+  });
+  return best;
+}
+
 function quickTransfer(idx) {
   const it = _transferSuggestions[idx];
   if (!it) { showToast('❌ 找不到調度資料'); return; }
   const inputEl = document.getElementById('tqty-'+idx);
   const entered = inputEl ? parseFloat(inputEl.value) : it.qty;
   if (!entered || entered <= 0) { showToast('⚠️ 請輸入有效數量'); return; }
-  const available = getAllocatedQty(transferActiveProject, it.fromFloor, it.name, it.spec, it.thick);
+
+  // Resolve group names → actual floor names
+  const fromFloor = resolveGroupToFloor(transferActiveProject, it.fromFloor, it.name, it.spec, it.thick, 'excess');
+  const toFloor   = resolveGroupToFloor(transferActiveProject, it.toFloor,   it.name, it.spec, it.thick, 'shortage');
+
+  const available = getAllocatedQty(transferActiveProject, fromFloor, it.name, it.spec, it.thick);
   if (available <= 0) { showToast('⚠️ '+it.fromFloor+' 已無可調材料'); return; }
-  if (entered > available) { showToast(`⚠️ 輸入數量超過 ${it.fromFloor} 可用量 ${available}${it.unit}`); return; }
+  if (entered > available) { showToast(`⚠️ 數量超過 ${fromFloor} 可用量 ${available}${it.unit}`); return; }
   const qty = roundQty(entered);
-  const fromCat = it.fromCategory ? it.fromCategory.split('、')[0] : '';
-  const toCat   = it.toCategory   ? it.toCategory.split('、')[0]   : '';
+
+  // Get category from actual records
+  const n = allocNorm;
+  const fromRec = allocations.find(a => n(a.project)===n(transferActiveProject)&&n(a.floor)===n(fromFloor)&&n(a.name)===n(it.name)&&n(a.spec)===n(it.spec)&&!a.transferId);
+  const toRec   = demands.find(d => n(d.project)===n(transferActiveProject)&&n(d.floor)===n(toFloor)&&n(d.name)===n(it.name)&&n(d.spec)===n(it.spec));
+  const fromCat = fromRec ? fromRec.category||'' : (it.fromCategory||'').split('、')[0];
+  const toCat   = toRec   ? toRec.category||''   : (it.toCategory||'').split('、')[0];
+
   const tid = 'TR-'+(++transferCounter)+'-'+Date.now();
   const base = {project:transferActiveProject, name:it.name, spec:it.spec, thick:it.thick, unit:it.unit, date:today, transferId:tid};
-  allocations.push({...base, floor:it.fromFloor, category:fromCat, qty:-qty});
-  allocations.push({...base, floor:it.toFloor,   category:toCat,   qty:qty});
+  allocations.push({...base, floor:fromFloor, category:fromCat, qty:-qty});
+  allocations.push({...base, floor:toFloor,   category:toCat,   qty:qty});
   renderAll();
   autoSave();
-  showToast('✅ 已從 '+it.fromFloor+' 調 '+qty+it.unit+' 到 '+it.toFloor);
+  const fromLabel = fromFloor !== it.fromFloor ? `${it.fromFloor}（${fromFloor}）` : fromFloor;
+  const toLabel   = toFloor   !== it.toFloor   ? `${it.toFloor}（${toFloor}）`     : toFloor;
+  showToast(`✅ 已從 ${fromLabel} 調 ${qty}${it.unit} 到 ${toLabel}`);
 }
 
 function toggleTransferSuggestionCard() {
