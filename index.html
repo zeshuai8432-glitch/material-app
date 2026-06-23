@@ -2474,7 +2474,7 @@ function exportOrderPDF() {
 }
 
 function exportPDF(page) {
-  const titles = {inventory:'庫存清單', production:'入庫紀錄', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
+  const titles = {inventory:'庫存清單', production:'生產清單', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
   const datePages = {production:productions, shipment:shipments, arrival:shipments, demand:demands};
   const source = datePages[page];
   if (source) {
@@ -2488,7 +2488,7 @@ function exportPDF(page) {
 }
 
 function exportPDFByDates(page, chosenDates) {
-  const titles = {inventory:'庫存清單', production:'入庫紀錄', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
+  const titles = {inventory:'庫存清單', production:'生產清單', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
   let html = '<h1>'+titles[page]+'</h1><div class="meta">匯出日期：'+today+'</div>';
   if (chosenDates && chosenDates.length) html += '<div class="meta">資料日期：'+chosenDates.slice().sort().join('、')+'</div>';
   if (page==='inventory') {
