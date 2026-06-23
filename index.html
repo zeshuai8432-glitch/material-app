@@ -1503,6 +1503,40 @@ function applyInventoryFromRecords() {
   return {changed:true, removedReturns};
 }
 
+function sameMaterial(a, name, spec, thick) {
+  return gapNorm(a.name)===gapNorm(name) && gapNorm(a.spec)===gapNorm(spec) && gapNorm(a.thick||'')===gapNorm(thick||'');
+}
+
+function expectedInventoryQtyFromRecords(name, spec, thick) {
+  const inQty = productions
+    .filter(p=>sameMaterial(p, name, spec, thick))
+    .reduce((sum,p)=>sum + Number(p.qty||0), 0);
+  const outQty = shipments
+    .filter(s=>isStockAffectingShipment(s) && sameMaterial(s, name, spec, thick))
+    .reduce((sum,s)=>sum + Number(s.qty||0), 0);
+  return roundQty(inQty - outQty);
+}
+
+function syncInventoryEditToRecords(before, after) {
+  productions.forEach(p=>{
+    if (sameMaterial(p, before.name, before.spec, before.thick)) {
+      p.name = after.name; p.spec = after.spec; p.thick = after.thick;
+    }
+  });
+  shipments.forEach(s=>{
+    if (sameMaterial(s, before.name, before.spec, before.thick)) {
+      s.name = after.name; s.spec = after.spec; s.thick = after.thick;
+    }
+  });
+  const expected = expectedInventoryQtyFromRecords(after.name, after.spec, after.thick);
+  const diff = roundQty(Number(after.qty||0) - expected);
+  if (diff > 0) {
+    productions.push({date:today, name:after.name, spec:after.spec, thick:after.thick, qty:diff, note:'庫存手動調整'});
+  } else if (diff < 0) {
+    shipments.push({date:today, site:'庫存調整', name:after.name, spec:after.spec, thick:after.thick, qty:Math.abs(diff), type:'stock', note:'庫存手動調整'});
+  }
+}
+
 function rebuildInventoryFromRecords() {
   if (!confirm('確定要重算庫存？\n\n系統會用「全部入庫」重新建立工廠總庫存，再扣掉「庫存出貨」，退回紀錄會加回。手動改過的庫存數量會被帳面紀錄覆蓋。')) return;
   const result = applyInventoryFromRecords();
@@ -2560,22 +2594,30 @@ function editInventory(idx) {
     <div class="form-group"><label>系列標籤</label><input type="text" id="ei-tag" value="${materialTags[i.name]||''}" placeholder="例：隔間骨架、天花板系統"></div>`;
   showEditModal('編輯庫存', body, ()=>{
     const before = cloneRecord({...inventory[idx], tag: materialTags[inventory[idx].name] || ''});
+    const beforeItem = cloneRecord(inventory[idx]);
     const oldName = inventory[idx].name;
     const oldKey = invProjectKey(inventory[idx].name, inventory[idx].spec, inventory[idx].thick);
     const newName = document.getElementById('ei-name').value.trim();
     const newProject = document.getElementById('ei-project').value;
-    inventory[idx].name = newName;
-    inventory[idx].spec = document.getElementById('ei-spec').value.trim();
-    inventory[idx].thick = document.getElementById('ei-thick').value.trim();
-    inventory[idx].qty = evalQty(document.getElementById('ei-qty').value)||0;
-    inventory[idx].lastUpdate = today;
+    const nextItem = {
+      name: newName,
+      spec: document.getElementById('ei-spec').value.trim(),
+      thick: document.getElementById('ei-thick').value.trim(),
+      qty: evalQty(document.getElementById('ei-qty').value)||0,
+      lastUpdate: today
+    };
+    inventory[idx] = nextItem;
     const newKey = invProjectKey(inventory[idx].name, inventory[idx].spec, inventory[idx].thick);
     if (oldKey !== newKey) delete inventoryProjects[oldKey];
     if (newProject) inventoryProjects[newKey] = newProject; else delete inventoryProjects[newKey];
     const newTag = document.getElementById('ei-tag').value.trim();
     if (oldName !== newName) delete materialTags[oldName];
     if (newTag) materialTags[newName] = newTag; else delete materialTags[newName];
-    recordEditLog('庫存', newName || oldName || '庫存項目', before, cloneRecord({...inventory[idx], tag: materialTags[newName] || ''}));
+    syncInventoryEditToRecords(beforeItem, nextItem);
+    applyInventoryFromRecords();
+    if (newProject) inventoryProjects[invProjectKey(nextItem.name, nextItem.spec, nextItem.thick)] = newProject;
+    const afterItem = inventory.find(x=>sameMaterial(x, nextItem.name, nextItem.spec, nextItem.thick)) || nextItem;
+    recordEditLog('庫存', newName || oldName || '庫存項目', before, cloneRecord({...afterItem, tag: materialTags[newName] || ''}));
     hideEditModal(); renderAll(); autoSave(); showToast('✅ 庫存已更新');
   });
 }
