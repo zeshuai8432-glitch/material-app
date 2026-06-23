@@ -326,7 +326,10 @@ body{background:var(--app-bg);color:var(--ink)}
   <div class="card">
     <div class="card-title">
       特殊材料庫存
-      <button class="btn-outline" onclick="exportPDF('inventory')" style="font-size:12px;padding:5px 10px">匯出 PDF</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn-outline" onclick="rebuildInventoryFromRecords()" style="font-size:12px;padding:5px 10px">重算庫存</button>
+        <button class="btn-outline" onclick="exportPDF('inventory')" style="font-size:12px;padding:5px 10px">匯出 PDF</button>
+      </div>
     </div>
     <div id="inv-list"></div>
   </div>
@@ -713,6 +716,14 @@ function buildInventoryDisplayRows(items) {
     row.qtyFormula = row._items.length > 1 ? row._items.map(i=>roundQty(i.qty)).join(' + ') + ' = ' + row.qty : '';
     return row;
   });
+}
+
+function invLooseKey(name, spec, project) {
+  return [name, spec, project].map(v=>String(v==null?'':v).trim().toLowerCase()).join('|');
+}
+
+function getInvLooseKey(i) {
+  return invLooseKey(i.name, i.spec, getInvProject(i));
 }
 
 function evalQty(str) {
@@ -1356,7 +1367,63 @@ async function autoSave() {
 // ── Data ──
 function findInventory(name, spec, thick, project) {
   const p = project || '';
-  return inventory.find(i => i.name===name && i.spec===spec && i.thick===thick && getInvProject(i)===p);
+  return inventory.find(i => i.name===name && i.spec===spec && i.thick===thick && getInvProject(i)===p)
+    || inventory.find(i => invLooseKey(i.name, i.spec, getInvProject(i)) === invLooseKey(name, spec, p));
+}
+
+function addQtyToInventory(name, spec, thick, project, qty, date) {
+  const ex = findInventory(name, spec, thick, project);
+  if (ex) {
+    ex.qty = roundQty(Number(ex.qty) + Number(qty));
+    ex.lastUpdate = date || today;
+    return ex;
+  }
+  const rec = {name, spec, thick:thick||'', qty:roundQty(qty), lastUpdate:date||today};
+  inventory.push(rec);
+  if (project) inventoryProjects[invProjectKey(name, spec, thick||'')] = project;
+  return rec;
+}
+
+function subtractQtyFromInventory(name, spec, thick, project, qty, date) {
+  const ex = findInventory(name, spec, thick, project);
+  if (!ex) return false;
+  ex.qty = roundQty(Number(ex.qty) - Number(qty));
+  ex.lastUpdate = date || today;
+  return true;
+}
+
+function rebuildInventoryFromRecords() {
+  if (!confirm('確定要重算庫存？\n\n系統會用「入庫紀錄」重新建立庫存，再扣掉「庫存出貨」數量。手動改過的庫存數量會被帳面紀錄覆蓋。')) return;
+  const next = [];
+  const nextProjects = {};
+  const findNext = (name, spec, project) => next.find(i=>invLooseKey(i.name, i.spec, nextProjects[invProjectKey(i.name,i.spec,i.thick)]||'')===invLooseKey(name, spec, project||''));
+  const addNext = (name, spec, thick, project, qty, date) => {
+    if (!name) return;
+    let row = findNext(name, spec, project);
+    if (!row) {
+      row = {name, spec:spec||'', thick:thick||'', qty:0, lastUpdate:date||today};
+      next.push(row);
+      if (project) nextProjects[invProjectKey(row.name,row.spec,row.thick)] = project;
+    }
+    row.qty = roundQty(Number(row.qty) + Number(qty));
+    if ((date||'') > (row.lastUpdate||'')) row.lastUpdate = date || row.lastUpdate;
+  };
+  const takeNext = (name, spec, thick, site, qty, date) => {
+    const projectRow = findNext(name, spec, site);
+    const globalRow = findNext(name, spec, '');
+    const row = projectRow || globalRow || next.find(i=>gapNorm(i.name)===gapNorm(name) && gapNorm(i.spec)===gapNorm(spec));
+    if (row) {
+      row.qty = roundQty(Number(row.qty) - Number(qty));
+      if ((date||'') > (row.lastUpdate||'')) row.lastUpdate = date || row.lastUpdate;
+    } else {
+      addNext(name, spec, thick, '', -Number(qty), date);
+    }
+  };
+  productions.forEach(p=>addNext(p.name, p.spec, p.thick, p.project||'', Number(p.qty)||0, p.date||today));
+  shipments.filter(s=>s.type==='stock').forEach(s=>takeNext(s.name, s.spec, s.thick, s.site||'', Number(s.qty)||0, s.date||today));
+  inventory = next;
+  inventoryProjects = nextProjects;
+  renderAll(); autoSave(); showToast('✅ 庫存已依入庫/出貨重算');
 }
 
 function addProduction() {
@@ -1372,12 +1439,7 @@ function addProduction() {
   if (project) rec.project = project;
   if (qtyRaw && qtyRaw !== String(qty)) rec.qtyExpr = qtyRaw;
   productions.push(rec);
-  const ex = findInventory(name,spec,thick,project);
-  if (ex) { ex.qty+=qty; ex.lastUpdate=date; }
-  else {
-    inventory.push({name,spec,thick,qty,lastUpdate:date});
-    if (project) inventoryProjects[invProjectKey(name,spec,thick)] = project;
-  }
+  addQtyToInventory(name,spec,thick,project,qty,date);
   ['prod-name','prod-spec','prod-thick','prod-qty'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('prod-qty-preview').style.display='none';
   renderAll(); autoSave(); showToast('✅ 入庫成功，庫存已更新');
@@ -2373,11 +2435,19 @@ function editProduction(idx) {
   showEditModal('編輯入庫紀錄', body, ()=>{
     const before = cloneRecord(productions[idx]);
     const epRaw = document.getElementById('ep-qty').value.trim();
-    productions[idx].date = document.getElementById('ep-date').value;
-    productions[idx].name = document.getElementById('ep-name').value.trim();
-    productions[idx].spec = document.getElementById('ep-spec').value.trim();
-    productions[idx].thick = document.getElementById('ep-thick').value.trim();
-    productions[idx].qty = evalQty(epRaw)||0;
+    const nextDate = document.getElementById('ep-date').value;
+    const nextName = document.getElementById('ep-name').value.trim();
+    const nextSpec = document.getElementById('ep-spec').value.trim();
+    const nextThick = document.getElementById('ep-thick').value.trim();
+    const nextQty = evalQty(epRaw)||0;
+    const project = before.project || '';
+    subtractQtyFromInventory(before.name, before.spec, before.thick, project, before.qty, nextDate);
+    addQtyToInventory(nextName, nextSpec, nextThick, project, nextQty, nextDate);
+    productions[idx].date = nextDate;
+    productions[idx].name = nextName;
+    productions[idx].spec = nextSpec;
+    productions[idx].thick = nextThick;
+    productions[idx].qty = nextQty;
     if (epRaw && epRaw !== String(productions[idx].qty)) productions[idx].qtyExpr = epRaw; else delete productions[idx].qtyExpr;
     recordEditLog('入庫紀錄', productions[idx].name || '入庫項目', before, cloneRecord(productions[idx]));
     hideEditModal(); renderAll(); autoSave(); showToast('✅ 入庫紀錄已更新');
@@ -2386,6 +2456,8 @@ function editProduction(idx) {
 
 function deleteProduction(idx) {
   if (!confirm('確定刪除此入庫紀錄？')) return;
+  const p = productions[idx];
+  subtractQtyFromInventory(p.name, p.spec, p.thick, p.project || '', p.qty, today);
   productions.splice(idx,1);
   renderAll(); autoSave(); showToast('🗑️ 已刪除');
 }
@@ -3004,30 +3076,37 @@ function getInventoryGapRows(project) {
   const projectDemands = demands.filter(d=>d.project===project);
   const demandMap = {};
   projectDemands.forEach(d=>{
-    const key = d.name+'|'+d.spec+'|'+(d.thick||'');
-    if (!demandMap[key]) demandMap[key] = {key, name:d.name,spec:d.spec,thick:d.thick||'',unit:d.unit||'',qty:0};
+    const key = gapNorm(d.name)+'|'+gapNorm(d.spec);
+    if (!demandMap[key]) demandMap[key] = {key, name:d.name,spec:d.spec,thick:d.thick||'',unit:d.unit||'',qty:0,_thicks:[]};
     demandMap[key].qty += Number(d.qty);
+    const thick = d.thick || '';
+    if (!demandMap[key]._thicks.includes(thick)) demandMap[key]._thicks.push(thick);
   });
   const netOrder = r => r.net>0?0:r.net<0?1:2;
   return Object.values(demandMap).map(m=>{
+    if (m._thicks.length > 1) m.thick = '多厚度';
     const allMatching = inventory.filter(i=>
       gapNorm(i.name)===gapNorm(m.name) &&
-      gapNorm(i.spec)===gapNorm(m.spec) &&
-      gapNorm(i.thick||'')===gapNorm(m.thick||'')
+      gapNorm(i.spec)===gapNorm(m.spec)
     );
     const projMatching = allMatching.filter(i=>!getInvProject(i) || getInvProject(i)===project);
     const inStock = roundQty(projMatching.reduce((s,i)=>s+Number(i.qty),0));
     const excludedQty = roundQty(allMatching.filter(i=>getInvProject(i) && getInvProject(i)!==project).reduce((s,i)=>s+Number(i.qty),0));
-    const shipped = roundQty(getShippedQty(project, m.name, m.spec, m.thick));
+    const shipped = roundQty(shipments
+      .filter(s=>gapNorm(s.site)===gapNorm(project) && gapNorm(s.name)===gapNorm(m.name) && gapNorm(s.spec)===gapNorm(m.spec))
+      .reduce((s,i)=>s+Number(i.qty),0));
     const qty = roundQty(m.qty);
     const net = roundQty(qty - shipped - inStock);
-    return {...m, qty, inStock, shipped, net, excludedQty};
+    const row = {...m, qty, inStock, shipped, net, excludedQty};
+    delete row._thicks;
+    return row;
   }).sort((a,b)=>netOrder(a)-netOrder(b)||(materialTags[a.name]||'').localeCompare(materialTags[b.name]||'')||(a.name.localeCompare(b.name,'zh-TW')));
 }
 
 function getUnmatchedGapInventory(project, rows) {
-  const matchedKeys = new Set(rows.map(m=>gapNorm(m.name)+'|'+gapNorm(m.spec)+'|'+gapNorm(m.thick||'')));
-  return inventory.filter(i=>(!getInvProject(i)||getInvProject(i)===project) && !matchedKeys.has(gapNorm(i.name)+'|'+gapNorm(i.spec)+'|'+gapNorm(i.thick||'')));
+  const matchedKeys = new Set(rows.map(m=>gapNorm(m.name)+'|'+gapNorm(m.spec)));
+  return buildInventoryDisplayRows(inventory.filter(i=>!getInvProject(i)||getInvProject(i)===project))
+    .filter(i=>!matchedKeys.has(gapNorm(i.name)+'|'+gapNorm(i.spec)));
 }
 
 function showInventoryGap() {
@@ -3086,7 +3165,7 @@ function showInventoryGap() {
     unmatchedInv.forEach(i=>{
       body += `<div style="font-size:12px;color:#78350f;padding:3px 0;border-bottom:1px solid #fde68a">
         ${i.name}　${i.spec}${i.thick?'・'+i.thick:''}　<strong>${i.qty}</strong>${i.unit||''}
-        ${getInvProject(i)?`<span style="margin-left:6px;font-size:11px;color:#92400e">（${getInvProject(i)}）</span>`:''}
+        ${i.project?`<span style="margin-left:6px;font-size:11px;color:#92400e">（${i.project}）</span>`:''}
       </div>`;
     });
     body += `</div>`;
