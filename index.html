@@ -3880,11 +3880,15 @@ function getFloorTransferSuggestions(project) {
     }));
     const surplus = floors.filter(f=>f.balance>0).sort((a,b)=>b.balance-a.balance);
     const shortage = floors.filter(f=>f.balance<0).sort((a,b)=>a.balance-b.balance);
+    // track remaining need per shortage floor across multiple surplus sources
+    const remainNeed = {};
+    shortage.forEach(f=>{ remainNeed[f.floor] = Math.abs(f.balance); });
     surplus.forEach(src=>{
       let canGive = src.balance;
       shortage.forEach(dst=>{
         if (canGive <= 0) return;
-        const need = Math.abs(dst.balance);
+        const need = remainNeed[dst.floor];
+        if (need <= 0) return;
         const qty = Math.min(canGive, need);
         if (qty <= 0) return;
         suggestions.push({
@@ -3895,12 +3899,13 @@ function getFloorTransferSuggestions(project) {
           fromFloor: src.floor,
           toFloor: dst.floor,
           qty: roundQty(qty),
-          fromExcess: roundQty(src.balance),
-          toShortage: roundQty(need),
+          fromExcess: roundQty(canGive),        // remaining capacity of this source at this point
+          toShortage: roundQty(Math.abs(dst.balance)), // original total shortage for context
           remainingShortage: roundQty(Math.max(need - qty, 0)),
           fromCategory: src.categoryText,
           toCategory: dst.categoryText
         });
+        remainNeed[dst.floor] -= qty;
         canGive -= qty;
       });
     });
