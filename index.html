@@ -4151,29 +4151,24 @@ function getFloorTransferSuggestions(project, floorFilter) {
   Object.keys(exByMat).forEach(key=>{
     if (!shByMat[key]) return;
     const surplusFloors  = exByMat[key].slice().sort((a,b)=>b.excess-a.excess);
-    const shortageFloors = shByMat[key].slice().sort((a,b)=>a.shortage-b.shortage);
-    const remainNeed = {};
-    shortageFloors.forEach(f=>{ remainNeed[f.floor] = f.shortage; });
+    const shortageFloors = shByMat[key].slice().sort((a,b)=>b.shortage-a.shortage);
+    // Show every surplus→deficit pair so no source floor is hidden.
+    // qty = min(excess, shortage) as a recommendation; user can override.
     surplusFloors.forEach(src=>{
-      let canGive = src.excess;
       shortageFloors.forEach(dst=>{
-        if (canGive <= 0 || src.floor === dst.floor) return;
-        const need = remainNeed[dst.floor];
-        if (need <= 0) return;
-        const qty = Math.min(canGive, need);
+        if (src.floor === dst.floor) return;
+        const qty = Math.min(src.excess, dst.shortage);
         if (qty <= 0) return;
         suggestions.push({
           name: src.name, spec: src.spec, thick: src.thick,
           unit: src.unit || dst.unit || '',
           fromFloor: src.floor, toFloor: dst.floor,
           qty: roundQty(qty),
-          fromExcess: roundQty(canGive),
+          fromExcess: roundQty(src.excess),
           toShortage: roundQty(dst.shortage),
-          remainingShortage: roundQty(Math.max(need - qty, 0)),
+          remainingShortage: roundQty(Math.max(dst.shortage - qty, 0)),
           fromCategory: src.category, toCategory: dst.category
         });
-        remainNeed[dst.floor] -= qty;
-        canGive -= qty;
       });
     });
   });
