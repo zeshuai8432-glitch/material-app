@@ -2741,9 +2741,7 @@ function deleteShipment(idx) {
     const inv = findInventory(s.name, s.spec, s.thick);
     if (inv) { inv.qty = roundQty(Number(inv.qty) + originalQty); inv.lastUpdate = today; }
   }
-  s.qty = 0;
-  s.note = s.note ? s.note + '（已退回）' : '已退回';
-  // 新增退回紀錄（負數）
+  // 新增退回紀錄（負數）；原記錄保留qty不動，由renderShipments的returnedKeys過濾隱藏
   shipments.push({date:today, site:s.site, name:s.name, spec:s.spec, thick:s.thick, unit:s.unit||'', qty:-originalQty, type:s.type, note:'退回', returnOf:returnKey});
   renderAll(); saveLocal(); showToast(s.type==='stock'?'✅ 已退回，庫存已還原':'✅ 已新增退回紀錄');
   autoSave();
