@@ -2518,7 +2518,6 @@ function printHTML(title, tableHTML) {
   const html = '<!DOCTYPE html><html lang="zh-TW"><head>' +
     '<meta charset="UTF-8"><title>' + title + '</title>' +
     '<style>' +
-    '@page{size:A4;margin:8mm}' +
     '*{box-sizing:border-box;margin:0;padding:0}' +
     'body{font-family:-apple-system,BlinkMacSystemFont,"Microsoft JhengHei","PingFang TC",sans-serif;padding:20px;color:#1a1a1a;font-size:13px}' +
     'h1{font-size:18px;font-weight:700;margin-bottom:4px;color:#185FA5}' +
@@ -2531,19 +2530,10 @@ function printHTML(title, tableHTML) {
     'tr:nth-child(even) td{background:#f8fafc}' +
     '.total{margin-top:12px;text-align:right;font-weight:700;font-size:14px}' +
     '.footer{margin-top:24px;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:8px}' +
-    '@media print{body{padding:0}}' +
+    '@media print{body{padding:10px}}' +
     '</style></head><body>' + tableHTML +
     '<div class="footer">此文件由材料管理系統產生・' + today + '</div>' +
-    '<script>window.onload=function(){' +
-    'var pageH=1050,b=document.body,cH=b.offsetHeight||b.scrollHeight;' +
-    'if(cH>20&&cH<pageH*0.65){' +
-    'var z=Math.min(pageH/cH,1.8).toFixed(3);' +
-    'b.style.zoom=z;' +
-    'b.style.webkitTransform="scale("+z+")";' +
-    'b.style.webkitTransformOrigin="0 0";' +
-    '}' +
-    'setTimeout(function(){window.print();},150);' +
-    '}<\/script>' +
+    '<script>window.onload=function(){window.print()}<\/script>' +
     '</body></html>';
   w.document.write(html);
   w.document.close();
