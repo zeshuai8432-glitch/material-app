@@ -3057,8 +3057,9 @@ function getProjectFloors(project) {
 }
 
 // Render floor tabs with group collapsing.
-// selectFnName: string name of the onclick function (e.g. 'selectFloorTab')
-function renderGroupedFloorTabs(containerEl, project, curFloor, floors, selectFnName) {
+// selectFnName: click handler for individual floors (e.g. 'selectFloorTab')
+// groupSelectFnName: if provided, group name area becomes its own click target (selects group view)
+function renderGroupedFloorTabs(containerEl, project, curFloor, floors, selectFnName, groupSelectFnName) {
   const n = allocNorm;
   const groups = (floorGroups[project] || [])
     .map(g => ({...g, floors: g.floors.filter(f => floors.some(pf => n(pf)===n(f)))}))
@@ -3068,10 +3069,22 @@ function renderGroupedFloorTabs(containerEl, project, curFloor, floors, selectFn
   let html = '';
   groups.forEach(g => {
     const key = (project+'||'+g.name).replace(/'/g,"\\'");
+    const safeGname = g.name.replace(/'/g,"\\'");
     const expanded = _floorTabGroupExpanded.has(project+'||'+g.name);
-    const hasActive = g.floors.some(f => n(f)===n(curFloor));
-    const grpActive = hasActive && !expanded;
-    html += `<button class="dtab${grpActive?' active':''}" style="${grpActive?'':'background:#f5f3ff;border-color:#7c3aed;color:#7c3aed'}" onclick="_toggleFloorTabGroup('${key}')">🏢 ${g.name} <span style="font-size:10px">${expanded?'▾':'▶'}</span></button>`;
+    const hasSubActive = g.floors.some(f => n(f)===n(curFloor));
+    const isGroupSelected = n(curFloor) === n(g.name);
+    const grpActive = isGroupSelected || (hasSubActive && !expanded);
+    const activeStyle = grpActive ? '' : 'background:#f5f3ff;border-color:#7c3aed;color:#7c3aed';
+    if (groupSelectFnName) {
+      // Split: left = select group view, right = toggle expand/collapse
+      const splitBorder = `border-color:${grpActive?'rgba(255,255,255,0.4)':'rgba(124,58,237,0.35)'}`;
+      html += `<span style="display:inline-flex;flex-shrink:0;margin-right:2px">` +
+        `<button class="dtab${grpActive?' active':''}" style="${activeStyle};border-radius:8px 0 0 8px;border-right:none;white-space:nowrap" onclick="${groupSelectFnName}('${safeGname}')">🏢 ${g.name}</button>` +
+        `<button class="dtab${grpActive?' active':''}" style="${activeStyle};border-radius:0 8px 8px 0;padding:5px 8px;border-left:1px solid;${splitBorder}" onclick="_toggleFloorTabGroup('${key}')">${expanded?'▾':'▶'}</button>` +
+        `</span>`;
+    } else {
+      html += `<button class="dtab${grpActive?' active':''}" style="${activeStyle}" onclick="_toggleFloorTabGroup('${key}')">🏢 ${g.name} <span style="font-size:10px">${expanded?'▾':'▶'}</span></button>`;
+    }
     if (expanded) {
       g.floors.forEach(f => {
         const isActive = n(f)===n(curFloor);
@@ -3089,11 +3102,57 @@ function renderGroupedFloorTabs(containerEl, project, curFloor, floors, selectFn
 function _toggleFloorTabGroup(key) {
   if (_floorTabGroupExpanded.has(key)) _floorTabGroupExpanded.delete(key);
   else _floorTabGroupExpanded.add(key);
-  // lightweight re-render of just the tab rows
   const demEl = document.getElementById('demand-floor-tabs');
-  if (demEl && activeProject) renderGroupedFloorTabs(demEl, activeProject, activeFloor, getProjectFloors(activeProject), 'selectFloorTab');
+  if (demEl && activeProject) renderGroupedFloorTabs(demEl, activeProject, activeFloor, getProjectFloors(activeProject), 'selectFloorTab', 'selectFloorTab');
   const alcEl = document.getElementById('alloc-floor-tabs');
-  if (alcEl && allocActiveProject) renderGroupedFloorTabs(alcEl, allocActiveProject, allocActiveFloor, getAllocFloors(allocActiveProject), 'selectAllocFloorTab');
+  if (alcEl && allocActiveProject) renderGroupedFloorTabs(alcEl, allocActiveProject, allocActiveFloor, getAllocFloors(allocActiveProject), 'selectAllocFloorTab', null);
+}
+
+function renderDemandsGroupView(group) {
+  const el = document.getElementById('demand-list');
+  if (!el) return;
+  const n = allocNorm;
+  const project = activeProject;
+  const matMap = {};
+  group.floors.forEach(floor => {
+    demands.filter(d => n(d.project)===n(project) && n(d.floor)===n(floor)).forEach(d => {
+      const key = n(d.name)+'||'+n(d.spec);
+      if (!matMap[key]) matMap[key] = {name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||'', category:d.category||'未分類', totalDemanded:0, totalAllocated:0};
+      matMap[key].totalDemanded = roundQty(matMap[key].totalDemanded + Number(d.qty));
+      matMap[key].totalAllocated = roundQty(matMap[key].totalAllocated + getAllocatedQty(project, floor, d.name, d.spec, d.thick));
+    });
+  });
+  const totalDemanded = roundQty(Object.values(matMap).reduce((a,m) => a+m.totalDemanded, 0));
+  const totalAllocated = roundQty(Object.values(matMap).reduce((a,m) => a+m.totalAllocated, 0));
+  const netBal = roundQty(totalAllocated - totalDemanded);
+  setFloorContext('demand-floor-context', project,
+    `群組：${group.name}（${group.floors.join('＋')}）`,
+    `需求 ${totalDemanded} ・ 已分配 ${totalAllocated} ・ ${netBal >= 0 ? '餘 '+netBal : '缺 '+Math.abs(netBal)}`);
+  if (!Object.keys(matMap).length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">📋</div>此群組尚無需求資料</div>'; return;
+  }
+  const catMap = {};
+  Object.values(matMap).forEach(m => { const c = m.category||'未分類'; if (!catMap[c]) catMap[c]=[]; catMap[c].push(m); });
+  el.innerHTML =
+    `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#1e40af">📊 群組「${group.name}」合計（${group.floors.join('＋')}）・點選個別樓層可編輯需求</div>` +
+    Object.keys(catMap).map(cat =>
+      `<div class="cat-header" style="margin-top:6px">${cat}</div>` +
+      catMap[cat].map(m => {
+        const bal = roundQty(m.totalAllocated - m.totalDemanded);
+        const balColor = bal >= 0 ? '#15803d' : '#dc2626';
+        return `<div class="list-item" style="padding:8px 10px">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:13px;color:#0f172a">${m.name}</div>
+            <div style="margin-top:3px">${specBadge(m.spec, m.thick)}</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px">需求 ${m.totalDemanded}${m.unit}　已分配 ${m.totalAllocated}${m.unit}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:17px;font-weight:800;color:${balColor}">${bal>=0?'+':''}${bal}${m.unit}</div>
+            <div style="font-size:11px;color:#9ca3af">${bal>=0?'群組餘料':'群組缺料'}</div>
+          </div>
+        </div>`;
+      }).join('')
+    ).join('');
 }
 
 function renderDemands() {
@@ -3127,8 +3186,12 @@ function renderDemands() {
   }
   // 第二層：樓層頁籤
   const floors = getProjectFloors(activeProject);
-  if (!activeFloor || !floors.includes(activeFloor)) activeFloor = floors[0];
-  if (floorTabsEl) renderGroupedFloorTabs(floorTabsEl, activeProject, activeFloor, floors, 'selectFloorTab');
+  const groupNames = (floorGroups[activeProject] || []).map(g => g.name);
+  if (!activeFloor || (!floors.includes(activeFloor) && !groupNames.includes(activeFloor))) activeFloor = floors[0];
+  if (floorTabsEl) renderGroupedFloorTabs(floorTabsEl, activeProject, activeFloor, floors, 'selectFloorTab', 'selectFloorTab');
+  // 若選的是群組，顯示合計視圖
+  const activeGroup = (floorGroups[activeProject] || []).find(g => g.name === activeFloor);
+  if (activeGroup) { renderDemandsGroupView(activeGroup); return; }
   // 顯示目前案場+樓層的需求，依分類分組
   const items = demands.map((d,i)=>({...d,_idx:i})).filter(d=>d.project===activeProject && (d.floor||'（未分樓層）')===activeFloor);
   const catMap = {};
@@ -4675,7 +4738,7 @@ function renderAllocation() {
   // 第二層：樓層頁籤
   const floors = getAllocFloors(allocActiveProject);
   if (!allocActiveFloor || !floors.includes(allocActiveFloor)) allocActiveFloor = floors[0] || null;
-  if (floorTabsEl) renderGroupedFloorTabs(floorTabsEl, allocActiveProject, allocActiveFloor, floors, 'selectAllocFloorTab');
+  if (floorTabsEl) renderGroupedFloorTabs(floorTabsEl, allocActiveProject, allocActiveFloor, floors, 'selectAllocFloorTab', null);
   const fl = document.getElementById('alloc-current-floor');
   if (fl) fl.textContent = '分配到：' + allocActiveProject + '　' + (allocActiveFloor||'（請先在需求單建立樓層）');
   setFloorContext('alloc-floor-context', allocActiveProject, allocActiveFloor || '（請先在需求單建立樓層）', '分配與餘料查看中');
