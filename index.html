@@ -3878,16 +3878,16 @@ function getFloorTransferSuggestions(project) {
   const excessItems  = getFloorExcessItems(project);
   const shortageItems = getFloorShortageItems(project);
 
-  // group by material key (same normalisation as excess/shortage functions)
+  // group by name+spec only (ignore thick mismatch between demand and allocation records)
   const exByMat = {};
   excessItems.forEach(it=>{
-    const key = n(it.name)+'||'+n(it.spec)+'||'+n(it.thick||'');
+    const key = n(it.name)+'||'+n(it.spec);
     if (!exByMat[key]) exByMat[key] = [];
     exByMat[key].push(it);
   });
   const shByMat = {};
   shortageItems.forEach(it=>{
-    const key = n(it.name)+'||'+n(it.spec)+'||'+n(it.thick||'');
+    const key = n(it.name)+'||'+n(it.spec);
     if (!shByMat[key]) shByMat[key] = [];
     shByMat[key].push(it);
   });
