@@ -2589,8 +2589,14 @@ function exportPDFByDates(page, chosenDates) {
   } else if (page==='production') {
     const items = productions.filter(p=>!chosenDates || chosenDates.includes(p.date||'（無日期）'));
     if (!items.length) { showToast('⚠️ 目前無資料可匯出'); return; }
-    const rows = items.map(function(p){return '<tr><td>'+p.date+'</td><td>'+p.name+'</td><td>'+p.spec+'</td><td>'+p.thick+'</td><td>'+p.qty+'</td></tr>';}).join('');
-    html += '<table><thead><tr><th>日期</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    const mergeMap = {};
+    items.forEach(function(p){
+      const key = String(p.name||'').trim()+'||'+String(p.spec||'').trim()+'||'+String(p.thick||'').trim();
+      if (!mergeMap[key]) mergeMap[key] = {name:p.name, spec:p.spec, thick:p.thick||'', unit:p.unit||'', qty:0};
+      mergeMap[key].qty = roundQty(mergeMap[key].qty + (Number(p.qty)||0));
+    });
+    const rows = Object.values(mergeMap).map(function(p){return '<tr><td>'+p.name+'</td><td>'+p.spec+'</td><td>'+p.thick+'</td><td>'+p.qty+(p.unit||'')+'</td></tr>';}).join('');
+    html += '<table><thead><tr><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='shipment') {
     const items = shipments.filter(s=>!chosenDates || chosenDates.includes(s.date||'（無日期）'));
     if (!items.length) { showToast('⚠️ 目前無資料可匯出'); return; }
