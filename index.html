@@ -3330,7 +3330,7 @@ function getInventoryGapRows(project) {
 function getUnmatchedGapInventory(project, rows) {
   const matchedKeys = new Set(rows.map(m=>gapNorm(m.name)+'|'+gapNorm(m.spec)));
   return buildInventoryDisplayRows(inventory.filter(i=>!getInvProject(i)||getInvProject(i)===project))
-    .filter(i=>!matchedKeys.has(gapNorm(i.name)+'|'+gapNorm(i.spec)));
+    .filter(i=>Number(i.qty)>0 && !matchedKeys.has(gapNorm(i.name)+'|'+gapNorm(i.spec)));
 }
 
 function showInventoryGap() {
