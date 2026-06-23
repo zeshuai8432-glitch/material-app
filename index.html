@@ -3396,27 +3396,40 @@ function getGapRowsMulti(selProjects, selFloors, useInv) {
   const demandMap = {};
   filteredDemands.forEach(d=>{
     const key = gapNorm(d.name)+'|'+gapNorm(d.spec);
-    if (!demandMap[key]) demandMap[key] = {key, name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||'', qty:0, _thicks:[]};
+    if (!demandMap[key]) demandMap[key] = {key, name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||'', qty:0, _thicks:[], _fps:[]};
     demandMap[key].qty += Number(d.qty);
     const thick = d.thick||'';
     if (!demandMap[key]._thicks.includes(thick)) demandMap[key]._thicks.push(thick);
+    const fp = (d.project||'')+'|||'+(d.floor||'');
+    if (!demandMap[key]._fps.includes(fp)) demandMap[key]._fps.push(fp);
   });
   const netOrder = r=>r.net>0?0:r.net<0?1:2;
   return Object.values(demandMap).map(m=>{
     if (m._thicks.length>1) m.thick='多厚度';
-    let inStock=0, excludedQty=0;
-    if (useInv) {
-      const allM = inventory.filter(i=>gapNorm(i.name)===gapNorm(m.name)&&gapNorm(i.spec)===gapNorm(m.spec));
-      const projM = allM.filter(i=>{ const p=getInvProject(i); return !p||selProjects.size===0||selProjects.has(p); });
-      inStock = roundQty(projM.reduce((s,i)=>s+Number(i.qty),0));
-      excludedQty = roundQty(allM.filter(i=>{ const p=getInvProject(i); return p&&selProjects.size>0&&!selProjects.has(p); }).reduce((s,i)=>s+Number(i.qty),0));
+    let inStock=0, excludedQty=0, shipped=0, allocated=0;
+    if (hasFloor) {
+      // 樓層模式：需求 − 已分配到各選定樓層，不計庫存及置料區
+      allocated = roundQty(m._fps.reduce((sum, fp)=>{
+        const sep = fp.indexOf('|||');
+        const proj = fp.slice(0, sep), floor = fp.slice(sep+3);
+        return sum + getAllocatedQty(proj, floor, m.name, m.spec, m.thick);
+      }, 0));
+    } else {
+      // 案場模式：需求 − 已出貨 − 庫存
+      if (useInv) {
+        const allM = inventory.filter(i=>gapNorm(i.name)===gapNorm(m.name)&&gapNorm(i.spec)===gapNorm(m.spec));
+        const projM = allM.filter(i=>{ const p=getInvProject(i); return !p||selProjects.size===0||selProjects.has(p); });
+        inStock = roundQty(projM.reduce((s,i)=>s+Number(i.qty),0));
+        excludedQty = roundQty(allM.filter(i=>{ const p=getInvProject(i); return p&&selProjects.size>0&&!selProjects.has(p); }).reduce((s,i)=>s+Number(i.qty),0));
+      }
+      shipped = roundQty(shipments
+        .filter(s=>(selProjects.size===0||selProjects.has(s.site))&&gapNorm(s.name)===gapNorm(m.name)&&gapNorm(s.spec)===gapNorm(m.spec))
+        .reduce((s,i)=>s+Number(i.qty),0));
     }
-    const shipped = roundQty(shipments
-      .filter(s=>(selProjects.size===0||selProjects.has(s.site))&&gapNorm(s.name)===gapNorm(m.name)&&gapNorm(s.spec)===gapNorm(m.spec))
-      .reduce((s,i)=>s+Number(i.qty),0));
-    const qty=roundQty(m.qty), net=roundQty(qty-shipped-inStock);
-    const row={...m, qty, inStock, shipped, net, excludedQty};
-    delete row._thicks;
+    const qty=roundQty(m.qty);
+    const net = hasFloor ? roundQty(qty-allocated) : roundQty(qty-shipped-inStock);
+    const row={...m, qty, inStock, shipped, allocated, net, excludedQty, _floorMode:hasFloor};
+    delete row._thicks; delete row._fps;
     return row;
   }).sort((a,b)=>netOrder(a)-netOrder(b)||cmpText(materialTags[a.name],materialTags[b.name])||cmpText(a.name,b.name));
 }
@@ -3486,17 +3499,29 @@ function renderGapBody() {
   const container = document.getElementById('gap-body-content');
   if (!container || !_gapState) return;
   const {useInv, selProjects, selFloors} = _gapState;
+  const isFloorMode = selFloors && selFloors.size > 0;
   const rows = getGapRowsMulti(selProjects, selFloors, useInv);
+  // 更新「計入現有庫存」的可用狀態
+  const invCb = document.getElementById('gap-use-inv');
+  if (invCb) {
+    invCb.disabled = isFloorMode;
+    const label = invCb.closest('label');
+    if (label) label.style.opacity = isFloorMode ? '0.4' : '1';
+    if (isFloorMode) label && (label.title = '樓層模式僅比對分配量，不計庫存');
+    else if (label) label.title = '';
+  }
   if (!rows.length) { container.innerHTML = '<div class="empty">目前篩選條件無需求資料</div>'; return; }
   const lackCount = rows.filter(r=>r.net>0).length;
   const overCount = rows.filter(r=>r.net<0).length;
   const okCount   = rows.length - lackCount - overCount;
-  const formula = useInv ? '總需求 − 已出貨 − 現有庫存' : '總需求 − 已出貨';
+  const formula = isFloorMode
+    ? '樓層需求 − 已分配到各選定樓層（不含庫存及置料區）'
+    : (useInv ? '總需求 − 已出貨 − 現有庫存' : '總需求 − 已出貨');
   let html = `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">公式：${formula}</div>`;
   html += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-    ${lackCount?`<span class="badge badge-red">⚠️ ${lackCount} 種缺貨</span>`:''}
-    ${overCount?`<span class="badge badge-amber">↑ ${overCount} 種溢出</span>`:''}
-    ${okCount?`<span class="badge badge-green">✅ ${okCount} 種足夠</span>`:''}
+    ${lackCount?`<span class="badge badge-red">⚠️ ${lackCount} 種缺料</span>`:''}
+    ${overCount?`<span class="badge badge-amber">↑ ${overCount} 種分配過多</span>`:''}
+    ${okCount?`<span class="badge badge-green">✅ ${okCount} 種剛好</span>`:''}
   </div>
   <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
     <button class="btn-sm" type="button" onclick="setGapChecks('lack')">只勾缺貨</button>
@@ -3510,18 +3535,19 @@ function renderGapBody() {
     sm[series].forEach(r=>{
       const isLack=r.net>0, isOver=r.net<0;
       const statusColor=isLack?'#dc2626':isOver?'#d97706':'#059669';
-      const statusText=isLack?`缺 ${r.net}${r.unit}`:isOver?`溢出 ${-r.net}${r.unit}`:'足夠';
-      const statusSub=isLack?'需補料':isOver?'庫存過剩':'';
+      const statusText=isLack?`缺 ${r.net}${r.unit}`:isOver?`多 ${-r.net}${r.unit}`:'足夠';
+      const statusSub=isLack?(isFloorMode?'未分配':'需補料'):isOver?(isFloorMode?'分配過多':'分配過剩'):'';
+      const detailLine = isFloorMode
+        ? `樓層需求 <strong>${r.qty}${r.unit}</strong>　已分配 <strong>${r.allocated}${r.unit}</strong>`
+        : `總需求 <strong>${r.qty}${r.unit}</strong>　已出貨 <strong>${r.shipped}${r.unit}</strong>${useInv?`　庫存 <strong>${r.inStock}${r.unit}</strong>`:''}`;
       html += `<div class="list-item">
         <label style="display:flex;align-items:flex-start;gap:10px;flex:1;cursor:pointer">
           <input class="gap-pick" type="checkbox" value="${r.key.replace(/"/g,'&quot;')}" data-lack="${isLack?'1':'0'}" ${isLack?'checked':''} style="width:18px;height:18px;margin-top:2px;flex-shrink:0">
           <div style="flex:1">
             <div class="list-main">${r.name}</div>
             <div style="margin-top:3px">${specBadge(r.spec,r.thick)}</div>
-            <div style="font-size:12px;color:#374151;margin-top:5px;line-height:1.7">
-              總需求 <strong>${r.qty}${r.unit}</strong>　已出貨 <strong>${r.shipped}${r.unit}</strong>${useInv?`　現有庫存 <strong>${r.inStock}${r.unit}</strong>`:''}
-            </div>
-            ${r.excludedQty>0?`<div style="font-size:11px;color:#d97706;margin-top:3px">⚠️ 另有 ${r.excludedQty}${r.unit} 庫存被標記為其他案場，未計入</div>`:''}
+            <div style="font-size:12px;color:#374151;margin-top:5px;line-height:1.7">${detailLine}</div>
+            ${!isFloorMode&&r.excludedQty>0?`<div style="font-size:11px;color:#d97706;margin-top:3px">⚠️ 另有 ${r.excludedQty}${r.unit} 庫存標記為其他案場，未計入</div>`:''}
           </div>
         </label>
         <div style="text-align:right;margin-left:12px;flex-shrink:0">
@@ -3531,7 +3557,7 @@ function renderGapBody() {
       </div>`;
     });
   });
-  if (useInv) {
+  if (!isFloorMode && useInv) {
     const matchedKeys = new Set(rows.map(r=>gapNorm(r.name)+'|'+gapNorm(r.spec)));
     const unmatchedInv = buildInventoryDisplayRows(inventory.filter(i=>{ const p=getInvProject(i); return !p||selProjects.size===0||selProjects.has(p); }))
       .filter(i=>Number(i.qty)>0 && !matchedKeys.has(gapNorm(i.name)+'|'+gapNorm(i.spec)));
