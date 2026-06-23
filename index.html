@@ -1343,7 +1343,22 @@ async function loadFromSheets() {
         if (Array.isArray(parsed.editLogs)) editLogs = parsed.editLogs;
         if (parsed.shipDateLabels && typeof parsed.shipDateLabels === 'object' && !Array.isArray(parsed.shipDateLabels)) shipDateLabels = parsed.shipDateLabels;
         orderNo = shipments.length + 1;
-        saveLocal(false);
+        const inventoryFix = applyInventoryFromRecords();
+        if (inventoryFix.changed) {
+          saveLocal();
+          try {
+            await saveToSheets();
+            clearLocalDirty();
+            showToast('✅ 已自動對帳庫存' + (inventoryFix.removedReturns ? '，清除重複退回 ' + inventoryFix.removedReturns + ' 筆' : ''));
+          } catch(e) {
+            recordSyncError('自動對帳後補傳失敗：' + (e && e.message ? e.message : String(e)));
+            setSyncState('error');
+            renderAll();
+            return;
+          }
+        } else {
+          saveLocal(false);
+        }
       }
       // cloudTotal===0 且 localTotal===0：兩邊都空，不動
     } else if (hasUnsyncedLocalChanges() && getCurrentDataTotal() > 0) {
@@ -1435,9 +1450,7 @@ function removeDuplicateReturnShipments() {
   return removed;
 }
 
-function rebuildInventoryFromRecords() {
-  if (!confirm('確定要重算庫存？\n\n系統會用「全部入庫」重新建立工廠總庫存，再扣掉「庫存出貨」，退回紀錄會加回。手動改過的庫存數量會被帳面紀錄覆蓋。')) return;
-  const removedReturns = removeDuplicateReturnShipments();
+function calculateInventoryFromRecords() {
   const next = [];
   const findNext = (name, spec) => next.find(i=>gapNorm(i.name)===gapNorm(name) && gapNorm(i.spec)===gapNorm(spec));
   const addNext = (name, spec, thick, qty, date) => {
@@ -1461,9 +1474,38 @@ function rebuildInventoryFromRecords() {
   };
   productions.forEach(p=>addNext(p.name, p.spec, p.thick, Number(p.qty)||0, p.date||today));
   shipments.filter(isStockAffectingShipment).forEach(s=>takeNext(s.name, s.spec, s.thick, Number(s.qty)||0, s.date||today));
+  return next;
+}
+
+function inventoryDiffersFromRecords(next) {
+  const pack = rows => {
+    const map = {};
+    rows.forEach(i=>{
+      const k = gapNorm(i.name)+'|'+gapNorm(i.spec);
+      map[k] = roundQty((map[k]||0) + Number(i.qty||0));
+    });
+    return map;
+  };
+  const current = pack(inventory);
+  const expected = pack(next);
+  const keys = new Set([...Object.keys(current), ...Object.keys(expected)]);
+  return [...keys].some(k=>current[k] !== expected[k]);
+}
+
+function applyInventoryFromRecords() {
+  const removedReturns = removeDuplicateReturnShipments();
+  const next = calculateInventoryFromRecords();
+  const changed = removedReturns > 0 || inventoryDiffersFromRecords(next);
+  if (!changed) return {changed:false, removedReturns};
   inventory = next;
   inventoryProjects = {};
-  renderAll(); autoSave(); showToast('✅ 庫存已依入庫/出貨重算' + (removedReturns ? '，並清除重複退回 ' + removedReturns + ' 筆' : ''));
+  return {changed:true, removedReturns};
+}
+
+function rebuildInventoryFromRecords() {
+  if (!confirm('確定要重算庫存？\n\n系統會用「全部入庫」重新建立工廠總庫存，再扣掉「庫存出貨」，退回紀錄會加回。手動改過的庫存數量會被帳面紀錄覆蓋。')) return;
+  const result = applyInventoryFromRecords();
+  renderAll(); autoSave(); showToast(result.changed ? ('✅ 庫存已依入庫/出貨重算' + (result.removedReturns ? '，並清除重複退回 ' + result.removedReturns + ' 筆' : '')) : '✅ 庫存已經與入庫/出貨一致');
 }
 
 function addProduction() {
