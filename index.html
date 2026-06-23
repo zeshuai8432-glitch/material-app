@@ -1807,7 +1807,7 @@ function addShipment() {
   if (qtyRaw && qtyRaw !== String(qty)) record.qtyExpr = qtyRaw;
   if (note) record.note = note;
   shipments.push(record);
-  currentOrder.push(record);
+  currentOrder.push({...record, shipmentIdx:shipments.length-1});
   document.getElementById('ship-qty').value='';
   document.getElementById('ship-qty-preview').style.display='none';
   if (noteEl) noteEl.value='';
@@ -1870,7 +1870,7 @@ function addAllStockShipments() {
     const record = {date, site, name:p.material.name, spec:p.material.spec, thick:p.material.thick, qty:p.qty, type:'stock'};
     if (note) record.note = note;
     shipments.push(record);
-    currentOrder.push(record);
+    currentOrder.push({...record, shipmentIdx:shipments.length-1});
   });
   document.getElementById('ship-qty').value='';
   document.getElementById('ship-qty-preview').style.display='none';
@@ -1883,13 +1883,34 @@ function addAllStockShipments() {
 
 function clearOrder() {
   if (!confirm('確定清空目前採購單？')) return;
+  [...currentOrder].reverse().forEach(o=>cancelOrderShipment(o));
   currentOrder = [];
-  renderOrder();
+  renderAll(); autoSave(); showToast('✅ 已清空本次出貨清單，庫存已還原');
+}
+
+function cancelOrderShipment(o) {
+  if (o.type === 'stock') {
+    const inv = findInventory(o.name, o.spec, o.thick);
+    if (inv) { inv.qty = roundQty(Number(inv.qty) + Number(o.qty||0)); inv.lastUpdate = today; }
+    else addQtyToInventory(o.name, o.spec, o.thick, '', Number(o.qty)||0, today);
+  }
+  if (Number.isInteger(o.shipmentIdx) && shipments[o.shipmentIdx]) {
+    shipments.splice(o.shipmentIdx, 1);
+    currentOrder.forEach(item=>{
+      if (Number.isInteger(item.shipmentIdx) && item.shipmentIdx > o.shipmentIdx) item.shipmentIdx -= 1;
+    });
+  } else {
+    const idx = shipments.findIndex(s=>s.date===o.date && s.site===o.site && s.name===o.name && String(s.spec)===String(o.spec) && String(s.thick||'')===String(o.thick||'') && Number(s.qty)===Number(o.qty) && s.type===o.type && (s.note||'')===(o.note||''));
+    if (idx >= 0) shipments.splice(idx, 1);
+  }
 }
 
 function removeOrderItem(idx) {
+  const item = currentOrder[idx];
+  if (!item) return;
+  cancelOrderShipment(item);
   currentOrder.splice(idx,1);
-  renderOrder();
+  renderAll(); autoSave(); showToast('✅ 已移除，庫存已還原');
 }
 
 // ── Render ──
