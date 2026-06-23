@@ -3970,6 +3970,7 @@ function getFloorTransferSuggestions(project, floorFilter) {
 
 let _transferSuggestions = [];
 let _transferFloorFilter = new Set();
+let _transferGroupCollapsed = new Set(); // group names that are currently collapsed
 
 function renderTransferSuggestions() {
   const el = document.getElementById('alloc-transfer-suggestions');
@@ -4168,20 +4169,37 @@ function renderTransferLog() {
     const bg = groupColors[gi % groupColors.length];
     const fg = groupTextColors[gi % groupTextColors.length];
     const safeG = gname.replace(/'/g, "\\'");
+    const collapsed = _transferGroupCollapsed.has(gname);
+    const arrow = collapsed ? '▶' : '▾';
+    const gid = 'tgrp-' + gi;
     html += `<div style="margin-bottom:14px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <div style="flex:1;background:${bg};color:${fg};font-weight:700;font-size:13px;padding:5px 10px;border-radius:8px">🏷 ${gname} <span style="font-weight:400;font-size:11px">(${groupMap[gname].length} 筆)</span></div>
-        <button class="btn-sm" style="color:${fg};border-color:${fg}" onclick="renameTransferGroup('${safeG}')">改名</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer" onclick="toggleTransferGroup('${safeG}')">
+        <div style="flex:1;background:${bg};color:${fg};font-weight:700;font-size:13px;padding:5px 10px;border-radius:8px;display:flex;align-items:center;justify-content:space-between">
+          <span>🏷 ${gname} <span style="font-weight:400;font-size:11px">(${groupMap[gname].length} 筆)</span></span>
+          <span style="font-size:12px;margin-left:6px">${arrow}</span>
+        </div>
+        <button class="btn-sm" style="color:${fg};border-color:${fg}" onclick="event.stopPropagation();renameTransferGroup('${safeG}')">改名</button>
       </div>
-      ${groupMap[gname].map(_renderTransferLogItem).join('')}
+      <div id="${gid}" style="display:${collapsed?'none':'block'}">
+        ${groupMap[gname].map(_renderTransferLogItem).join('')}
+      </div>
     </div>`;
   });
   if (ungrouped.length) {
     const hasGroups = groupNames.length > 0;
+    const collapsed = _transferGroupCollapsed.has('__ungrouped__');
+    const arrow = collapsed ? '▶' : '▾';
     if (hasGroups) {
-      html += `<div style="font-size:12px;font-weight:600;color:#6b7280;margin:10px 0 6px;padding-bottom:4px;border-bottom:1px solid #e2e8f0">未分組（${ungrouped.length} 筆）</div>`;
+      html += `<div style="margin-bottom:6px">
+        <div style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:600;color:#6b7280;padding:4px 0;border-bottom:1px solid #e2e8f0" onclick="toggleTransferGroup('__ungrouped__')">
+          <span style="flex:1">未分組（${ungrouped.length} 筆）</span>
+          <span>${arrow}</span>
+        </div>
+      </div>`;
     }
+    html += `<div style="display:${collapsed&&hasGroups?'none':'block'}">`;
     html += ungrouped.map(_renderTransferLogItem).join('');
+    html += '</div>';
   }
   el.innerHTML = html;
 }
@@ -4235,11 +4253,24 @@ function renameTransferGroup(oldName) {
   if (newName === null) return;
   const gname = newName.trim() || oldName;
   if (gname === oldName) return;
+  if (_transferGroupCollapsed.has(oldName)) {
+    _transferGroupCollapsed.delete(oldName);
+    _transferGroupCollapsed.add(gname);
+  }
   Object.keys(transferLogGroups).forEach(tid => {
     if (transferLogGroups[tid] === oldName) transferLogGroups[tid] = gname;
   });
   renderTransferLog(); autoSave();
   showToast(`✅ 分組已更名為「${gname}」`);
+}
+
+function toggleTransferGroup(gname) {
+  if (_transferGroupCollapsed.has(gname)) {
+    _transferGroupCollapsed.delete(gname);
+  } else {
+    _transferGroupCollapsed.add(gname);
+  }
+  renderTransferLog();
 }
 
 function deleteTransfer(tid) {
