@@ -1,4 +1,4 @@
-const CACHE_NAME = 'material-app-v52';
+const CACHE_NAME = 'material-app-v53';
 const ASSETS = [
   './index.html',
   './manifest.json',

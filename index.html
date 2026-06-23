@@ -3875,65 +3875,47 @@ function toggleFloorExcessCard() {
 
 function getFloorTransferSuggestions(project) {
   const n = allocNorm;
-  const materialMap = {};
-  function ensure(key, base) {
-    if (!materialMap[key]) materialMap[key] = {...base, floors:{}};
-    return materialMap[key];
-  }
-  demands.filter(d=>n(d.project)===n(project)).forEach(d=>{
-    const floor = d.floor || '（未分樓層）';
-    const key = n(d.name)+'||'+n(d.spec)+'||'+n(d.thick||'');
-    const mat = ensure(key, {name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||''});
-    if (!mat.unit && d.unit) mat.unit = d.unit;
-    if (!mat.floors[floor]) mat.floors[floor] = {floor, demand:0, allocated:0, categories:new Set()};
-    mat.floors[floor].demand += Number(d.qty)||0;
-    if (d.category) mat.floors[floor].categories.add(d.category);
+  const excessItems  = getFloorExcessItems(project);
+  const shortageItems = getFloorShortageItems(project);
+
+  // group by material key (same normalisation as excess/shortage functions)
+  const exByMat = {};
+  excessItems.forEach(it=>{
+    const key = n(it.name)+'||'+n(it.spec)+'||'+n(it.thick||'');
+    if (!exByMat[key]) exByMat[key] = [];
+    exByMat[key].push(it);
   });
-  allocations.filter(a=>n(a.project)===n(project)).forEach(a=>{
-    const floor = a.floor || '（未分樓層）';
-    const key = n(a.name)+'||'+n(a.spec)+'||'+n(a.thick||'');
-    const mat = ensure(key, {name:a.name, spec:a.spec, thick:a.thick||'', unit:a.unit||''});
-    if (!mat.unit && a.unit) mat.unit = a.unit;
-    if (!mat.floors[floor]) mat.floors[floor] = {floor, demand:0, allocated:0, categories:new Set()};
-    mat.floors[floor].allocated += Number(a.qty)||0;
-    if (a.category) mat.floors[floor].categories.add(a.category);
+  const shByMat = {};
+  shortageItems.forEach(it=>{
+    const key = n(it.name)+'||'+n(it.spec)+'||'+n(it.thick||'');
+    if (!shByMat[key]) shByMat[key] = [];
+    shByMat[key].push(it);
   });
 
   const suggestions = [];
-  Object.values(materialMap).forEach(mat=>{
-    const floors = Object.values(mat.floors).map(f=>({
-      ...f,
-      demand: roundQty(f.demand),
-      allocated: roundQty(f.allocated),
-      balance: roundQty(f.allocated - f.demand),
-      categoryText: Array.from(f.categories).join('、')
-    }));
-    const surplus = floors.filter(f=>f.balance>0).sort((a,b)=>b.balance-a.balance);
-    const shortage = floors.filter(f=>f.balance<0).sort((a,b)=>a.balance-b.balance);
-    // track remaining need per shortage floor across multiple surplus sources
+  Object.keys(exByMat).forEach(key=>{
+    if (!shByMat[key]) return;
+    const surplusFloors  = exByMat[key].slice().sort((a,b)=>b.excess-a.excess);
+    const shortageFloors = shByMat[key].slice().sort((a,b)=>a.shortage-b.shortage);
     const remainNeed = {};
-    shortage.forEach(f=>{ remainNeed[f.floor] = Math.abs(f.balance); });
-    surplus.forEach(src=>{
-      let canGive = src.balance;
-      shortage.forEach(dst=>{
-        if (canGive <= 0) return;
+    shortageFloors.forEach(f=>{ remainNeed[f.floor] = f.shortage; });
+    surplusFloors.forEach(src=>{
+      let canGive = src.excess;
+      shortageFloors.forEach(dst=>{
+        if (canGive <= 0 || src.floor === dst.floor) return;
         const need = remainNeed[dst.floor];
         if (need <= 0) return;
         const qty = Math.min(canGive, need);
         if (qty <= 0) return;
         suggestions.push({
-          name: mat.name,
-          spec: mat.spec,
-          thick: mat.thick,
-          unit: mat.unit||'',
-          fromFloor: src.floor,
-          toFloor: dst.floor,
+          name: src.name, spec: src.spec, thick: src.thick,
+          unit: src.unit || dst.unit || '',
+          fromFloor: src.floor, toFloor: dst.floor,
           qty: roundQty(qty),
-          fromExcess: roundQty(canGive),        // remaining capacity of this source at this point
-          toShortage: roundQty(Math.abs(dst.balance)), // original total shortage for context
+          fromExcess: roundQty(canGive),
+          toShortage: roundQty(dst.shortage),
           remainingShortage: roundQty(Math.max(need - qty, 0)),
-          fromCategory: src.categoryText,
-          toCategory: dst.categoryText
+          fromCategory: src.category, toCategory: dst.category
         });
         remainNeed[dst.floor] -= qty;
         canGive -= qty;
