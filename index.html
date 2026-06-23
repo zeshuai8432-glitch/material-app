@@ -572,7 +572,10 @@ body{background:var(--app-bg);color:var(--ink)}
       <span id="floor-group-arrow" class="acc-arrow">▶</span>
     </div>
     <div id="floor-group-body" style="display:none">
-      <div style="font-size:12px;color:#6b7280;margin-bottom:10px">將同樓層的不同單位（如 12F + 12EXS）合併計算缺料、餘料與調撥建議。</div>
+      <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">樓層名稱</div>
+      <div id="floor-rename-list" style="margin-bottom:12px"></div>
+      <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">群組設定</div>
+      <div style="font-size:12px;color:#6b7280;margin-bottom:8px">將同樓層的不同單位（如 12F + 12EXS）合併計算缺料、餘料與調撥建議。</div>
       <div id="floor-group-list"></div>
       <div id="floor-group-form" style="display:none;margin-top:10px;padding:10px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">
         <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px">新增樓層群組</div>
@@ -3962,8 +3965,28 @@ function toggleFloorGroupCard() {
 function renderFloorGroups() {
   const project = transferActiveProject;
   const listEl = document.getElementById('floor-group-list');
+  const renameListEl = document.getElementById('floor-rename-list');
   const badge = document.getElementById('floor-group-badge');
-  if (!listEl || !project) return;
+  if (!project) return;
+
+  // Floor rename list
+  if (renameListEl) {
+    const floors = getAllocFloors(project);
+    if (!floors.length) {
+      renameListEl.innerHTML = '<div style="color:#6b7280;font-size:12px">尚無樓層資料</div>';
+    } else {
+      renameListEl.innerHTML = floors.map(f => {
+        const safe = f.replace(/'/g, "\\'");
+        return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#f8fafc;border-radius:8px;margin-bottom:5px;border:1px solid #e2e8f0">
+          <span style="flex:1;font-size:13px;font-weight:600;color:#0f172a">🏠 ${f}</span>
+          <button class="btn-sm" onclick="renameFloor('${safe}')">改名</button>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // Group list
+  if (!listEl) return;
   const groups = floorGroups[project] || [];
   if (badge) badge.textContent = groups.length ? `（${groups.length} 個群組）` : '';
   if (!groups.length) {
@@ -3978,6 +4001,34 @@ function renderFloorGroups() {
       </div>
       <button class="btn-sm" style="color:#dc2626;border-color:#dc2626;flex-shrink:0" onclick="deleteFloorGroup(${i})">刪除</button>
     </div>`).join('');
+}
+
+function renameFloor(oldName) {
+  const project = transferActiveProject;
+  if (!project) return;
+  const newName = prompt('請輸入新的樓層名稱：', oldName);
+  if (newName === null) return;
+  const trimmed = newName.trim();
+  if (!trimmed || trimmed === oldName) return;
+  const n = allocNorm;
+  // Check for collision
+  if (getAllocFloors(project).some(f => f !== oldName && n(f) === n(trimmed))) {
+    showToast('⚠️ 已有相同名稱的樓層'); return;
+  }
+  // Update demands
+  demands.forEach(d => { if (n(d.project)===n(project) && n(d.floor)===n(oldName)) d.floor = trimmed; });
+  // Update allocations
+  allocations.forEach(a => { if (n(a.project)===n(project) && n(a.floor)===n(oldName)) a.floor = trimmed; });
+  // Update floor groups
+  (floorGroups[project]||[]).forEach(g => {
+    const idx = g.floors.findIndex(f => n(f)===n(oldName));
+    if (idx >= 0) g.floors[idx] = trimmed;
+  });
+  renderFloorGroups();
+  renderTransferPage();
+  renderAllocation();
+  autoSave();
+  showToast(`✅ 樓層「${oldName}」已更名為「${trimmed}」`);
 }
 
 function showAddFloorGroupForm() {
