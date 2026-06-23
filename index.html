@@ -3873,10 +3873,16 @@ function toggleFloorExcessCard() {
   if (arrow) arrow.classList.toggle('open', !isOpen);
 }
 
-function getFloorTransferSuggestions(project) {
+function getFloorTransferSuggestions(project, floorFilter) {
   const n = allocNorm;
-  const excessItems  = getFloorExcessItems(project);
-  const shortageItems = getFloorShortageItems(project);
+  let excessItems  = getFloorExcessItems(project);
+  let shortageItems = getFloorShortageItems(project);
+
+  // apply floor filter BEFORE computing so unselected floors don't affect the numbers
+  if (floorFilter && floorFilter.size > 0) {
+    excessItems  = excessItems.filter(it => floorFilter.has(it.floor));
+    shortageItems = shortageItems.filter(it => floorFilter.has(it.floor));
+  }
 
   // group by name+spec only (ignore thick mismatch between demand and allocation records)
   const exByMat = {};
@@ -3937,17 +3943,15 @@ function renderTransferSuggestions() {
   if (!el || !allocActiveProject) return;
   const card = document.getElementById('transfer-suggestion-card');
   if (card) card.style.display = '';
-  const allItems = getFloorTransferSuggestions(allocActiveProject);
-  _transferSuggestions = allItems;
 
-  // Build floor filter checkboxes
+  // Build floor list from ALL suggestions (unfiltered) for checkboxes
+  const allItems = getFloorTransferSuggestions(allocActiveProject, null);
   const filterDiv = document.getElementById('transfer-floor-filter');
   const cbContainer = document.getElementById('transfer-floor-checkboxes');
   if (filterDiv && cbContainer) {
     const allFloors = [...new Set([...allItems.map(i=>i.fromFloor), ...allItems.map(i=>i.toFloor)])].sort((a,b)=>cmpText(a,b));
     if (allFloors.length > 1) {
       filterDiv.style.display = '';
-      // Keep existing checked state if available, default all checked
       cbContainer.innerHTML = allFloors.map(f=>{
         const isChecked = _transferFloorFilter.size === 0 || _transferFloorFilter.has(f);
         const activeStyle = isChecked ? 'background:#185FA5;color:#fff;border-color:#185FA5' : 'background:#f1f5f9;color:#374151;border-color:#e2e8f0';
@@ -3964,24 +3968,25 @@ function renderTransferSuggestions() {
     }
   }
 
+  // Recompute suggestions with current filter applied BEFORE calculation
+  _transferSuggestions = getFloorTransferSuggestions(allocActiveProject, _transferFloorFilter.size > 0 ? _transferFloorFilter : null);
   _renderFilteredSuggestions();
 }
 
 function runTransferFilter() {
   const cbs = document.querySelectorAll('#transfer-floor-checkboxes input[type=checkbox]');
   const checked = [...cbs].filter(c=>c.checked).map(c=>c.value);
-  // If all checked or none checked → show all
   const allFloors = [...cbs].map(c=>c.value);
   _transferFloorFilter = checked.length === allFloors.length || checked.length === 0 ? new Set() : new Set(checked);
+  // Recompute with filter applied before calculation (not just display filter)
+  _transferSuggestions = getFloorTransferSuggestions(allocActiveProject, _transferFloorFilter.size > 0 ? _transferFloorFilter : null);
   _renderFilteredSuggestions();
 }
 
 function _renderFilteredSuggestions() {
   const el = document.getElementById('alloc-transfer-suggestions');
   if (!el) return;
-  const items = _transferFloorFilter.size === 0
-    ? _transferSuggestions
-    : _transferSuggestions.filter(it => _transferFloorFilter.has(it.fromFloor) && _transferFloorFilter.has(it.toFloor));
+  const items = _transferSuggestions;  // already filtered at calculation level
 
   if (!items.length) {
     el.innerHTML = '<div style="color:#6b7280;font-size:13px;padding:4px 0">目前沒有可互相支援的樓層。</div>';
