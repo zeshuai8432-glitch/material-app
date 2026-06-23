@@ -4260,10 +4260,13 @@ function _renderFilteredSuggestions() {
         ${categoryLine}
         ${remainLine}
       </div>
-      <div style="text-align:right;margin-left:10px;flex-shrink:0">
-        <div style="font-size:18px;font-weight:900;color:#0f766e">${it.qty}${it.unit}</div>
-        <div style="font-size:11px;color:#64748b;margin-bottom:6px">可調度</div>
-        <button class="btn-primary" onclick="quickTransfer(${globalIdx})" style="font-size:12px;padding:5px 10px;white-space:nowrap">⚡ 立即調撥</button>
+      <div style="text-align:right;margin-left:10px;flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        <div style="font-size:11px;color:#64748b">可調 ${it.fromExcess}${it.unit}</div>
+        <div style="display:flex;align-items:center;gap:4px">
+          <input type="number" id="tqty-${globalIdx}" value="${it.qty}" min="0.01" step="0.01" style="width:70px;padding:4px 6px;border:1.5px solid #0d9488;border-radius:6px;font-size:14px;font-weight:700;text-align:right;color:#0f766e">
+          <span style="font-size:12px;color:#6b7280">${it.unit}</span>
+        </div>
+        <button class="btn-primary" onclick="quickTransfer(${globalIdx})" style="font-size:12px;padding:5px 10px;white-space:nowrap;width:100%">⚡ 調撥</button>
       </div>
     </div>`;
   }).join('');
@@ -4272,9 +4275,13 @@ function _renderFilteredSuggestions() {
 function quickTransfer(idx) {
   const it = _transferSuggestions[idx];
   if (!it) { showToast('❌ 找不到調度資料'); return; }
-  const available = getAllocatedQty(allocActiveProject, it.fromFloor, it.name, it.spec, it.thick);
+  const inputEl = document.getElementById('tqty-'+idx);
+  const entered = inputEl ? parseFloat(inputEl.value) : it.qty;
+  if (!entered || entered <= 0) { showToast('⚠️ 請輸入有效數量'); return; }
+  const available = getAllocatedQty(transferActiveProject, it.fromFloor, it.name, it.spec, it.thick);
   if (available <= 0) { showToast('⚠️ '+it.fromFloor+' 已無可調材料'); return; }
-  const qty = Math.min(it.qty, available);
+  if (entered > available) { showToast(`⚠️ 輸入數量超過 ${it.fromFloor} 可用量 ${available}${it.unit}`); return; }
+  const qty = roundQty(entered);
   const fromCat = it.fromCategory ? it.fromCategory.split('、')[0] : '';
   const toCat   = it.toCategory   ? it.toCategory.split('、')[0]   : '';
   const tid = 'TR-'+(++transferCounter)+'-'+Date.now();
