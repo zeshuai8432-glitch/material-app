@@ -1968,7 +1968,7 @@ function renderAll() {
 }
 
 function renderInvStats() {
-  const displayRows = buildInventoryDisplayRows(inventory);
+  const displayRows = buildInventoryDisplayRows(inventory).filter(i=>Number(i.qty)>0);
   const total = displayRows.reduce((a,i)=>a+i.qty,0);
   document.getElementById('inv-stats').innerHTML = `
     <div class="stat-card"><div class="stat-label">材料種類</div><div class="stat-val">${displayRows.length}</div></div>
@@ -1999,7 +1999,7 @@ function renderInventory() {
     if (projFilter) return getInvProject(i)===projFilter;
     return true;
   });
-  const filtered = buildInventoryDisplayRows(filteredRaw).sort((a,b)=>{
+  const filtered = buildInventoryDisplayRows(filteredRaw).filter(i=>Number(i.qty)>0).sort((a,b)=>{
     const byName = cmpText(a.name, b.name);
     if (byName) return byName;
     const bySpec = cmpText(a.spec, b.spec);
