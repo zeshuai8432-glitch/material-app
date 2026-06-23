@@ -1537,6 +1537,15 @@ function syncInventoryEditToRecords(before, after) {
   }
 }
 
+function zeroInventoryByAdjustment(item) {
+  const expected = expectedInventoryQtyFromRecords(item.name, item.spec, item.thick);
+  if (expected > 0) {
+    shipments.push({date:today, site:'庫存調整', name:item.name, spec:item.spec, thick:item.thick, qty:expected, type:'stock', note:'庫存刪除調整'});
+  } else if (expected < 0) {
+    productions.push({date:today, name:item.name, spec:item.spec, thick:item.thick, qty:Math.abs(expected), note:'庫存刪除調整'});
+  }
+}
+
 function rebuildInventoryFromRecords() {
   if (!confirm('確定要重算庫存？\n\n系統會用「全部入庫」重新建立工廠總庫存，再扣掉「庫存出貨」，退回紀錄會加回。手動改過的庫存數量會被帳面紀錄覆蓋。')) return;
   const result = applyInventoryFromRecords();
@@ -2623,10 +2632,14 @@ function editInventory(idx) {
 }
 
 function deleteInventory(idx) {
-  if (!confirm('確定刪除「'+inventory[idx].name+'」？')) return;
-  delete inventoryProjects[invProjectKey(inventory[idx].name, inventory[idx].spec, inventory[idx].thick)];
+  const item = cloneRecord(inventory[idx]);
+  if (!confirm('確定刪除「'+item.name+'」？\n\n刪除後系統會新增一筆庫存調整，避免重新整理後又被入庫紀錄算回來。')) return;
+  zeroInventoryByAdjustment(item);
+  delete inventoryProjects[invProjectKey(item.name, item.spec, item.thick)];
   inventory.splice(idx,1);
-  renderAll(); autoSave(); showToast('🗑️ 已刪除');
+  applyInventoryFromRecords();
+  recordEditLog('庫存', item.name || '庫存項目', item, {deleted:true});
+  renderAll(); autoSave(); showToast('🗑️ 已刪除，並建立庫存調整');
 }
 
 // ── Production Edit/Delete ──
