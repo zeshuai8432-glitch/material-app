@@ -567,6 +567,16 @@ body{background:var(--app-bg);color:var(--ink)}
       <div id="alloc-transfer-suggestions"></div>
     </div>
   </div>
+  <div class="card" id="transfer-log-card">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;-webkit-user-select:none" onclick="toggleTransferLogCard()">
+      <span>📋 調撥紀錄 <span id="transfer-log-badge" style="font-size:11px;font-weight:400;color:#6b7280;margin-left:4px"></span></span>
+      <span id="transfer-log-arrow" class="acc-arrow">▶</span>
+    </div>
+    <div id="transfer-log-body" style="display:none">
+      <button class="btn-secondary" onclick="exportTransferLogPDF()" style="margin-bottom:10px;width:100%">📄 匯出調撥紀錄 PDF</button>
+      <div id="alloc-transfer-log"></div>
+    </div>
+  </div>
   <div class="card">
     <div class="card-title">分配材料</div>
     <div id="alloc-current-floor" style="font-size:13px;color:#185FA5;font-weight:600;margin-bottom:10px;padding:6px 10px;background:#e6f1fb;border-radius:8px">分配到：請先選上方樓層</div>
@@ -4044,6 +4054,98 @@ function toggleTransferSuggestionCard() {
   if (arrow) arrow.classList.toggle('open', !isOpen);
 }
 
+function toggleTransferLogCard() {
+  const body = document.getElementById('transfer-log-body');
+  const arrow = document.getElementById('transfer-log-arrow');
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  if (arrow) arrow.classList.toggle('open', !isOpen);
+}
+
+function getTransferLog(project) {
+  const n = allocNorm;
+  const grouped = {};
+  allocations.filter(a => a.transferId && n(a.project) === n(project)).forEach(a => {
+    if (!grouped[a.transferId]) grouped[a.transferId] = [];
+    grouped[a.transferId].push(a);
+  });
+  const log = [];
+  Object.values(grouped).forEach(records => {
+    const from = records.find(r => Number(r.qty) < 0);
+    const to   = records.find(r => Number(r.qty) > 0);
+    if (!from || !to) return;
+    log.push({
+      transferId: from.transferId,
+      date: from.date || to.date || '',
+      name: from.name, spec: from.spec||'', thick: from.thick||'', unit: from.unit||'',
+      fromFloor: from.floor||'', toFloor: to.floor||'',
+      qty: roundQty(Math.abs(Number(from.qty)))
+    });
+  });
+  return log.sort((a,b) => cmpText(b.date,a.date) || cmpText(a.name,b.name));
+}
+
+function renderTransferLog() {
+  const el = document.getElementById('alloc-transfer-log');
+  if (!el || !allocActiveProject) return;
+  const log = getTransferLog(allocActiveProject);
+  const badge = document.getElementById('transfer-log-badge');
+  if (badge) badge.textContent = log.length ? `（${log.length} 筆）` : '';
+  if (!log.length) {
+    el.innerHTML = '<div style="color:#6b7280;font-size:13px;padding:4px 0">尚無調撥紀錄</div>';
+    return;
+  }
+  el.innerHTML = log.map(r => `
+    <div class="list-item" style="padding:8px 10px;align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px;color:#0f172a">${r.name}</div>
+        <div style="margin-top:3px">${specBadge(r.spec, r.thick)}</div>
+        <div style="font-size:13px;font-weight:700;color:#0f766e;margin-top:5px">${r.fromFloor} → ${r.toFloor}</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px">${r.date||'—'}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:10px">
+        <div style="font-size:17px;font-weight:800;color:#0f766e">${r.qty}${r.unit}</div>
+        <div style="font-size:11px;color:#9ca3af">已調撥</div>
+        <button class="btn-sm" style="margin-top:4px;color:#dc2626;border-color:#dc2626" onclick="deleteTransfer('${r.transferId}')">刪除</button>
+      </div>
+    </div>`).join('');
+}
+
+function deleteTransfer(tid) {
+  if (!confirm('確定刪除這筆調撥紀錄？')) return;
+  const toRemove = allocations.map((a,i)=>a.transferId===tid?i:-1).filter(i=>i>=0).sort((a,b)=>b-a);
+  toRemove.forEach(i=>allocations.splice(i,1));
+  renderAll(); autoSave();
+  showToast('✅ 已刪除調撥紀錄');
+}
+
+function exportTransferLogPDF() {
+  if (!allocActiveProject) { showToast('⚠️ 請先選擇案場'); return; }
+  const log = getTransferLog(allocActiveProject);
+  if (!log.length) { showToast('⚠️ 尚無調撥紀錄'); return; }
+  const rows = log.map(r=>`
+    <tr>
+      <td>${r.date||'—'}</td>
+      <td>${r.name}</td>
+      <td>${r.spec||''}${r.thick?' / '+r.thick:''}</td>
+      <td style="text-align:center;font-weight:700;color:#0f766e">${r.fromFloor} → ${r.toFloor}</td>
+      <td style="text-align:right;font-weight:700">${r.qty}${r.unit}</td>
+    </tr>`).join('');
+  const html = `<style>
+    body{font-family:sans-serif;font-size:13px}
+    table{width:100%;border-collapse:collapse}
+    th,td{border:1px solid #ccc;padding:6px 8px;vertical-align:top}
+    th{background:#f1f5f9;font-weight:700}
+  </style>
+  <h2 style="margin-bottom:12px">調撥紀錄 — ${allocActiveProject}</h2>
+  <table>
+    <thead><tr><th>日期</th><th>材料</th><th>規格/厚度</th><th>調撥方向</th><th>數量</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+  printHTML('調撥紀錄 '+allocActiveProject, html);
+}
+
 function getAllocProjects() {
   const set = [];
   shipments.forEach(s=>{ if(!set.includes(s.site) && !archivedProjects.includes(s.site)) set.push(s.site); });
@@ -4171,6 +4273,8 @@ function renderAllocation() {
   renderFloorExcess();
   // 樓層間可調度建議
   renderTransferSuggestions();
+  // 調撥紀錄
+  renderTransferLog();
   // 分配紀錄
   renderAllocList();
   updateAllocGap();
