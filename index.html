@@ -1843,7 +1843,21 @@ function updateDemandGap() {
   // 彙整各樓層需求
   const floorMap = {};
   matched.forEach(d=>{ const f=d.floor||'（未指定）'; floorMap[f]=(floorMap[f]||0)+Number(d.qty); });
-  const floorRows = Object.entries(floorMap).sort((a,b)=>cmpText(a[0],b[0]));
+  // 依群組設定合併
+  const grpList = floorGroups[site] || [];
+  const mergedRows = []; // [{label, subFloors, qty, allocated}]
+  const usedFloors = new Set();
+  grpList.forEach(grp => {
+    const memberFloors = grp.floors.filter(f => floorMap[f] != null);
+    if (!memberFloors.length) return;
+    const grpQty = roundQty(memberFloors.reduce((a,f) => a + floorMap[f], 0));
+    const grpAlloc = roundQty(memberFloors.reduce((a,f) => a + getAllocatedQty(site, f, mat.name, mat.spec, mat.thick), 0));
+    mergedRows.push({label: grp.name+'（'+memberFloors.join('＋')+'）', qty: grpQty, allocated: grpAlloc, isGroup: true});
+    memberFloors.forEach(f => usedFloors.add(f));
+  });
+  Object.keys(floorMap).filter(f => !usedFloors.has(f)).sort((a,b)=>cmpText(a,b)).forEach(f => {
+    mergedRows.push({label: f, qty: floorMap[f], allocated: getAllocatedQty(site, f, mat.name, mat.spec, mat.thick), isGroup: false});
+  });
   // 顏色狀態
   let headerBg, headerColor, statusText;
   if (remaining > 0) {
@@ -1861,15 +1875,14 @@ function updateDemandGap() {
     <br>${statusText}
   </div>`;
   html += '<div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px">各樓層需求：</div>';
-  floorRows.forEach(([floor, qty]) => {
-    const allocated = getAllocatedQty(site, floor, mat.name, mat.spec, mat.thick);
-    const lack = qty - allocated;
+  mergedRows.forEach(row => {
+    const lack = row.qty - row.allocated;
     const rowColor = lack > 0 ? '#92400e' : lack < 0 ? '#991b1b' : '#166534';
     const rowBg   = lack > 0 ? '#fef9c3' : lack < 0 ? '#fee2e2' : '#f0fdf4';
     const lackText = lack > 0 ? '缺 '+lack+unit : lack < 0 ? '超出 '+Math.abs(lack)+unit : '✅';
     html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;margin-bottom:2px;border-radius:6px;background:${rowBg};font-size:13px">
-      <span style="color:#374151;font-weight:500">${floor}</span>
-      <span style="color:#6b7280;font-size:12px">需求 ${qty}　已分配 ${allocated}</span>
+      <span style="color:#374151;font-weight:500">${row.label}</span>
+      <span style="color:#6b7280;font-size:12px">需求 ${row.qty}　已分配 ${row.allocated}</span>
       <span style="font-weight:700;color:${rowColor};min-width:60px;text-align:right">${lackText}</span>
     </div>`;
   });
