@@ -1416,7 +1416,7 @@ function isStockAffectingShipment(s) {
 }
 
 function shipmentReturnKey(s) {
-  return [s.date||'', s.site||'', s.name||'', s.spec||'', s.thick||'', Math.abs(Number(s.qty)||0), s.type||'stock'].join('|');
+  return [s.site||'', s.name||'', s.spec||'', s.thick||'', Math.abs(Number(s.qty)||0)].map(v=>String(v==null?'':v).trim()).join('|');
 }
 
 function removeDuplicateReturnShipments() {
@@ -2554,16 +2554,17 @@ function deleteShipment(idx) {
   }
   if (!confirm(`確定退回「${s.name}」${s.qty}${s.unit||''}？\n將保留原出貨紀錄並新增一筆退回紀錄。${s.type==='stock'?'\n庫存將還原。':''}`)) return;
   const returnKey = shipmentReturnKey(s);
-  const returned = shipments.some(r=>r.returnOf===returnKey || (Number(r.qty)===-Math.abs(Number(s.qty)) && r.site===s.site && r.name===s.name && String(r.spec)===String(s.spec) && String(r.thick||'')===String(s.thick||'') && (r.note||'').includes('退回')));
-  if (returned) { showToast('⚠️ 這筆出貨已經退回過'); return; }
+  const returned = shipments.some(r=>Number(r.qty)<0 && (r.returnOf===returnKey || shipmentReturnKey(r)===returnKey) && (r.note||'').includes('退回'));
+  if (returned) { alert('這筆出貨已經退回過，沒有重複新增。'); return; }
   // 庫存出：把數量還給庫存
   if (s.type==='stock') {
     const inv = findInventory(s.name, s.spec, s.thick);
-    if (inv) { inv.qty += Number(s.qty); inv.lastUpdate = today; }
+    if (inv) { inv.qty = roundQty(Number(inv.qty) + Number(s.qty)); inv.lastUpdate = today; }
   }
   // 新增退回紀錄（負數）
   shipments.push({date:today, site:s.site, name:s.name, spec:s.spec, thick:s.thick, unit:s.unit||'', qty:-Math.abs(Number(s.qty)), type:s.type, note:'退回', returnOf:returnKey});
-  renderAll(); autoSave(); showToast('✅ 已退回，庫存已還原');
+  renderAll(); saveLocal(); showToast(s.type==='stock'?'✅ 已退回，庫存已還原':'✅ 已新增退回紀錄');
+  autoSave();
 }
 
 // ── Demand ──
