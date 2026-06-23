@@ -4965,6 +4965,7 @@ function initCardCollapse() {
       if (e.target.closest('button,a,select,input')) return;
       card.classList.toggle('collapsed');
     });
+    card.classList.add('collapsed');
   });
 }
 initCardCollapse();
