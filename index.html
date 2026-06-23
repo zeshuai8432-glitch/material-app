@@ -523,7 +523,6 @@ body{background:var(--app-bg);color:var(--ink)}
   <div id="alloc-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;flex-wrap:nowrap"></div>
   <div id="alloc-floor-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;flex-wrap:nowrap"></div>
   <div id="alloc-floor-context" class="floor-context" style="display:none"></div>
-  <button class="btn-outline" onclick="showTransferForm()" style="width:100%;margin-bottom:8px;border-color:#ddd6fe;color:#7c3aed;background:#f5f3ff">🔄 樓層調撥</button>
   <button class="btn-outline" onclick="showSettlement()" style="width:100%;margin-bottom:8px">📊 此案場用料結算</button>
   <button class="btn-outline" onclick="mergeAllocByDate()" style="width:100%;margin-bottom:8px">📅 依日期合併（全樓層搬運單）</button>
   <button class="btn-outline" onclick="mergeAllocByFloor()" style="width:100%;margin-bottom:8px">🏢 依樓層合併（該樓層全部）</button>
@@ -533,6 +532,40 @@ body{background:var(--app-bg);color:var(--ink)}
     <div style="font-size:12px;color:#6b7280;margin-bottom:8px">= 已運到此案場的量 − 已分配出去的量</div>
     <div id="alloc-stock-list"></div>
   </div>
+  <div class="card">
+    <div class="card-title">分配材料</div>
+    <div id="alloc-current-floor" style="font-size:13px;color:#185FA5;font-weight:600;margin-bottom:10px;padding:6px 10px;background:#e6f1fb;border-radius:8px">分配到：請先選上方樓層</div>
+    <div class="form-group">
+      <label>選擇材料（從置料區）</label>
+      <select id="alloc-mat-select" onchange="onSelectAllocMat()">
+        <option value="">-- 請先選上方案場再選材料 --</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>分配到分類</label>
+      <select id="alloc-category" onchange="updateAllocGap()">
+      </select>
+    </div>
+    <div class="form-group"><label>分配日期</label><input type="date" id="alloc-date"></div>
+    <div class="form-group"><label>數量</label><input type="text" id="alloc-qty" placeholder="點此開啟計算機" readonly class="qty-tap" onclick="openCalc(this)">
+    <div class="qty-preview" id="alloc-qty-preview"></div></div>
+    <div id="alloc-gap-box" style="display:none;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
+    <button class="btn-primary" onclick="addAllocation()">分配</button>
+  </div>
+  <div class="card">
+    <div class="card-title">
+      分配紀錄
+      <button class="btn-outline" onclick="exportAllocPDF()" style="font-size:12px;padding:5px 10px">📄 匯出搬運單</button>
+    </div>
+    <div id="alloc-list"></div>
+  </div>
+</div>
+
+<!-- Transfer Page -->
+<div class="page" id="page-transfer">
+  <div class="flow-hint">🔄 查看各樓層缺料與餘料，建立調撥建議並執行及記錄調撥。</div>
+  <div id="transfer-project-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;flex-wrap:nowrap"></div>
+  <button class="btn-outline" onclick="showTransferForm()" style="width:100%;margin-bottom:12px;border-color:#ddd6fe;color:#7c3aed;background:#f5f3ff">🔄 手動樓層調撥</button>
   <div class="card" id="floor-shortage-card">
     <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;-webkit-user-select:none" onclick="toggleFloorShortageCard()">
       <span>⚠️ 各樓層缺料 <span id="floor-shortage-badge" style="font-size:11px;font-weight:400;color:#dc2626;margin-left:4px"></span></span>
@@ -580,33 +613,6 @@ body{background:var(--app-bg);color:var(--ink)}
       <div id="alloc-transfer-log"></div>
     </div>
   </div>
-  <div class="card">
-    <div class="card-title">分配材料</div>
-    <div id="alloc-current-floor" style="font-size:13px;color:#185FA5;font-weight:600;margin-bottom:10px;padding:6px 10px;background:#e6f1fb;border-radius:8px">分配到：請先選上方樓層</div>
-    <div class="form-group">
-      <label>選擇材料（從置料區）</label>
-      <select id="alloc-mat-select" onchange="onSelectAllocMat()">
-        <option value="">-- 請先選上方案場再選材料 --</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label>分配到分類</label>
-      <select id="alloc-category" onchange="updateAllocGap()">
-      </select>
-    </div>
-    <div class="form-group"><label>分配日期</label><input type="date" id="alloc-date"></div>
-    <div class="form-group"><label>數量</label><input type="text" id="alloc-qty" placeholder="點此開啟計算機" readonly class="qty-tap" onclick="openCalc(this)">
-    <div class="qty-preview" id="alloc-qty-preview"></div></div>
-    <div id="alloc-gap-box" style="display:none;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
-    <button class="btn-primary" onclick="addAllocation()">分配</button>
-  </div>
-  <div class="card">
-    <div class="card-title">
-      分配紀錄
-      <button class="btn-outline" onclick="exportAllocPDF()" style="font-size:12px;padding:5px 10px">📄 匯出搬運單</button>
-    </div>
-    <div id="alloc-list"></div>
-  </div>
 </div>
 
 <!-- Bottom Nav -->
@@ -630,6 +636,10 @@ body{background:var(--app-bg);color:var(--ink)}
   <button class="nav-item" type="button" onclick="showPage('allocation',this)" aria-label="分配">
     <svg viewBox="0 0 24 24"><path d="M3 3h18v4H3z"/><path d="M3 11h7v10H3z"/><path d="M14 11h7v10h-7z"/></svg>
     分配
+  </button>
+  <button class="nav-item" type="button" onclick="showPage('transfer',this)" aria-label="調撥">
+    <svg viewBox="0 0 24 24"><path d="M7 16V4m0 0L3 8m4-4l4 4"/><path d="M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
+    調撥
   </button>
 </nav>
 
@@ -667,6 +677,7 @@ let allocations = [];
 let archivedProjects = [];
 let allocActiveProject = null;
 let allocActiveFloor = null;
+let transferActiveProject = null;
 let productions = [];
 let shipments = [];
 let currentOrder = [];
@@ -1988,7 +1999,7 @@ function removeOrderItem(idx) {
 
 // ── Render ──
 function renderAll() {
-  renderInventory(); renderProductions(); renderShipments(); renderArrival(); renderOrder(); renderDemands(); renderAllocation();
+  renderInventory(); renderProductions(); renderShipments(); renderArrival(); renderOrder(); renderDemands(); renderAllocation(); renderTransferPage();
   renderInvStats(); refreshProjectSelects(); refreshCategorySelect(); refreshFloorList(); refreshShipDemandSelects(); refreshDataLists();
   enableQuantityKeyboard();
   const em = document.getElementById('edit-modal');
@@ -2411,6 +2422,7 @@ function showPage(name, btn) {
     });
   }
   if (name === 'production') _refreshProdProjectOpts();
+  if (name === 'transfer') renderTransferPage();
   window.scrollTo({top:0});
 }
 
@@ -3757,8 +3769,8 @@ function getFloorShortageItems(project) {
 
 function renderFloorShortage() {
   const el = document.getElementById('alloc-floor-shortage');
-  if (!el || !allocActiveProject) return;
-  const items = getFloorShortageItems(allocActiveProject);
+  if (!el || !transferActiveProject) return;
+  const items = getFloorShortageItems(transferActiveProject);
   const card = document.getElementById('floor-shortage-card');
   if (card) card.style.display = '';
   const badge = document.getElementById('floor-shortage-badge');
@@ -3813,8 +3825,8 @@ function toggleFloorShortageCard() {
 
 function renderFloorExcess() {
   const el = document.getElementById('alloc-floor-excess');
-  if (!el || !allocActiveProject) return;
-  const items = getFloorExcessItems(allocActiveProject);
+  if (!el || !transferActiveProject) return;
+  const items = getFloorExcessItems(transferActiveProject);
   const card = document.getElementById('floor-excess-card');
   if (card) card.style.display = '';
   const exBadge = document.getElementById('floor-excess-badge');
@@ -3953,7 +3965,7 @@ let _transferFloorFilter = new Set();
 
 function renderTransferSuggestions() {
   const el = document.getElementById('alloc-transfer-suggestions');
-  if (!el || !allocActiveProject) return;
+  if (!el || !transferActiveProject) return;
   const card = document.getElementById('transfer-suggestion-card');
   if (card) card.style.display = '';
 
@@ -3982,7 +3994,7 @@ function renderTransferSuggestions() {
   }
 
   // Recompute suggestions with current filter applied BEFORE calculation
-  _transferSuggestions = getFloorTransferSuggestions(allocActiveProject, _transferFloorFilter.size > 0 ? _transferFloorFilter : null);
+  _transferSuggestions = getFloorTransferSuggestions(transferActiveProject, _transferFloorFilter.size > 0 ? _transferFloorFilter : null);
   _renderFilteredSuggestions();
 }
 
@@ -3992,7 +4004,7 @@ function runTransferFilter() {
   const allFloors = [...cbs].map(c=>c.value);
   _transferFloorFilter = checked.length === allFloors.length || checked.length === 0 ? new Set() : new Set(checked);
   // Recompute with filter applied before calculation (not just display filter)
-  _transferSuggestions = getFloorTransferSuggestions(allocActiveProject, _transferFloorFilter.size > 0 ? _transferFloorFilter : null);
+  _transferSuggestions = getFloorTransferSuggestions(transferActiveProject, _transferFloorFilter.size > 0 ? _transferFloorFilter : null);
   _renderFilteredSuggestions();
 }
 
@@ -4040,7 +4052,7 @@ function quickTransfer(idx) {
   const fromCat = it.fromCategory ? it.fromCategory.split('、')[0] : '';
   const toCat   = it.toCategory   ? it.toCategory.split('、')[0]   : '';
   const tid = 'TR-'+(++transferCounter)+'-'+Date.now();
-  const base = {project:allocActiveProject, name:it.name, spec:it.spec, thick:it.thick, unit:it.unit, date:today, transferId:tid};
+  const base = {project:transferActiveProject, name:it.name, spec:it.spec, thick:it.thick, unit:it.unit, date:today, transferId:tid};
   allocations.push({...base, floor:it.fromFloor, category:fromCat, qty:-qty});
   allocations.push({...base, floor:it.toFloor,   category:toCat,   qty:qty});
   renderAll();
@@ -4094,8 +4106,8 @@ function getTransferLog(project) {
 
 function renderTransferLog() {
   const el = document.getElementById('alloc-transfer-log');
-  if (!el || !allocActiveProject) return;
-  const log = getTransferLog(allocActiveProject);
+  if (!el || !transferActiveProject) return;
+  const log = getTransferLog(transferActiveProject);
   const badge = document.getElementById('transfer-log-badge');
   if (badge) badge.textContent = log.length ? `（${log.length} 筆）` : '';
   if (!log.length) {
@@ -4159,12 +4171,12 @@ function deleteTransfer(tid) {
 }
 
 function exportTransferLogPDF() {
-  if (!allocActiveProject) { showToast('⚠️ 請先選擇案場'); return; }
+  if (!transferActiveProject) { showToast('⚠️ 請先選擇案場'); return; }
   const checkedTids = new Set(
     [...document.querySelectorAll('#alloc-transfer-log input[type=checkbox]:checked')].map(c=>c.dataset.tid)
   );
   if (!checkedTids.size) { showToast('⚠️ 請先勾選要匯出的紀錄'); return; }
-  const log = getTransferLog(allocActiveProject).filter(r => checkedTids.has(r.transferId));
+  const log = getTransferLog(transferActiveProject).filter(r => checkedTids.has(r.transferId));
 
   // group by fromFloor→toFloor direction
   const dirMap = {};
@@ -4208,7 +4220,7 @@ function exportTransferLogPDF() {
     </div>`;
   }).join('');
 
-  printHTML('調撥紀錄 '+allocActiveProject, style + body);
+  printHTML('調撥紀錄 '+transferActiveProject, style + body);
 }
 
 function getAllocProjects() {
@@ -4222,6 +4234,33 @@ function selectAllocTab(project) {
   allocActiveProject = project;
   allocActiveFloor = null;
   renderAllocation();
+}
+
+function selectTransferProject(project) {
+  collapseAllGroups();
+  transferActiveProject = project;
+  renderTransferPage();
+}
+
+function renderTransferPage() {
+  const tabsEl = document.getElementById('transfer-project-tabs');
+  const projects = getAllocProjects();
+  if (!projects.length) {
+    if (tabsEl) tabsEl.innerHTML = '';
+    return;
+  }
+  if (!transferActiveProject || !projects.includes(transferActiveProject)) {
+    transferActiveProject = projects[0];
+  }
+  if (tabsEl) {
+    tabsEl.innerHTML = projects.map(p =>
+      `<button class="dtab ${p===transferActiveProject?'active':''}" onclick="selectTransferProject('${p.replace(/'/g,"\\'")}')">🏢 ${p}</button>`
+    ).join('');
+  }
+  renderFloorShortage();
+  renderFloorExcess();
+  renderTransferSuggestions();
+  renderTransferLog();
 }
 
 function selectAllocFloorTab(floor) {
@@ -4332,14 +4371,6 @@ function renderAllocation() {
     Array.from(cats).forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; catSel.appendChild(o); });
     if (prev && Array.from(cats).includes(prev)) catSel.value = prev;
   }
-  // 各樓層缺料
-  renderFloorShortage();
-  // 各樓層餘料
-  renderFloorExcess();
-  // 樓層間可調度建議
-  renderTransferSuggestions();
-  // 調撥紀錄
-  renderTransferLog();
   // 分配紀錄
   renderAllocList();
   updateAllocGap();
