@@ -49,6 +49,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* ── Modern Cards ── */
 .card{background:#fff;border-radius:20px;padding:18px;margin-bottom:14px;box-shadow:0 2px 16px rgba(0,0,0,0.06),0 1px 3px rgba(0,0,0,0.04);border:1px solid rgba(255,255,255,0.8)}
 .card-title{font-size:15px;font-weight:700;color:#0f172a;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+.card-toggle-icon{font-size:11px;opacity:0.35;margin-right:5px;display:inline-block;transition:transform 0.15s;flex-shrink:0}
+.card.collapsed>.card-title{margin-bottom:0;cursor:pointer}
+.card.collapsed .card-toggle-icon{transform:rotate(-90deg)}
+.card.collapsed>*:not(.card-title){display:none!important}
 
 /* ── Colorful Stats ── */
 .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
@@ -652,6 +656,7 @@ let editLogs = [];
 let shipDateLabels = {}; // { [date]: labelString }
 let intakeDraftQueue = [];
 let cloudLoadFailed = false;
+let _gapState = null;
 const expandedGroups = new Set();
 
 function hashStr(s) {
@@ -1963,7 +1968,7 @@ function renderAll() {
   enableQuantityKeyboard();
   const em = document.getElementById('edit-modal');
   if (em && em.classList.contains('show') && (document.getElementById('edit-modal-title')||{}).textContent.includes('庫存缺口')) {
-    showInventoryGap();
+    renderGapBody();
   }
 }
 
@@ -3347,54 +3352,143 @@ function getInventoryGapRows(project) {
   }).sort((a,b)=>netOrder(a)-netOrder(b)||cmpText(materialTags[a.name],materialTags[b.name])||(cmpText(a.name,b.name)));
 }
 
-function getUnmatchedGapInventory(project, rows) {
-  const matchedKeys = new Set(rows.map(m=>gapNorm(m.name)+'|'+gapNorm(m.spec)));
-  return buildInventoryDisplayRows(inventory.filter(i=>!getInvProject(i)||getInvProject(i)===project))
-    .filter(i=>Number(i.qty)>0 && !matchedKeys.has(gapNorm(i.name)+'|'+gapNorm(i.spec)));
+function getGapRowsMulti(selProjects, selFloors, useInv) {
+  const hasFloor = selFloors && selFloors.size > 0;
+  const filteredDemands = demands.filter(d=>{
+    if (selProjects.size > 0 && !selProjects.has(d.project)) return false;
+    if (hasFloor && !selFloors.has(d.floor||'')) return false;
+    return true;
+  });
+  const demandMap = {};
+  filteredDemands.forEach(d=>{
+    const key = gapNorm(d.name)+'|'+gapNorm(d.spec);
+    if (!demandMap[key]) demandMap[key] = {key, name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||'', qty:0, _thicks:[]};
+    demandMap[key].qty += Number(d.qty);
+    const thick = d.thick||'';
+    if (!demandMap[key]._thicks.includes(thick)) demandMap[key]._thicks.push(thick);
+  });
+  const netOrder = r=>r.net>0?0:r.net<0?1:2;
+  return Object.values(demandMap).map(m=>{
+    if (m._thicks.length>1) m.thick='多厚度';
+    let inStock=0, excludedQty=0;
+    if (useInv) {
+      const allM = inventory.filter(i=>gapNorm(i.name)===gapNorm(m.name)&&gapNorm(i.spec)===gapNorm(m.spec));
+      const projM = allM.filter(i=>{ const p=getInvProject(i); return !p||selProjects.size===0||selProjects.has(p); });
+      inStock = roundQty(projM.reduce((s,i)=>s+Number(i.qty),0));
+      excludedQty = roundQty(allM.filter(i=>{ const p=getInvProject(i); return p&&selProjects.size>0&&!selProjects.has(p); }).reduce((s,i)=>s+Number(i.qty),0));
+    }
+    const shipped = roundQty(shipments
+      .filter(s=>(selProjects.size===0||selProjects.has(s.site))&&gapNorm(s.name)===gapNorm(m.name)&&gapNorm(s.spec)===gapNorm(m.spec))
+      .reduce((s,i)=>s+Number(i.qty),0));
+    const qty=roundQty(m.qty), net=roundQty(qty-shipped-inStock);
+    const row={...m, qty, inStock, shipped, net, excludedQty};
+    delete row._thicks;
+    return row;
+  }).sort((a,b)=>netOrder(a)-netOrder(b)||cmpText(materialTags[a.name],materialTags[b.name])||cmpText(a.name,b.name));
 }
 
 function showInventoryGap() {
   if (!activeProject) { showToast('⚠️ 請先選擇案場'); return; }
-  const projectDemands = demands.filter(d=>d.project===activeProject);
-  if (!projectDemands.length) { showToast('⚠️ 此案場尚無需求'); return; }
-  const rows = getInventoryGapRows(activeProject);
-  const unmatchedInv = getUnmatchedGapInventory(activeProject, rows);
+  if (!demands.filter(d=>d.project===activeProject).length) { showToast('⚠️ 此案場尚無需求'); return; }
+  const allProjectsArr = [...new Set(demands.map(d=>d.project).filter(Boolean))].sort((a,b)=>cmpText(a,b));
+  const initProjects = new Set([activeProject]);
+  const initFloors = new Set(demands.filter(d=>initProjects.has(d.project)).map(d=>d.floor||''));
+  _gapState = { useInv: true, selProjects: initProjects, selFloors: initFloors };
+  const projCBs = allProjectsArr.map(p=>
+    `<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;background:${initProjects.has(p)?'#eff6ff':'#f8fafc'};border:1px solid ${initProjects.has(p)?'#93c5fd':'#e2e8f0'};border-radius:20px;padding:3px 9px">
+      <input type="checkbox" class="gap-proj-cb" value="${p.replace(/"/g,'&quot;')}" ${initProjects.has(p)?'checked':''} onchange="onGapProjectChange()">${p}</label>`
+  ).join('');
+  const floorsArr = [...initFloors].sort((a,b)=>cmpText(a,b));
+  const body = `
+    <div style="background:#f0f9ff;border-radius:12px;padding:12px;margin-bottom:12px;border:1px solid #bae6fd">
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:10px">
+        <input type="checkbox" id="gap-use-inv" checked onchange="onGapUseInvChange()">計入現有庫存
+      </label>
+      <div style="margin-bottom:8px">
+        <div style="font-size:12px;font-weight:700;color:#0369a1;margin-bottom:6px">📁 案場</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap" id="gap-proj-list">${projCBs}</div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:700;color:#0369a1;margin-bottom:6px">🏢 樓層</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap" id="gap-floor-list">${_buildGapFloorCBs(floorsArr, initFloors)}</div>
+      </div>
+    </div>
+    <div id="gap-body-content"></div>`;
+  document.getElementById('edit-modal-title').textContent = '📊 庫存缺口分析';
+  document.getElementById('edit-modal-body').innerHTML = body;
+  document.getElementById('edit-save-btn').style.display = 'none';
+  document.getElementById('edit-modal').classList.add('show');
+  renderGapBody();
+}
+
+function _buildGapFloorCBs(floorsArr, selectedFloors) {
+  if (!floorsArr.length) return '<span style="font-size:12px;color:#9ca3af">（無樓層資料）</span>';
+  return floorsArr.map(f=>
+    `<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;background:#f8fafc;border:1px solid #e2e8f0;border-radius:20px;padding:3px 9px">
+      <input type="checkbox" class="gap-floor-cb" value="${(f||'').replace(/"/g,'&quot;')}" ${!selectedFloors||selectedFloors.has(f)?'checked':''} onchange="onGapFloorChange()">${f||'（無樓層）'}</label>`
+  ).join('');
+}
+
+function onGapProjectChange() {
+  _gapState.selProjects = new Set(Array.from(document.querySelectorAll('.gap-proj-cb:checked')).map(cb=>cb.value));
+  const floorsArr = [...new Set(demands.filter(d=>_gapState.selProjects.has(d.project)).map(d=>d.floor||''))].sort((a,b)=>cmpText(a,b));
+  _gapState.selFloors = new Set(floorsArr);
+  const fl = document.getElementById('gap-floor-list');
+  if (fl) fl.innerHTML = _buildGapFloorCBs(floorsArr, _gapState.selFloors);
+  renderGapBody();
+}
+
+function onGapFloorChange() {
+  _gapState.selFloors = new Set(Array.from(document.querySelectorAll('.gap-floor-cb:checked')).map(cb=>cb.value));
+  renderGapBody();
+}
+
+function onGapUseInvChange() {
+  _gapState.useInv = document.getElementById('gap-use-inv').checked;
+  renderGapBody();
+}
+
+function renderGapBody() {
+  const container = document.getElementById('gap-body-content');
+  if (!container || !_gapState) return;
+  const {useInv, selProjects, selFloors} = _gapState;
+  const rows = getGapRowsMulti(selProjects, selFloors, useInv);
+  if (!rows.length) { container.innerHTML = '<div class="empty">目前篩選條件無需求資料</div>'; return; }
   const lackCount = rows.filter(r=>r.net>0).length;
   const overCount = rows.filter(r=>r.net<0).length;
   const okCount   = rows.length - lackCount - overCount;
-  // 依系列分組
-  const sm = {};
-  rows.forEach(r=>{ const s=materialTags[r.name]||'未設定系列'; if(!sm[s]) sm[s]=[]; sm[s].push(r); });
-  let body = `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">案場：${activeProject}　公式：總需求 − 已出貨 − 現有庫存</div>`;
-  body += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+  const formula = useInv ? '總需求 − 已出貨 − 現有庫存' : '總需求 − 已出貨';
+  let html = `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">公式：${formula}</div>`;
+  html += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
     ${lackCount?`<span class="badge badge-red">⚠️ ${lackCount} 種缺貨</span>`:''}
     ${overCount?`<span class="badge badge-amber">↑ ${overCount} 種溢出</span>`:''}
     ${okCount?`<span class="badge badge-green">✅ ${okCount} 種足夠</span>`:''}
-  </div>`;
-  body += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
     <button class="btn-sm" type="button" onclick="setGapChecks('lack')">只勾缺貨</button>
     <button class="btn-sm" type="button" onclick="setGapChecks('all')">全選</button>
     <button class="btn-sm" type="button" onclick="setGapChecks('none')">全不選</button>
   </div>`;
+  const sm = {};
+  rows.forEach(r=>{ const s=materialTags[r.name]||'未設定系列'; if(!sm[s]) sm[s]=[]; sm[s].push(r); });
   sortedSeriesKeys(sm).forEach(series=>{
-    body += `<div class="acc-series-label" style="margin-top:8px">📁 ${series}</div>`;
+    html += `<div class="acc-series-label" style="margin-top:8px">📁 ${series}</div>`;
     sm[series].forEach(r=>{
-      const isLack = r.net > 0;
-      const isOver = r.net < 0;
-      const statusColor = isLack?'#dc2626':isOver?'#d97706':'#059669';
-      const statusText  = isLack?`缺 ${r.net}${r.unit}`:isOver?`溢出 ${-r.net}${r.unit}`:'足夠';
-      const statusSub   = isLack?'需補料':isOver?'庫存過剩':'';
-      body += `<div class="list-item">
+      const isLack=r.net>0, isOver=r.net<0;
+      const statusColor=isLack?'#dc2626':isOver?'#d97706':'#059669';
+      const statusText=isLack?`缺 ${r.net}${r.unit}`:isOver?`溢出 ${-r.net}${r.unit}`:'足夠';
+      const statusSub=isLack?'需補料':isOver?'庫存過剩':'';
+      html += `<div class="list-item">
         <label style="display:flex;align-items:flex-start;gap:10px;flex:1;cursor:pointer">
           <input class="gap-pick" type="checkbox" value="${r.key.replace(/"/g,'&quot;')}" data-lack="${isLack?'1':'0'}" ${isLack?'checked':''} style="width:18px;height:18px;margin-top:2px;flex-shrink:0">
-        <div style="flex:1">
-          <div class="list-main">${r.name}</div>
-          <div style="margin-top:3px">${specBadge(r.spec,r.thick)}</div>
-          <div style="font-size:12px;color:#374151;margin-top:5px;line-height:1.7">
-            總需求 <strong>${r.qty}${r.unit}</strong>　已出貨 <strong>${r.shipped}${r.unit}</strong>　現有庫存 <strong>${r.inStock}${r.unit}</strong>
+          <div style="flex:1">
+            <div class="list-main">${r.name}</div>
+            <div style="margin-top:3px">${specBadge(r.spec,r.thick)}</div>
+            <div style="font-size:12px;color:#374151;margin-top:5px;line-height:1.7">
+              總需求 <strong>${r.qty}${r.unit}</strong>　已出貨 <strong>${r.shipped}${r.unit}</strong>${useInv?`　現有庫存 <strong>${r.inStock}${r.unit}</strong>`:''}
+            </div>
+            ${r.excludedQty>0?`<div style="font-size:11px;color:#d97706;margin-top:3px">⚠️ 另有 ${r.excludedQty}${r.unit} 庫存被標記為其他案場，未計入</div>`:''}
           </div>
-          ${r.excludedQty>0?`<div style="font-size:11px;color:#d97706;margin-top:3px">⚠️ 另有 ${r.excludedQty}${r.unit} 庫存被標記為其他案場，未計入</div>`:''}
-        </div>
         </label>
         <div style="text-align:right;margin-left:12px;flex-shrink:0">
           <div style="font-size:16px;font-weight:800;color:${statusColor}">${statusText}</div>
@@ -3403,25 +3497,22 @@ function showInventoryGap() {
       </div>`;
     });
   });
-  if (unmatchedInv.length) {
-    body += `<div style="margin-top:16px;padding:12px;background:#fef9c3;border-radius:10px;border:1px solid #fde047">
-      <div style="font-size:13px;font-weight:700;color:#854d0e;margin-bottom:8px">⚠️ 庫存裡有 ${unmatchedInv.length} 項找不到對應需求（可能名稱不同）</div>`;
-    unmatchedInv.forEach(i=>{
-      body += `<div style="font-size:12px;color:#78350f;padding:3px 0;border-bottom:1px solid #fde68a">
-        ${i.name}　${i.spec}${i.thick?'・'+i.thick:''}　<strong>${i.qty}</strong>${i.unit||''}
-        ${i.project?`<span style="margin-left:6px;font-size:11px;color:#92400e">（${i.project}）</span>`:''}
-      </div>`;
-    });
-    body += `</div>`;
+  if (useInv) {
+    const matchedKeys = new Set(rows.map(r=>gapNorm(r.name)+'|'+gapNorm(r.spec)));
+    const unmatchedInv = buildInventoryDisplayRows(inventory.filter(i=>{ const p=getInvProject(i); return !p||selProjects.size===0||selProjects.has(p); }))
+      .filter(i=>Number(i.qty)>0 && !matchedKeys.has(gapNorm(i.name)+'|'+gapNorm(i.spec)));
+    if (unmatchedInv.length) {
+      html += `<div style="margin-top:16px;padding:12px;background:#fef9c3;border-radius:10px;border:1px solid #fde047">
+        <div style="font-size:13px;font-weight:700;color:#854d0e;margin-bottom:8px">⚠️ 庫存裡有 ${unmatchedInv.length} 項找不到對應需求（可能名稱不同）</div>`;
+      unmatchedInv.forEach(i=>{ html += `<div style="font-size:12px;color:#78350f;padding:3px 0;border-bottom:1px solid #fde68a">${i.name}　${i.spec}${i.thick?'・'+i.thick:''}　<strong>${i.qty}</strong>${i.unit||''}${i.project?`<span style="margin-left:6px;font-size:11px;color:#92400e">（${i.project}）</span>`:''}</div>`; });
+      html += `</div>`;
+    }
   }
-  body += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px">
+  html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px">
     <button class="btn-outline" onclick="createIntakeDraftsFromGap()" style="width:100%">📥 轉入庫草稿</button>
     <button class="btn-primary" onclick="exportGapPDF()" style="width:100%;margin-top:0">📄 匯出補料需求單</button>
   </div>`;
-  document.getElementById('edit-modal-title').textContent = '📊 '+activeProject+' 庫存缺口';
-  document.getElementById('edit-modal-body').innerHTML = body;
-  document.getElementById('edit-save-btn').style.display = 'none';
-  document.getElementById('edit-modal').classList.add('show');
+  container.innerHTML = html;
 }
 
 function setGapChecks(mode) {
@@ -3436,9 +3527,10 @@ function getPickedGapKeys() {
 }
 
 function getPickedGapRowsForIntake() {
-  if (!activeProject) return [];
+  if (!_gapState) return [];
   const picked = new Set(getPickedGapKeys());
-  return getInventoryGapRows(activeProject).filter(r=>picked.has(r.key) && r.net > 0);
+  const {useInv, selProjects, selFloors} = _gapState;
+  return getGapRowsMulti(selProjects, selFloors, useInv).filter(r=>picked.has(r.key) && r.net > 0);
 }
 
 function createIntakeDraftsFromGap() {
@@ -3473,14 +3565,16 @@ function fillNextIntakeDraft() {
 }
 
 function exportGapPDF() {
-  if (!activeProject) return;
+  if (!_gapState) return;
   const pickedKeys = getPickedGapKeys();
   if (!pickedKeys.length) { showToast('⚠️ 請先勾選要匯出的材料'); return; }
   const picked = new Set(pickedKeys);
-  const rows = getInventoryGapRows(activeProject).filter(r=>picked.has(r.key));
+  const {useInv, selProjects, selFloors} = _gapState;
+  const rows = getGapRowsMulti(selProjects, selFloors, useInv).filter(r=>picked.has(r.key));
+  const projectLabel = selProjects.size===1 ? [...selProjects][0] : [...selProjects].join('、');
   let html = '';
   if (company.name) html += '<div class="company">'+company.name+'</div>';
-  html += '<h1>補料需求單</h1><div class="meta">案場：'+activeProject+'　日期：'+today+'　勾選項目：'+rows.length+' 筆</div>';
+  html += '<h1>補料需求單</h1><div class="meta">案場：'+projectLabel+'　日期：'+today+'　勾選項目：'+rows.length+' 筆</div>';
   const tableRows = rows.map(function(r){
     const col = r.net>0?'color:#dc2626;font-weight:700':r.net<0?'color:#d97706;font-weight:700':'color:#166534';
     const label = r.net>0?('缺 '+r.net+r.unit):r.net<0?('溢出 '+(-r.net)+r.unit):'✅';
@@ -3489,7 +3583,7 @@ function exportGapPDF() {
   html += '<table><thead><tr><th>系列</th><th>材料</th><th>規格</th><th>厚度</th><th>總需求</th><th>已出貨</th><th>現有庫存</th><th>缺／溢</th></tr></thead><tbody>'+tableRows+'</tbody></table>';
   document.getElementById('edit-modal').classList.remove('show');
   document.getElementById('edit-save-btn').style.display = '';
-  printHTML('補料需求單 '+activeProject, html);
+  printHTML('補料需求單 '+projectLabel, html);
 }
 
 // ── Allocation（置料區分配）──
@@ -4584,6 +4678,22 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ── Init ──
+function initCardCollapse() {
+  document.querySelectorAll('.card').forEach(card=>{
+    const title = card.querySelector(':scope > .card-title');
+    if (!title) return;
+    const icon = document.createElement('span');
+    icon.className = 'card-toggle-icon';
+    icon.textContent = '▾';
+    title.prepend(icon);
+    if (!title.style.cursor) title.style.cursor = 'pointer';
+    title.addEventListener('click', e=>{
+      if (e.target.closest('button,a,select,input')) return;
+      card.classList.toggle('collapsed');
+    });
+  });
+}
+initCardCollapse();
 loadFromSheets();
 
 // PWA Service Worker
