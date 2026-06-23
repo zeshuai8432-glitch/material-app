@@ -1410,38 +1410,60 @@ function subtractQtyFromInventory(name, spec, thick, project, qty, date) {
   return true;
 }
 
+function isStockAffectingShipment(s) {
+  if (s.type === 'stock') return true;
+  return Number(s.qty) < 0 && s.type !== 'standard';
+}
+
+function shipmentReturnKey(s) {
+  return [s.date||'', s.site||'', s.name||'', s.spec||'', s.thick||'', Math.abs(Number(s.qty)||0), s.type||'stock'].join('|');
+}
+
+function removeDuplicateReturnShipments() {
+  const seen = new Set();
+  const kept = [];
+  let removed = 0;
+  shipments.forEach(s=>{
+    if (Number(s.qty) < 0 && (s.note||'').includes('退回')) {
+      const key = [s.date||'', s.site||'', s.name||'', s.spec||'', s.thick||'', Number(s.qty)||0, s.note||''].join('|');
+      if (seen.has(key)) { removed++; return; }
+      seen.add(key);
+    }
+    kept.push(s);
+  });
+  if (removed) shipments = kept;
+  return removed;
+}
+
 function rebuildInventoryFromRecords() {
-  if (!confirm('確定要重算庫存？\n\n系統會用「入庫紀錄」重新建立庫存，再扣掉「庫存出貨」數量。手動改過的庫存數量會被帳面紀錄覆蓋。')) return;
+  if (!confirm('確定要重算庫存？\n\n系統會用「全部入庫」重新建立工廠總庫存，再扣掉「庫存出貨」，退回紀錄會加回。手動改過的庫存數量會被帳面紀錄覆蓋。')) return;
+  const removedReturns = removeDuplicateReturnShipments();
   const next = [];
-  const nextProjects = {};
-  const findNext = (name, spec, project) => next.find(i=>invLooseKey(i.name, i.spec, nextProjects[invProjectKey(i.name,i.spec,i.thick)]||'')===invLooseKey(name, spec, project||''));
-  const addNext = (name, spec, thick, project, qty, date) => {
+  const findNext = (name, spec) => next.find(i=>gapNorm(i.name)===gapNorm(name) && gapNorm(i.spec)===gapNorm(spec));
+  const addNext = (name, spec, thick, qty, date) => {
     if (!name) return;
-    let row = findNext(name, spec, project);
+    let row = findNext(name, spec);
     if (!row) {
       row = {name, spec:spec||'', thick:thick||'', qty:0, lastUpdate:date||today};
       next.push(row);
-      if (project) nextProjects[invProjectKey(row.name,row.spec,row.thick)] = project;
     }
     row.qty = roundQty(Number(row.qty) + Number(qty));
     if ((date||'') > (row.lastUpdate||'')) row.lastUpdate = date || row.lastUpdate;
   };
-  const takeNext = (name, spec, thick, site, qty, date) => {
-    const projectRow = findNext(name, spec, site);
-    const globalRow = findNext(name, spec, '');
-    const row = projectRow || globalRow || next.find(i=>gapNorm(i.name)===gapNorm(name) && gapNorm(i.spec)===gapNorm(spec));
+  const takeNext = (name, spec, thick, qty, date) => {
+    const row = findNext(name, spec);
     if (row) {
       row.qty = roundQty(Number(row.qty) - Number(qty));
       if ((date||'') > (row.lastUpdate||'')) row.lastUpdate = date || row.lastUpdate;
     } else {
-      addNext(name, spec, thick, '', -Number(qty), date);
+      addNext(name, spec, thick, -Number(qty), date);
     }
   };
-  productions.forEach(p=>addNext(p.name, p.spec, p.thick, p.project||'', Number(p.qty)||0, p.date||today));
-  shipments.filter(s=>s.type==='stock').forEach(s=>takeNext(s.name, s.spec, s.thick, s.site||'', Number(s.qty)||0, s.date||today));
+  productions.forEach(p=>addNext(p.name, p.spec, p.thick, Number(p.qty)||0, p.date||today));
+  shipments.filter(isStockAffectingShipment).forEach(s=>takeNext(s.name, s.spec, s.thick, Number(s.qty)||0, s.date||today));
   inventory = next;
-  inventoryProjects = nextProjects;
-  renderAll(); autoSave(); showToast('✅ 庫存已依入庫/出貨重算');
+  inventoryProjects = {};
+  renderAll(); autoSave(); showToast('✅ 庫存已依入庫/出貨重算' + (removedReturns ? '，並清除重複退回 ' + removedReturns + ' 筆' : ''));
 }
 
 function addProduction() {
@@ -2531,13 +2553,16 @@ function deleteShipment(idx) {
     return;
   }
   if (!confirm(`確定退回「${s.name}」${s.qty}${s.unit||''}？\n將保留原出貨紀錄並新增一筆退回紀錄。${s.type==='stock'?'\n庫存將還原。':''}`)) return;
+  const returnKey = shipmentReturnKey(s);
+  const returned = shipments.some(r=>r.returnOf===returnKey || (Number(r.qty)===-Math.abs(Number(s.qty)) && r.site===s.site && r.name===s.name && String(r.spec)===String(s.spec) && String(r.thick||'')===String(s.thick||'') && (r.note||'').includes('退回')));
+  if (returned) { showToast('⚠️ 這筆出貨已經退回過'); return; }
   // 庫存出：把數量還給庫存
   if (s.type==='stock') {
     const inv = findInventory(s.name, s.spec, s.thick);
     if (inv) { inv.qty += Number(s.qty); inv.lastUpdate = today; }
   }
   // 新增退回紀錄（負數）
-  shipments.push({date:today, site:s.site, name:s.name, spec:s.spec, thick:s.thick, unit:s.unit||'', qty:-Math.abs(Number(s.qty)), type:s.type, note:'退回'});
+  shipments.push({date:today, site:s.site, name:s.name, spec:s.spec, thick:s.thick, unit:s.unit||'', qty:-Math.abs(Number(s.qty)), type:s.type, note:'退回', returnOf:returnKey});
   renderAll(); autoSave(); showToast('✅ 已退回，庫存已還原');
 }
 
