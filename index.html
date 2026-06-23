@@ -342,11 +342,11 @@ body{background:var(--app-bg);color:var(--ink)}
     <div class="card-title">新增入庫</div>
     <div class="form-group"><label>日期</label><input type="date" id="prod-date"></div>
     <div class="form-row">
-      <div class="form-group"><label>材料名稱</label><input type="text" id="prod-name" placeholder="例：鍍鋅管"></div>
-      <div class="form-group"><label>規格</label><input type="text" id="prod-spec" placeholder="例：DN100"></div>
+      <div class="form-group"><label>材料名稱</label><input type="text" id="prod-name" placeholder="例：鍍鋅管" list="dl-mat-name" autocomplete="off"></div>
+      <div class="form-group"><label>規格</label><input type="text" id="prod-spec" placeholder="例：DN100" list="dl-mat-spec" autocomplete="off"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>厚度</label><input type="text" id="prod-thick" placeholder="例：3mm"></div>
+      <div class="form-group"><label>厚度</label><input type="text" id="prod-thick" placeholder="例：3mm" list="dl-mat-thick" autocomplete="off"></div>
       <div class="form-group"><label>數量</label><input type="text" id="prod-qty" placeholder="點此開啟計算機" readonly class="qty-tap" onclick="openCalc(this)">
       <div class="qty-preview" id="prod-qty-preview"></div></div>
     </div>
@@ -408,14 +408,14 @@ body{background:var(--app-bg);color:var(--ink)}
         </select>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>材料名稱</label><input type="text" id="ship-name" placeholder="例：鍍鋅管" oninput="updateDemandGap()"></div>
-        <div class="form-group"><label>規格</label><input type="text" id="ship-spec" placeholder="例：DN100" oninput="updateDemandGap()"></div>
+        <div class="form-group"><label>材料名稱</label><input type="text" id="ship-name" placeholder="例：鍍鋅管" oninput="updateDemandGap()" list="dl-mat-name" autocomplete="off"></div>
+        <div class="form-group"><label>規格</label><input type="text" id="ship-spec" placeholder="例：DN100" oninput="updateDemandGap()" list="dl-mat-spec" autocomplete="off"></div>
       </div>
-      <div class="form-group"><label>厚度</label><input type="text" id="ship-thick" placeholder="例：3mm" oninput="updateDemandGap()"></div>
+      <div class="form-group"><label>厚度</label><input type="text" id="ship-thick" placeholder="例：3mm" oninput="updateDemandGap()" list="dl-mat-thick" autocomplete="off"></div>
     </div>
     <div class="form-group"><label>數量</label><input type="text" id="ship-qty" placeholder="點此開啟計算機" readonly class="qty-tap" onclick="openCalc(this)">
     <div class="qty-preview" id="ship-qty-preview"></div></div>
-    <div class="form-group"><label>備註（選填，相同備注歸同一組）</label><input type="text" id="ship-note" placeholder="例：第一批、急件… 留空不分組" maxlength="50" autocomplete="off"></div>
+    <div class="form-group"><label>備註（選填，相同備注歸同一組）</label><input type="text" id="ship-note" placeholder="例：第一批、急件… 留空不分組" maxlength="50" autocomplete="off" list="dl-ship-note"></div>
     <div id="demand-gap-box" style="display:none;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
     <button class="btn-outline" onclick="addAllStockShipments()" style="width:100%;margin-bottom:8px">一鍵全部出貨（依需求單）</button>
     <button class="btn-primary" onclick="addShipment()">加入出貨清單</button>
@@ -471,7 +471,7 @@ body{background:var(--app-bg);color:var(--ink)}
     </div>
     <div class="form-group" id="dem-new-project-group" style="display:none">
       <label>新案件名稱</label>
-      <input type="text" id="dem-new-project" placeholder="例：元利四季">
+      <input type="text" id="dem-new-project" placeholder="例：元利四季" list="dl-project" autocomplete="off">
     </div>
     <div class="form-group"><label>日期</label><input type="date" id="dem-date"></div>
     <div class="form-row">
@@ -489,19 +489,19 @@ body{background:var(--app-bg);color:var(--ink)}
     </div>
     <div class="form-group" id="dem-new-category-group" style="display:none">
       <label>新分類名稱</label>
-      <input type="text" id="dem-new-category" placeholder="例：地板">
+      <input type="text" id="dem-new-category" placeholder="例：地板" list="dl-category" autocomplete="off">
     </div>
     <div class="form-row">
-      <div class="form-group"><label>材料名稱</label><input type="text" id="dem-name" placeholder="例：C65"></div>
-      <div class="form-group"><label>規格</label><input type="text" id="dem-spec" placeholder="例：2700"></div>
+      <div class="form-group"><label>材料名稱</label><input type="text" id="dem-name" placeholder="例：C65" list="dl-mat-name" autocomplete="off"></div>
+      <div class="form-group"><label>規格</label><input type="text" id="dem-spec" placeholder="例：2700" list="dl-mat-spec" autocomplete="off"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>厚度</label><input type="text" id="dem-thick" placeholder="例：3mm"></div>
-      <div class="form-group"><label>單位</label><input type="text" id="dem-unit" placeholder="例：支"></div>
+      <div class="form-group"><label>厚度</label><input type="text" id="dem-thick" placeholder="例：3mm" list="dl-mat-thick" autocomplete="off"></div>
+      <div class="form-group"><label>單位</label><input type="text" id="dem-unit" placeholder="例：支" list="dl-mat-unit" autocomplete="off"></div>
     </div>
     <div class="form-group"><label>需求數量</label><input type="text" id="dem-qty" placeholder="點此開啟計算機" readonly class="qty-tap" onclick="openCalc(this)">
     <div class="qty-preview" id="dem-qty-preview"></div></div>
-    <div class="form-group"><label>備註</label><input type="text" id="dem-note" placeholder="選填"></div>
+    <div class="form-group"><label>備註</label><input type="text" id="dem-note" placeholder="選填" list="dl-ship-note" autocomplete="off"></div>
     <button class="btn-primary" onclick="addDemand()">新增需求</button>
   </div>
   <button class="btn-outline" onclick="showArchiveManager()" style="width:100%;margin-bottom:6px">📦 封存管理（已完工案場）</button>
@@ -1959,7 +1959,7 @@ function removeOrderItem(idx) {
 // ── Render ──
 function renderAll() {
   renderInventory(); renderProductions(); renderShipments(); renderArrival(); renderOrder(); renderDemands(); renderAllocation();
-  renderInvStats(); refreshProjectSelects(); refreshCategorySelect(); refreshFloorList(); refreshShipDemandSelects();
+  renderInvStats(); refreshProjectSelects(); refreshCategorySelect(); refreshFloorList(); refreshShipDemandSelects(); refreshDataLists();
   enableQuantityKeyboard();
   const em = document.getElementById('edit-modal');
   if (em && em.classList.contains('show') && (document.getElementById('edit-modal-title')||{}).textContent.includes('庫存缺口')) {
@@ -2595,12 +2595,12 @@ function editInventory(idx) {
   const projOpts = '<option value="">-- 通用（不限案場）--</option>' +
     allProjects.map(p=>`<option value="${p.replace(/"/g,'&quot;')}" ${getInvProject(i)===p?'selected':''}>${p}</option>`).join('');
   const body = `
-    <div class="form-group"><label>材料名稱</label><input type="text" id="ei-name" value="${i.name}"></div>
-    <div class="form-group"><label>規格</label><input type="text" id="ei-spec" value="${i.spec}"></div>
-    <div class="form-group"><label>厚度</label><input type="text" id="ei-thick" value="${i.thick}"></div>
+    <div class="form-group"><label>材料名稱</label><input type="text" id="ei-name" value="${i.name}" list="dl-mat-name" autocomplete="off"></div>
+    <div class="form-group"><label>規格</label><input type="text" id="ei-spec" value="${i.spec}" list="dl-mat-spec" autocomplete="off"></div>
+    <div class="form-group"><label>厚度</label><input type="text" id="ei-thick" value="${i.thick}" list="dl-mat-thick" autocomplete="off"></div>
     <div class="form-group"><label>數量</label><input type="text" id="ei-qty" value="${i.qty}" readonly class="qty-tap" onclick="openCalc(this)"><div class="qty-preview" id="ei-qty-preview"></div></div>
     <div class="form-group"><label>指定案場（留空 = 通用）</label><select id="ei-project">${projOpts}</select></div>
-    <div class="form-group"><label>系列標籤</label><input type="text" id="ei-tag" value="${materialTags[i.name]||''}" placeholder="例：隔間骨架、天花板系統"></div>`;
+    <div class="form-group"><label>系列標籤</label><input type="text" id="ei-tag" value="${materialTags[i.name]||''}" placeholder="例：隔間骨架、天花板系統" list="dl-mat-tag" autocomplete="off"></div>`;
   showEditModal('編輯庫存', body, ()=>{
     const before = cloneRecord({...inventory[idx], tag: materialTags[inventory[idx].name] || ''});
     const beforeItem = cloneRecord(inventory[idx]);
@@ -2647,9 +2647,9 @@ function editProduction(idx) {
   const p = productions[idx];
   const body = `
     <div class="form-group"><label>日期</label><input type="date" id="ep-date" value="${p.date}"></div>
-    <div class="form-group"><label>材料名稱</label><input type="text" id="ep-name" value="${p.name}"></div>
-    <div class="form-group"><label>規格</label><input type="text" id="ep-spec" value="${p.spec}"></div>
-    <div class="form-group"><label>厚度</label><input type="text" id="ep-thick" value="${p.thick}"></div>
+    <div class="form-group"><label>材料名稱</label><input type="text" id="ep-name" value="${p.name}" list="dl-mat-name" autocomplete="off"></div>
+    <div class="form-group"><label>規格</label><input type="text" id="ep-spec" value="${p.spec}" list="dl-mat-spec" autocomplete="off"></div>
+    <div class="form-group"><label>厚度</label><input type="text" id="ep-thick" value="${p.thick}" list="dl-mat-thick" autocomplete="off"></div>
     <div class="form-group"><label>數量</label><input type="text" id="ep-qty" value="${p.qtyExpr||p.qty}" readonly class="qty-tap" onclick="openCalc(this)"><div class="qty-preview" id="ep-qty-preview"></div></div>`;
   showEditModal('編輯入庫紀錄', body, ()=>{
     const before = cloneRecord(productions[idx]);
@@ -2686,12 +2686,12 @@ function editShipment(idx) {
   const s = shipments[idx];
   const body = `
     <div class="form-group"><label>日期</label><input type="date" id="es-date" value="${s.date}"></div>
-    <div class="form-group"><label>工地名稱</label><input type="text" id="es-site" value="${s.site}"></div>
-    <div class="form-group"><label>材料名稱</label><input type="text" id="es-name" value="${s.name}"></div>
-    <div class="form-group"><label>規格</label><input type="text" id="es-spec" value="${s.spec}"></div>
-    <div class="form-group"><label>厚度</label><input type="text" id="es-thick" value="${s.thick}"></div>
+    <div class="form-group"><label>工地名稱</label><input type="text" id="es-site" value="${s.site}" list="dl-ship-site" autocomplete="off"></div>
+    <div class="form-group"><label>材料名稱</label><input type="text" id="es-name" value="${s.name}" list="dl-mat-name" autocomplete="off"></div>
+    <div class="form-group"><label>規格</label><input type="text" id="es-spec" value="${s.spec}" list="dl-mat-spec" autocomplete="off"></div>
+    <div class="form-group"><label>厚度</label><input type="text" id="es-thick" value="${s.thick}" list="dl-mat-thick" autocomplete="off"></div>
     <div class="form-group"><label>數量</label><input type="text" id="es-qty" value="${s.qtyExpr||s.qty}" readonly class="qty-tap" onclick="openCalc(this)"><div class="qty-preview" id="es-qty-preview"></div></div>
-    <div class="form-group"><label>備註</label><input type="text" id="es-note" value="${(s.note||'').replace(/"/g,'&quot;')}" maxlength="50" placeholder="選填"></div>`;
+    <div class="form-group"><label>備註</label><input type="text" id="es-note" value="${(s.note||'').replace(/"/g,'&quot;')}" maxlength="50" placeholder="選填" list="dl-ship-note" autocomplete="off"></div>`;
   showEditModal('編輯出貨紀錄', body, ()=>{
     const before = cloneRecord(shipments[idx]);
     const esRaw = document.getElementById('es-qty').value.trim();
@@ -2823,6 +2823,26 @@ function refreshFloorList() {
   demands.forEach(d=>{ if(d.floor && (!curProject || d.project===curProject)) floors.add(d.floor); });
   if (floors.size===0) demands.forEach(d=>{ if(d.floor) floors.add(d.floor); });
   dl.innerHTML = Array.from(floors).map(f=>'<option value="'+f+'">').join('');
+}
+
+function refreshDataLists() {
+  const fill = (id, values) => {
+    const dl = document.getElementById(id);
+    if (!dl) return;
+    const unique = [...new Set(values.filter(Boolean))].sort((a,b)=>cmpText(a,b));
+    dl.innerHTML = unique.map(v=>'<option value="'+String(v).replace(/"/g,'&quot;')+'">').join('');
+  };
+  const allRecs = [...inventory, ...productions, ...shipments, ...demands, ...allocations];
+  fill('dl-mat-name',  allRecs.map(r=>r.name));
+  fill('dl-mat-spec',  allRecs.map(r=>r.spec));
+  fill('dl-mat-thick', allRecs.map(r=>r.thick));
+  fill('dl-mat-unit',  [...demands, ...allocations].map(r=>r.unit));
+  fill('dl-ship-note', shipments.filter(s=>s.note && s.note!=='退回').map(s=>s.note));
+  fill('dl-mat-tag',   Object.values(materialTags));
+  fill('dl-ship-site', [...shipments, ...demands].map(r=>r.site||r.project).filter(Boolean));
+  fill('dl-floor',     [...demands, ...allocations].map(r=>r.floor));
+  fill('dl-category',  [...demands, ...allocations].map(r=>r.category));
+  fill('dl-project',   demands.map(d=>d.project));
 }
 
 function getProjectName() {
@@ -3180,16 +3200,16 @@ function copyDemand(idx) {
 function editDemand(idx) {
   const d = demands[idx];
   const body = `
-    <div class="form-group"><label>案件名稱</label><input type="text" id="ed-project" value="${d.project}"></div>
-    <div class="form-group"><label>樓層</label><input type="text" id="ed-floor" value="${d.floor||''}" placeholder="例：12F"></div>
-    <div class="form-group"><label>分類</label><input type="text" id="ed-category" value="${d.category||''}"></div>
+    <div class="form-group"><label>案件名稱</label><input type="text" id="ed-project" value="${d.project}" list="dl-project" autocomplete="off"></div>
+    <div class="form-group"><label>樓層</label><input type="text" id="ed-floor" value="${d.floor||''}" placeholder="例：12F" list="dl-floor" autocomplete="off"></div>
+    <div class="form-group"><label>分類</label><input type="text" id="ed-category" value="${d.category||''}" list="dl-category" autocomplete="off"></div>
     <div class="form-group"><label>日期</label><input type="date" id="ed-date" value="${d.date}"></div>
-    <div class="form-group"><label>材料名稱</label><input type="text" id="ed-name" value="${d.name}"></div>
-    <div class="form-group"><label>規格</label><input type="text" id="ed-spec" value="${d.spec}"></div>
-    <div class="form-group"><label>厚度</label><input type="text" id="ed-thick" value="${d.thick||''}"></div>
-    <div class="form-group"><label>單位</label><input type="text" id="ed-unit" value="${d.unit||''}"></div>
+    <div class="form-group"><label>材料名稱</label><input type="text" id="ed-name" value="${d.name}" list="dl-mat-name" autocomplete="off"></div>
+    <div class="form-group"><label>規格</label><input type="text" id="ed-spec" value="${d.spec}" list="dl-mat-spec" autocomplete="off"></div>
+    <div class="form-group"><label>厚度</label><input type="text" id="ed-thick" value="${d.thick||''}" list="dl-mat-thick" autocomplete="off"></div>
+    <div class="form-group"><label>單位</label><input type="text" id="ed-unit" value="${d.unit||''}" list="dl-mat-unit" autocomplete="off"></div>
     <div class="form-group"><label>需求數量</label><input type="text" id="ed-qty" value="${d.qtyExpr||d.qty}" readonly class="qty-tap" onclick="openCalc(this)"><div class="qty-preview" id="ed-qty-preview"></div></div>
-    <div class="form-group"><label>備註</label><input type="text" id="ed-note" value="${d.note||''}"></div>`;
+    <div class="form-group"><label>備註</label><input type="text" id="ed-note" value="${d.note||''}" list="dl-ship-note" autocomplete="off"></div>`;
   showEditModal('編輯需求', body, ()=>{
     const before = cloneRecord(demands[idx]);
     const edRaw = document.getElementById('ed-qty').value.trim();
@@ -4243,11 +4263,11 @@ function editAllocDateBulk(oldDate, idxList) {
 function editAllocation(idx) {
   const a = allocations[idx];
   const body = `
-    <div class="form-group"><label>樓層</label><input type="text" id="ea-floor" value="${a.floor||''}"></div>
-    <div class="form-group"><label>分類</label><input type="text" id="ea-category" value="${a.category||''}"></div>
-    <div class="form-group"><label>材料名稱</label><input type="text" id="ea-name" value="${a.name}"></div>
-    <div class="form-group"><label>規格</label><input type="text" id="ea-spec" value="${a.spec}"></div>
-    <div class="form-group"><label>厚度</label><input type="text" id="ea-thick" value="${a.thick||''}"></div>
+    <div class="form-group"><label>樓層</label><input type="text" id="ea-floor" value="${a.floor||''}" list="dl-floor" autocomplete="off"></div>
+    <div class="form-group"><label>分類</label><input type="text" id="ea-category" value="${a.category||''}" list="dl-category" autocomplete="off"></div>
+    <div class="form-group"><label>材料名稱</label><input type="text" id="ea-name" value="${a.name}" list="dl-mat-name" autocomplete="off"></div>
+    <div class="form-group"><label>規格</label><input type="text" id="ea-spec" value="${a.spec}" list="dl-mat-spec" autocomplete="off"></div>
+    <div class="form-group"><label>厚度</label><input type="text" id="ea-thick" value="${a.thick||''}" list="dl-mat-thick" autocomplete="off"></div>
     <div class="form-group"><label>數量</label><input type="text" id="ea-qty" value="${a.qtyExpr||a.qty}" readonly class="qty-tap" onclick="openCalc(this)"><div class="qty-preview" id="ea-qty-preview"></div></div>
     <div class="form-group"><label>日期</label><input type="date" id="ea-date" value="${a.date||today}"></div>`;
   showEditModal('編輯分配紀錄', body, ()=>{
@@ -4604,6 +4624,18 @@ if ('serviceWorker' in navigator) {
       <button class="calc-btn confirm" onclick="calcConfirm()">✓ 確認</button>
     </div>
   </div>
+</div>
+<div style="display:none" aria-hidden="true">
+  <datalist id="dl-mat-name"></datalist>
+  <datalist id="dl-mat-spec"></datalist>
+  <datalist id="dl-mat-thick"></datalist>
+  <datalist id="dl-mat-unit"></datalist>
+  <datalist id="dl-ship-note"></datalist>
+  <datalist id="dl-mat-tag"></datalist>
+  <datalist id="dl-ship-site"></datalist>
+  <datalist id="dl-floor"></datalist>
+  <datalist id="dl-category"></datalist>
+  <datalist id="dl-project"></datalist>
 </div>
 </body>
 </html>
