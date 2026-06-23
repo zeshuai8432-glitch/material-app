@@ -3133,8 +3133,10 @@ function renderDemandsGroupView(group) {
   }
   const catMap = {};
   Object.values(matMap).forEach(m => { const c = m.category||'未分類'; if (!catMap[c]) catMap[c]=[]; catMap[c].push(m); });
+  const safeGrp = group.name.replace(/'/g,"\\'");
   el.innerHTML =
     `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#1e40af">📊 群組「${group.name}」合計（${group.floors.join('＋')}）・點選個別樓層可編輯需求</div>` +
+    `<button onclick="exportGroupPDF('${safeGrp}')" style="width:100%;margin-bottom:10px;padding:8px;background:#fff;border:1.5px solid #185FA5;color:#185FA5;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">📄 匯出群組缺溢料 PDF</button>` +
     Object.keys(catMap).map(cat =>
       `<div class="cat-header" style="margin-top:6px">${cat}</div>` +
       catMap[cat].map(m => {
@@ -3330,6 +3332,42 @@ function exportFloorPDF(project, floor) {
     html += '<h3 style="margin:8px 0 4px">📐 '+cat+'</h3><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
   });
   printHTML('需求單 '+project+' '+floor, html);
+}
+
+function exportGroupPDF(groupName) {
+  const project = activeProject;
+  const grpList = floorGroups[project] || [];
+  const group = grpList.find(g => g.name === groupName);
+  if (!group) { showToast('⚠️ 找不到群組'); return; }
+  const n = allocNorm;
+  const matMap = {};
+  group.floors.forEach(floor => {
+    demands.filter(d => n(d.project)===n(project) && n(d.floor)===n(floor)).forEach(d => {
+      const key = n(d.name)+'||'+n(d.spec);
+      if (!matMap[key]) matMap[key] = {name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||'', category:d.category||'未分類', totalDemanded:0, totalAllocated:0};
+      matMap[key].totalDemanded = roundQty(matMap[key].totalDemanded + Number(d.qty));
+      matMap[key].totalAllocated = roundQty(matMap[key].totalAllocated + getAllocatedQty(project, floor, d.name, d.spec, d.thick));
+    });
+  });
+  if (!Object.keys(matMap).length) { showToast('⚠️ 此群組尚無需求資料'); return; }
+  let html = '';
+  if (company.name) html += '<div class="company">'+company.name+'</div>';
+  html += '<h1>群組缺溢料 - '+project+'</h1>';
+  html += '<div class="meta">群組：'+groupName+'（'+group.floors.join('＋')+'）　匯出日期：'+today+'</div>';
+  html += '<h2 style="background:#185FA5;color:#fff;padding:6px 10px;border-radius:6px">📊 '+groupName+'</h2>';
+  const catMap = {};
+  Object.values(matMap).forEach(m => { const c = m.category||'未分類'; if (!catMap[c]) catMap[c]=[]; catMap[c].push(m); });
+  Object.keys(catMap).forEach(function(cat) {
+    const rows = catMap[cat].map(function(m) {
+      const bal = roundQty(m.totalAllocated - m.totalDemanded);
+      const unit = m.unit||'';
+      const balColor = bal >= 0 ? '#166534' : '#dc2626';
+      const balStr = bal >= 0 ? '+'+bal+unit : bal+unit;
+      return '<tr><td>'+m.name+'</td><td>'+m.spec+'</td><td>'+(m.thick||'')+'</td><td>'+m.totalDemanded+unit+'</td><td>'+m.totalAllocated+unit+'</td><td style="color:'+balColor+';font-weight:600">'+balStr+'</td></tr>';
+    }).join('');
+    html += '<h3 style="margin:8px 0 4px">📐 '+cat+'</h3><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  });
+  printHTML('群組缺溢料 '+project+' '+groupName, html);
 }
 
 function exportProjectPDF(project, chosenDates) {
