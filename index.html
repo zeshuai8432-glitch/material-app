@@ -650,6 +650,7 @@ let inventoryProjects = {}; // { [name|spec|thick]: projectName }
 let editLogs = [];
 let shipDateLabels = {}; // { [date]: labelString }
 let intakeDraftQueue = [];
+let cloudLoadFailed = false;
 const expandedGroups = new Set();
 
 function hashStr(s) {
@@ -1263,6 +1264,7 @@ async function loadFromSheets() {
     console.log('[Sync] GAS GET status:', res.status, 'rawLength:', raw.length, 'preview:', raw.substring(0,100));
     let parsed = null;
     if (raw && raw !== '{}' && raw.trim() !== '') {
+      let parseError = null;
       try {
         const data = JSON.parse(raw);
         // 新版 GAS：直接回傳 payload { inventory:[], demands:[], ... }
@@ -1275,9 +1277,14 @@ async function loadFromSheets() {
         } else if (data.status === 'ok') {
           parsed = data;
         }
-      } catch(e) {}
+      } catch(e) {
+        parseError = e;
+      }
+      if (!parsed && parseError) throw new Error('雲端資料解析失敗：' + parseError.message);
+      if (!parsed) throw new Error('雲端回傳格式無法識別，已保留本機資料');
     }
     if (parsed) {
+      cloudLoadFailed = false;
       const cloudTotal = getDataTotalFromPayload(parsed);
       const localTotal = getCurrentDataTotal();
       const localUpdatedAt = getLocalUpdatedAt();
@@ -1336,6 +1343,7 @@ async function loadFromSheets() {
       }
       // cloudTotal===0 且 localTotal===0：兩邊都空，不動
     } else if (hasUnsyncedLocalChanges() && getCurrentDataTotal() > 0) {
+      cloudLoadFailed = true;
       setSyncState('error');
       showToast('⚠️ 雲端沒有回傳資料，已保留本機未同步資料');
       renderAll();
@@ -1344,6 +1352,7 @@ async function loadFromSheets() {
     setSyncState('ok');
     renderAll();
   } catch(e) {
+    cloudLoadFailed = true;
     recordSyncError('讀取雲端失敗：' + (e && e.message ? e.message : String(e)));
     setSyncState('error');
     showToast('⚠️ 雲端連線失敗，已載入本地備份');
@@ -1351,6 +1360,11 @@ async function loadFromSheets() {
 }
 
 async function autoSave() {
+  if (cloudLoadFailed && getCurrentDataTotal() === 0) {
+    setSyncState('error');
+    showToast('⚠️ 雲端資料尚未載入，已阻止空資料覆蓋');
+    return;
+  }
   saveLocal();
   try {
     const result = await saveToSheets();
