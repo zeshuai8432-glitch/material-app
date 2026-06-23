@@ -4814,6 +4814,8 @@ function initCardCollapse() {
   document.querySelectorAll('.card').forEach(card=>{
     const title = card.querySelector(':scope > .card-title');
     if (!title) return;
+    // skip cards that already have a custom onclick toggle
+    if (title.hasAttribute('onclick')) return;
     const icon = document.createElement('span');
     icon.className = 'card-toggle-icon';
     icon.textContent = '▾';
