@@ -296,6 +296,213 @@ body{background:var(--app-bg);color:var(--ink)}
   .floor-context-title{font-size:18px}
   .floor-context-meta{white-space:normal;text-align:right}
 }
+
+/* Capsule tonal buttons */
+:root{
+  --btn-tonal-bg:#e6f4f1;
+  --btn-tonal-bg-hover:#d6eee9;
+  --btn-tonal-bg-active:#c2e3dc;
+  --btn-tonal-text:#115e59;
+  --btn-tonal-border:#b7dcd5;
+  --btn-primary-bg:#dff2ff;
+  --btn-primary-bg-hover:#cceafe;
+  --btn-primary-bg-active:#b7ddf5;
+  --btn-primary-text:#075985;
+  --btn-primary-border:#a9d8f2;
+  --btn-neutral-bg:#f1f5f9;
+  --btn-neutral-bg-hover:#e2e8f0;
+  --btn-neutral-bg-active:#cbd5e1;
+  --btn-neutral-text:#334155;
+  --btn-neutral-border:#d7e0ea;
+  --btn-danger-bg:#fee2e2;
+  --btn-danger-bg-hover:#fecaca;
+  --btn-danger-bg-active:#fca5a5;
+  --btn-danger-text:#991b1b;
+  --btn-danger-border:#f5b5b5;
+  --btn-warning-bg:#fef3c7;
+  --btn-warning-bg-hover:#fde68a;
+  --btn-warning-bg-active:#fcd34d;
+  --btn-warning-text:#92400e;
+  --btn-warning-border:#f4d47a;
+}
+
+button,
+.btn,
+.btn-primary,
+.btn-secondary,
+.btn-outline,
+.btn-sm,
+.btn-danger,
+.btn-danger-sm,
+.sync-btn,
+.nav-item,
+.dtab,
+.radio-opt,
+.calc-btn{
+  border-radius:999px!important;
+  border:1px solid var(--btn-tonal-border)!important;
+  background:var(--btn-tonal-bg)!important;
+  color:var(--btn-tonal-text)!important;
+  box-shadow:0 8px 18px rgba(15,118,110,.12);
+  font-weight:700;
+  letter-spacing:0;
+  transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease,transform .12s ease;
+}
+
+button:hover,
+.btn:hover,
+.btn-primary:hover,
+.btn-secondary:hover,
+.btn-outline:hover,
+.btn-sm:hover,
+.btn-danger:hover,
+.btn-danger-sm:hover,
+.sync-btn:hover,
+.nav-item:hover,
+.dtab:hover,
+.radio-opt:hover,
+.calc-btn:hover{
+  background:var(--btn-tonal-bg-hover)!important;
+  box-shadow:0 10px 22px rgba(15,118,110,.16);
+  transform:translateY(-1px);
+}
+
+button:active,
+.btn:active,
+.btn-primary:active,
+.btn-secondary:active,
+.btn-outline:active,
+.btn-sm:active,
+.btn-danger:active,
+.btn-danger-sm:active,
+.sync-btn:active,
+.nav-item:active,
+.dtab:active,
+.radio-opt:active,
+.calc-btn:active{
+  background:var(--btn-tonal-bg-active)!important;
+  box-shadow:0 4px 12px rgba(15,118,110,.12);
+  transform:translateY(0);
+}
+
+button:focus-visible,
+.btn:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-outline:focus-visible,
+.btn-sm:focus-visible,
+.btn-danger:focus-visible,
+.btn-danger-sm:focus-visible,
+.sync-btn:focus-visible,
+.nav-item:focus-visible,
+.dtab:focus-visible,
+.radio-opt:focus-visible,
+.calc-btn:focus-visible{
+  outline:3px solid rgba(20,184,166,.26);
+  outline-offset:2px;
+}
+
+.btn-primary,
+.nav-item.active,
+.dtab.active,
+.radio-opt.active,
+.calc-btn.confirm{
+  background:var(--btn-primary-bg)!important;
+  border-color:var(--btn-primary-border)!important;
+  color:var(--btn-primary-text)!important;
+  box-shadow:0 8px 18px rgba(14,116,144,.13);
+}
+
+.btn-primary:hover,
+.nav-item.active:hover,
+.dtab.active:hover,
+.radio-opt.active:hover,
+.calc-btn.confirm:hover{background:var(--btn-primary-bg-hover)!important}
+
+.btn-primary:active,
+.nav-item.active:active,
+.dtab.active:active,
+.radio-opt.active:active,
+.calc-btn.confirm:active{background:var(--btn-primary-bg-active)!important}
+
+.btn-secondary,
+.btn-outline,
+.btn-sm,
+.sync-btn{
+  background:var(--btn-neutral-bg)!important;
+  border-color:var(--btn-neutral-border)!important;
+  color:var(--btn-neutral-text)!important;
+  box-shadow:0 8px 18px rgba(51,65,85,.08);
+}
+
+.btn-secondary:hover,
+.btn-outline:hover,
+.btn-sm:hover,
+.sync-btn:hover{background:var(--btn-neutral-bg-hover)!important}
+
+.btn-secondary:active,
+.btn-outline:active,
+.btn-sm:active,
+.sync-btn:active{background:var(--btn-neutral-bg-active)!important}
+
+.btn-danger,
+.btn-danger-sm,
+.calc-btn.clear,
+button[onclick*="delete"],
+button[onclick*="Delete"],
+button[onclick*="clearOrder"],
+button[onclick*="removeOrderItem"],
+button[onclick*="archiveProject"],
+button[onclick*="deleteProject"]{
+  background:var(--btn-danger-bg)!important;
+  border-color:var(--btn-danger-border)!important;
+  color:var(--btn-danger-text)!important;
+  box-shadow:0 8px 18px rgba(153,27,27,.1);
+}
+
+.btn-danger:hover,
+.btn-danger-sm:hover,
+.calc-btn.clear:hover,
+button[onclick*="delete"]:hover,
+button[onclick*="Delete"]:hover,
+button[onclick*="clearOrder"]:hover,
+button[onclick*="removeOrderItem"]:hover,
+button[onclick*="archiveProject"]:hover,
+button[onclick*="deleteProject"]:hover{background:var(--btn-danger-bg-hover)!important}
+
+.btn-danger:active,
+.btn-danger-sm:active,
+.calc-btn.clear:active,
+button[onclick*="delete"]:active,
+button[onclick*="Delete"]:active,
+button[onclick*="clearOrder"]:active,
+button[onclick*="removeOrderItem"]:active,
+button[onclick*="archiveProject"]:active,
+button[onclick*="deleteProject"]:active{background:var(--btn-danger-bg-active)!important}
+
+.calc-btn.op,
+.calc-btn.del,
+button[onclick*="returnFromStockyard"]{
+  background:var(--btn-warning-bg)!important;
+  border-color:var(--btn-warning-border)!important;
+  color:var(--btn-warning-text)!important;
+}
+
+.calc-btn.op:hover,
+.calc-btn.del:hover,
+button[onclick*="returnFromStockyard"]:hover{background:var(--btn-warning-bg-hover)!important}
+
+.calc-btn.op:active,
+.calc-btn.del:active,
+button[onclick*="returnFromStockyard"]:active{background:var(--btn-warning-bg-active)!important}
+
+.bottom-nav,
+.bottom-nav .nav-item,
+.radio-group{border-radius:999px!important}
+
+.site-group-header button{
+  box-shadow:none;
+}
 </style>
 </head>
 <body>
