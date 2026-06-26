@@ -853,6 +853,12 @@ button:hover,
       </select>
     </div>
     <div class="form-group">
+      <label>出貨公司</label>
+      <select id="ship-company-select" onchange="onShipCompanyChange()">
+        <option value="">-- 請先設定公司 --</option>
+      </select>
+    </div>
+    <div class="form-group">
       <label>出貨類型</label>
       <div class="radio-group">
         <button class="radio-opt active" id="opt-stock" onclick="setShipType('stock')">從庫存出</button>
@@ -1156,9 +1162,19 @@ button:hover,
 <div class="modal-bg" id="company-modal" onclick="hideCompanyModal(event)">
   <div class="modal">
     <div class="modal-title">公司設定</div>
+    <div id="company-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
+    <input type="hidden" id="company-id">
     <div class="form-group"><label>公司名稱</label><input type="text" id="company-name" placeholder="例：台灣建材有限公司"></div>
     <div class="form-group"><label>聯絡電話</label><input type="text" id="company-phone" placeholder="例：02-1234-5678"></div>
-    <button class="btn-primary" onclick="saveCompany()">儲存</button>
+    <div class="form-group"><label>聯絡人</label><input type="text" id="company-contact" placeholder="例：王先生"></div>
+    <div class="form-group"><label>統一編號</label><input type="text" id="company-tax-id" placeholder="選填"></div>
+    <div class="form-group"><label>地址</label><input type="text" id="company-address" placeholder="選填"></div>
+    <label style="display:flex;align-items:center;gap:8px;margin:6px 0 14px;color:#374151;font-size:13px">
+      <input type="checkbox" id="company-default" style="width:auto;min-height:0">
+      設為預設出貨公司
+    </label>
+    <button class="btn-primary" onclick="saveCompany()">儲存公司</button>
+    <button class="btn-sm" onclick="clearCompanyForm()" style="width:100%;margin-top:8px;padding:10px;text-align:center">新增另一間</button>
   </div>
 </div>
 
@@ -1530,9 +1546,49 @@ document.getElementById('dem-date').value = today;
 document.getElementById('alloc-date').value = today;
 
 // Load company info
-let company = JSON.parse(localStorage.getItem('company') || '{"name":"","phone":""}');
-document.getElementById('company-name').value = company.name;
-document.getElementById('company-phone').value = company.phone;
+let companies = [];
+let selectedCompanyId = '';
+let company = {name:'', phone:''};
+
+function safeJsonParse(raw, fallback) {
+  try { return raw ? JSON.parse(raw) : fallback; } catch(e) { return fallback; }
+}
+
+function makeCompanyId() {
+  return 'co-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,8);
+}
+
+function normalizeCompany(c) {
+  return {
+    id: c && c.id ? c.id : makeCompanyId(),
+    name: (c && c.name ? c.name : '').trim(),
+    phone: (c && c.phone ? c.phone : '').trim(),
+    contact: (c && c.contact ? c.contact : '').trim(),
+    taxId: (c && c.taxId ? c.taxId : '').trim(),
+    address: (c && c.address ? c.address : '').trim(),
+    isDefault: !!(c && c.isDefault)
+  };
+}
+
+function loadCompaniesFromStorage() {
+  const stored = safeJsonParse(localStorage.getItem('mat_companies'), []);
+  companies = Array.isArray(stored) ? stored.map(normalizeCompany).filter(c=>c.name || c.phone) : [];
+  const legacy = safeJsonParse(localStorage.getItem('company'), {name:'',phone:''});
+  if (!companies.length && (legacy.name || legacy.phone)) {
+    companies = [normalizeCompany({...legacy, isDefault:true})];
+  }
+  if (companies.length && !companies.some(c=>c.isDefault)) companies[0].isDefault = true;
+  selectedCompanyId = localStorage.getItem('mat_selected_company') || (companies.find(c=>c.isDefault)||companies[0]||{}).id || '';
+  if (selectedCompanyId && !companies.some(c=>c.id===selectedCompanyId)) selectedCompanyId = (companies.find(c=>c.isDefault)||companies[0]||{}).id || '';
+  updateActiveCompany();
+}
+
+function updateActiveCompany() {
+  company = companies.find(c=>c.id===selectedCompanyId) || companies.find(c=>c.isDefault) || companies[0] || {name:'', phone:''};
+  localStorage.setItem('company', JSON.stringify(company));
+}
+
+loadCompaniesFromStorage();
 
 // ── Sync ──
 const LOCAL_DIRTY_KEY = 'mat_unsynced_changes';
@@ -1585,7 +1641,8 @@ function getLocalSnapshot() {
   return {
     time: new Date().toLocaleString('zh-TW', { hour12:false }),
     inventory, productions, shipments, demands, allocations,
-    archivedProjects, materialTags, inventoryProjects, editLogs
+    archivedProjects, materialTags, inventoryProjects, editLogs,
+    companies, selectedCompanyId, company
   };
 }
 
@@ -1690,6 +1747,9 @@ function saveLocal(markDirty = true) {
   localStorage.setItem('mat_ship_date_labels', JSON.stringify(shipDateLabels));
   localStorage.setItem('mat_transfer_groups', JSON.stringify(transferLogGroups));
   localStorage.setItem('mat_floor_groups', JSON.stringify(floorGroups));
+  localStorage.setItem('mat_companies', JSON.stringify(companies));
+  localStorage.setItem('mat_selected_company', selectedCompanyId || '');
+  localStorage.setItem('company', JSON.stringify(company || {}));
   if (markDirty) {
     markLocalDirty();
     saveLocalBackup();
@@ -1722,6 +1782,7 @@ function loadLocal() {
     if (tlg) { const p = JSON.parse(tlg); if (p && typeof p==='object' && !Array.isArray(p)) transferLogGroups = p; }
     const fgrp = localStorage.getItem('mat_floor_groups');
     if (fgrp) { const p = JSON.parse(fgrp); if (p && typeof p==='object' && !Array.isArray(p)) floorGroups = p; }
+    loadCompaniesFromStorage();
     orderNo = shipments.length + 1;
   } catch(e) {}
 }
@@ -1750,6 +1811,11 @@ async function saveToSheets() {
     archivedProjects,
     editLogs: editLogs.slice(-200),
     shipDateLabels,
+    transferLogGroups,
+    floorGroups,
+    companies,
+    selectedCompanyId,
+    company,
     clientUpdatedAt: getLocalUpdatedAt() || Date.now()
   };
   const bodyText = JSON.stringify(payload);
@@ -1888,6 +1954,15 @@ async function loadFromSheets() {
         if (Array.isArray(parsed.archivedProjects)) archivedProjects = parsed.archivedProjects;
         if (Array.isArray(parsed.editLogs)) editLogs = parsed.editLogs;
         if (parsed.shipDateLabels && typeof parsed.shipDateLabels === 'object' && !Array.isArray(parsed.shipDateLabels)) shipDateLabels = parsed.shipDateLabels;
+        if (parsed.transferLogGroups && typeof parsed.transferLogGroups === 'object' && !Array.isArray(parsed.transferLogGroups)) transferLogGroups = parsed.transferLogGroups;
+        if (parsed.floorGroups && typeof parsed.floorGroups === 'object' && !Array.isArray(parsed.floorGroups)) floorGroups = parsed.floorGroups;
+        if (Array.isArray(parsed.companies)) companies = parsed.companies.map(normalizeCompany).filter(c=>c.name || c.phone);
+        if (parsed.selectedCompanyId) selectedCompanyId = parsed.selectedCompanyId;
+        if (!companies.length && parsed.company && (parsed.company.name || parsed.company.phone)) companies = [normalizeCompany({...parsed.company, isDefault:true})];
+        if (companies.length && !companies.some(c=>c.isDefault)) companies[0].isDefault = true;
+        if (selectedCompanyId && !companies.some(c=>c.id===selectedCompanyId)) selectedCompanyId = (companies.find(c=>c.isDefault)||companies[0]||{}).id || '';
+        updateActiveCompany();
+        refreshCompanySelect();
         orderNo = shipments.length + 1;
         const inventoryFix = applyInventoryFromRecords();
         if (inventoryFix.changed) {
@@ -2364,6 +2439,7 @@ function updateDemandGap() {
 function addShipment() {
   const date = document.getElementById('ship-date').value;
   const site = document.getElementById('ship-site').value;
+  const shipCompany = getSelectedShippingCompany();
   const qtyRaw = document.getElementById('ship-qty').value.trim();
   const qty = evalQty(qtyRaw);
   let name='', spec='', thick='';
@@ -2404,7 +2480,7 @@ function addShipment() {
   }
   const noteEl = document.getElementById('ship-note');
   const note = noteEl ? (noteEl.value || '').trim() : '';
-  const record = {date,site,name,spec,thick,qty,type:shipType};
+  const record = {date,site,name,spec,thick,qty,type:shipType, companyId:shipCompany.id||'', companyName:shipCompany.name||''};
   if (qtyRaw && qtyRaw !== String(qty)) record.qtyExpr = qtyRaw;
   if (note) record.note = note;
   shipments.push(record);
@@ -2428,6 +2504,7 @@ function addShipment() {
 function addAllStockShipments() {
   const date = document.getElementById('ship-date').value;
   const site = document.getElementById('ship-site').value;
+  const shipCompany = getSelectedShippingCompany();
   const noteEl = document.getElementById('ship-note');
   const note = noteEl ? (noteEl.value || '').trim() : '';
   if (!date || !site) { showToast('⚠️ 請先選日期和案場'); return; }
@@ -2468,7 +2545,7 @@ function addAllStockShipments() {
   plans.forEach(p=>{
     p.inv.qty = roundQty(Number(p.inv.qty) - p.qty);
     p.inv.lastUpdate = date;
-    const record = {date, site, name:p.material.name, spec:p.material.spec, thick:p.material.thick, qty:p.qty, type:'stock'};
+    const record = {date, site, name:p.material.name, spec:p.material.spec, thick:p.material.thick, qty:p.qty, type:'stock', companyId:shipCompany.id||'', companyName:shipCompany.name||''};
     if (note) record.note = note;
     shipments.push(record);
     currentOrder.push({...record, shipmentIdx:shipments.length-1});
@@ -2518,6 +2595,7 @@ function removeOrderItem(idx) {
 function renderAll() {
   renderInventory(); renderProductions(); renderShipments(); renderArrival(); renderOrder(); renderDemands(); renderAllocation(); renderTransferPage();
   renderInvStats(); refreshProjectSelects(); refreshCategorySelect(); refreshFloorList(); refreshShipDemandSelects(); refreshDataLists();
+  refreshCompanySelect();
   enableQuantityKeyboard();
   const em = document.getElementById('edit-modal');
   if (em && em.classList.contains('show') && (document.getElementById('edit-modal-title')||{}).textContent.includes('庫存缺口')) {
@@ -2862,10 +2940,14 @@ function renderOrder() {
   card.style.display='block';
   const total = currentOrder.reduce((a,b)=>a+b.qty,0);
   document.getElementById('order-total').textContent = total;
+  const orderCompany = getSelectedShippingCompany();
+  const companyNote = orderCompany && orderCompany.name
+    ? `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">出貨公司：<strong style="color:#1e3a8a">${textSafe(orderCompany.name)}</strong></div>`
+    : '';
   // 依案場分組
   const siteMap = {};
   currentOrder.forEach((o,i)=>{ const s=o.site||'（未指定案場）'; if(!siteMap[s]) siteMap[s]=[]; siteMap[s].push({...o,_idx:i}); });
-  document.getElementById('order-list').innerHTML = Object.keys(siteMap).map(site=>{
+  document.getElementById('order-list').innerHTML = companyNote + Object.keys(siteMap).map(site=>{
     const items = siteMap[site];
     const siteTotal = items.reduce((a,b)=>a+b.qty,0);
     const siteGid = 'order-site-g-'+hashStr(site);
@@ -2961,15 +3043,163 @@ function goToAllocation() {
 }
 
 // ── Company Modal ──
-function showCompanyModal() { document.getElementById('company-modal').classList.add('show'); }
+function persistCompanies(markDirty = true) {
+  if (companies.length && !companies.some(c=>c.isDefault)) companies[0].isDefault = true;
+  localStorage.setItem('mat_companies', JSON.stringify(companies));
+  localStorage.setItem('mat_selected_company', selectedCompanyId || '');
+  updateActiveCompany();
+  refreshCompanySelect();
+  renderCompanyList();
+  if (markDirty) saveLocal();
+}
+
+function getCompanyById(id) {
+  return companies.find(c=>c.id===id) || null;
+}
+
+function getSelectedShippingCompany() {
+  const sel = document.getElementById('ship-company-select');
+  const id = sel && sel.value ? sel.value : selectedCompanyId;
+  return getCompanyById(id) || company || {name:'', phone:''};
+}
+
+function companyHeaderHTML(c) {
+  c = c || {};
+  let html = '';
+  if (c.name) html += '<div class="company">'+textSafe(c.name)+'</div>';
+  const meta = [];
+  if (c.phone) meta.push('電話：'+textSafe(c.phone));
+  if (c.contact) meta.push('聯絡人：'+textSafe(c.contact));
+  if (c.taxId) meta.push('統編：'+textSafe(c.taxId));
+  if (c.address) meta.push('地址：'+textSafe(c.address));
+  if (meta.length) html += '<div class="meta">'+meta.join('　')+'</div>';
+  return html;
+}
+
+function refreshCompanySelect() {
+  const sel = document.getElementById('ship-company-select');
+  if (!sel) return;
+  const prev = sel.value || selectedCompanyId;
+  sel.innerHTML = '';
+  if (!companies.length) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.textContent = '-- 請先設定公司 --';
+    sel.appendChild(o);
+    return;
+  }
+  companies.forEach(c=>{
+    const o = document.createElement('option');
+    o.value = c.id;
+    o.textContent = c.name + (c.isDefault ? '（預設）' : '');
+    sel.appendChild(o);
+  });
+  sel.value = companies.some(c=>c.id===prev) ? prev : (selectedCompanyId || companies[0].id);
+  selectedCompanyId = sel.value;
+  updateActiveCompany();
+}
+
+function onShipCompanyChange() {
+  const sel = document.getElementById('ship-company-select');
+  selectedCompanyId = sel ? sel.value : selectedCompanyId;
+  localStorage.setItem('mat_selected_company', selectedCompanyId || '');
+  updateActiveCompany();
+  saveLocal();
+}
+
+function renderCompanyList() {
+  const el = document.getElementById('company-list');
+  if (!el) return;
+  if (!companies.length) {
+    el.innerHTML = '<div class="empty" style="padding:18px 10px">尚未設定公司</div>';
+    return;
+  }
+  el.innerHTML = companies.map(c=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:12px;background:#f8fafc;box-shadow:inset 0 0 0 1px #e5e7eb">
+      <div style="min-width:0">
+        <div style="font-weight:800;color:#111827">${textSafe(c.name || '未命名公司')} ${c.isDefault?'<span class="badge badge-blue">預設</span>':''}</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px">${textSafe([c.phone, c.contact].filter(Boolean).join(' ・ ') || '尚無聯絡資料')}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn-sm" onclick="editCompany('${c.id}')">編輯</button>
+        <button class="btn-sm" onclick="setDefaultCompany('${c.id}')">預設</button>
+        <button class="btn-danger-sm" onclick="deleteCompany('${c.id}')">刪除</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function fillCompanyForm(c) {
+  c = c || {};
+  document.getElementById('company-id').value = c.id || '';
+  document.getElementById('company-name').value = c.name || '';
+  document.getElementById('company-phone').value = c.phone || '';
+  document.getElementById('company-contact').value = c.contact || '';
+  document.getElementById('company-tax-id').value = c.taxId || '';
+  document.getElementById('company-address').value = c.address || '';
+  document.getElementById('company-default').checked = !!c.isDefault || !companies.length;
+}
+
+function clearCompanyForm() {
+  fillCompanyForm({isDefault:!companies.length});
+}
+
+function editCompany(id) {
+  const c = getCompanyById(id);
+  if (c) fillCompanyForm(c);
+}
+
+function setDefaultCompany(id) {
+  if (!getCompanyById(id)) return;
+  companies = companies.map(c=>({...c, isDefault:c.id===id}));
+  selectedCompanyId = id;
+  persistCompanies();
+  autoSave();
+  showToast('✅ 已設為預設出貨公司');
+}
+
+function deleteCompany(id) {
+  const c = getCompanyById(id);
+  if (!c) return;
+  if (!confirm('確定刪除公司「' + (c.name || '未命名公司') + '」？')) return;
+  const before = cloneRecord(c);
+  companies = companies.filter(x=>x.id!==id);
+  if (selectedCompanyId === id) selectedCompanyId = (companies.find(x=>x.isDefault)||companies[0]||{}).id || '';
+  if (companies.length && !companies.some(x=>x.isDefault)) companies[0].isDefault = true;
+  recordEditLog('公司設定', c.name || '公司資料', before, null);
+  clearCompanyForm();
+  persistCompanies();
+  autoSave();
+  showToast('✅ 已刪除公司');
+}
+
+function showCompanyModal() {
+  renderCompanyList();
+  if (!document.getElementById('company-id').value) clearCompanyForm();
+  document.getElementById('company-modal').classList.add('show');
+}
 function hideCompanyModal(e) { if(e.target===document.getElementById('company-modal')) document.getElementById('company-modal').classList.remove('show'); }
 function saveCompany() {
-  const before = cloneRecord(company);
-  company = { name: document.getElementById('company-name').value.trim(), phone: document.getElementById('company-phone').value.trim() };
-  recordEditLog('公司設定', company.name || '公司資料', before, cloneRecord(company));
-  localStorage.setItem('company', JSON.stringify(company));
+  const id = document.getElementById('company-id').value || makeCompanyId();
+  const next = normalizeCompany({
+    id,
+    name: document.getElementById('company-name').value.trim(),
+    phone: document.getElementById('company-phone').value.trim(),
+    contact: document.getElementById('company-contact').value.trim(),
+    taxId: document.getElementById('company-tax-id').value.trim(),
+    address: document.getElementById('company-address').value.trim(),
+    isDefault: document.getElementById('company-default').checked
+  });
+  if (!next.name) { showToast('⚠️ 請輸入公司名稱'); return; }
+  const before = cloneRecord(getCompanyById(id) || {});
+  if (next.isDefault) companies = companies.map(c=>({...c, isDefault:false}));
+  const idx = companies.findIndex(c=>c.id===id);
+  if (idx >= 0) companies[idx] = next; else companies.push(next);
+  if (!companies.some(c=>c.isDefault)) next.isDefault = true;
+  selectedCompanyId = next.id;
+  recordEditLog('公司設定', next.name || '公司資料', before, cloneRecord(next));
+  persistCompanies();
   autoSave();
-  document.getElementById('company-modal').classList.remove('show');
   showToast('✅ 公司資料已儲存');
 }
 
@@ -3011,9 +3241,9 @@ function exportOrderPDF() {
   if (!currentOrder.length) { showToast('⚠️ 採購單是空的'); return; }
   const no = 'PO-' + String(orderNo).padStart(4,'0');
   const total = currentOrder.reduce(function(a,b){return a+b.qty;},0);
+  const orderCompany = getSelectedShippingCompany();
   let html = '';
-  if (company.name) html += '<div class="company">'+company.name+'</div>';
-  if (company.phone) html += '<div class="meta">電話：'+company.phone+'</div>';
+  html += companyHeaderHTML(orderCompany);
   html += '<h1>採購單</h1>';
   html += '<div class="meta">採購單編號：'+no+'　日期：'+today+'</div>';
   // 依案場分組
