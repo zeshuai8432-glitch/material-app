@@ -1375,6 +1375,44 @@ function textSafe(v) {
     .replace(/"/g,'&quot;');
 }
 
+const PDF_CATEGORY_TONES = [
+  {color:'#1d4ed8', bg:'#eff6ff', row:'#f8fbff', border:'#bfdbfe', text:'#1e3a8a'},
+  {color:'#0f766e', bg:'#ecfdf5', row:'#f7fefb', border:'#99f6e4', text:'#115e59'},
+  {color:'#7c3aed', bg:'#f5f3ff', row:'#fbfaff', border:'#ddd6fe', text:'#5b21b6'},
+  {color:'#b45309', bg:'#fffbeb', row:'#fffdf5', border:'#fde68a', text:'#92400e'},
+  {color:'#be123c', bg:'#fff1f2', row:'#fff8f9', border:'#fecdd3', text:'#9f1239'},
+  {color:'#047857', bg:'#f0fdf4', row:'#f8fef9', border:'#bbf7d0', text:'#166534'},
+  {color:'#0369a1', bg:'#f0f9ff', row:'#f8fcff', border:'#bae6fd', text:'#075985'},
+  {color:'#c2410c', bg:'#fff7ed', row:'#fffaf5', border:'#fed7aa', text:'#9a3412'}
+];
+
+function getPDFCategoryTone(category) {
+  const key = String(category || '未分類');
+  const idx = parseInt(hashStr(key).slice(0, 6), 36) % PDF_CATEGORY_TONES.length;
+  return PDF_CATEGORY_TONES[idx] || PDF_CATEGORY_TONES[0];
+}
+
+function pdfCategoryStyle(category) {
+  const tone = getPDFCategoryTone(category);
+  return '--cat-color:'+tone.color+';--cat-bg:'+tone.bg+';--cat-row:'+tone.row+';--cat-border:'+tone.border+';--cat-text:'+tone.text;
+}
+
+function pdfCategoryTitle(category) {
+  return '<h2 class="pdf-cat-title" style="'+pdfCategoryStyle(category)+'">'+textSafe(category || '未分類')+'</h2>';
+}
+
+function pdfCategoryChip(category) {
+  return '<span class="pdf-cat-chip" style="'+pdfCategoryStyle(category)+'">'+textSafe(category || '未分類')+'</span>';
+}
+
+function pdfCategoryRowStart(category) {
+  return '<tr class="pdf-cat-row" style="'+pdfCategoryStyle(category)+'">';
+}
+
+function pdfCategoryCell(category, html) {
+  return '<td class="pdf-cat-cell" style="'+pdfCategoryStyle(category)+'">'+html+'</td>';
+}
+
 function parseLogRecord(raw) {
   if (!raw) return {};
   if (typeof raw === 'object') return raw;
@@ -3226,6 +3264,10 @@ function printHTML(title, tableHTML) {
     'th{background:#185FA5;color:#fff;padding:8px 10px;text-align:left;font-size:12px;font-weight:600}' +
     'td{padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:12px}' +
     'tr:nth-child(even) td{background:#f8fafc}' +
+    '.pdf-cat-title{margin:14px 0 6px;padding:7px 10px;border-left:5px solid var(--cat-color);border-radius:9px;background:var(--cat-bg);color:var(--cat-text);font-size:13px;font-weight:800}' +
+    '.pdf-cat-chip{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--cat-bg);color:var(--cat-text);border:1px solid var(--cat-border);font-size:11px;font-weight:700;line-height:1.5}' +
+    '.pdf-cat-row td{background:var(--cat-row)!important}' +
+    '.pdf-cat-cell{border-left:4px solid var(--cat-color)}' +
     '.total{margin-top:12px;text-align:right;font-weight:700;font-size:14px}' +
     '.footer{margin-top:24px;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:8px}' +
     '@media print{body{padding:10px}}' +
@@ -3327,9 +3369,9 @@ function exportPDFByDates(page, chosenDates) {
           const allocated = getAllocatedQty(d.project,d.floor,d.name,d.spec,d.thick);
           const remaining = d.qty - allocated;
           const unit = d.unit||'';
-          return '<tr><td>'+d.date+'</td><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+allocated+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
+          return pdfCategoryRowStart(cat)+pdfCategoryCell(cat, d.date)+'<td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+allocated+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
         }).join('');
-        block += '<h2>'+cat+'</h2><table><thead><tr><th>日期</th><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
+        block += pdfCategoryTitle(cat)+'<table><thead><tr><th>日期</th><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
       });
       return block;
     }).join('');
@@ -4044,9 +4086,9 @@ function exportFloorPDF(project, floor) {
       const allocated = getAllocatedQty(d.project,d.floor,d.name,d.spec,d.thick);
       const remaining = d.qty - allocated;
       const unit = d.unit||'';
-      return '<tr><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+allocated+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
+      return pdfCategoryRowStart(cat)+pdfCategoryCell(cat, d.name)+'<td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+allocated+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
     }).join('');
-    html += '<h3 style="margin:8px 0 4px">📐 '+cat+'</h3><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    html += pdfCategoryTitle(cat)+'<table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
   });
   printHTML('需求單 '+project+' '+floor, html);
 }
@@ -4080,9 +4122,9 @@ function exportGroupPDF(groupName) {
       const unit = m.unit||'';
       const balColor = bal >= 0 ? '#166534' : '#dc2626';
       const balStr = bal >= 0 ? '+'+bal+unit : bal+unit;
-      return '<tr><td>'+m.name+'</td><td>'+m.spec+'</td><td>'+(m.thick||'')+'</td><td>'+m.totalDemanded+unit+'</td><td>'+m.totalAllocated+unit+'</td><td style="color:'+balColor+';font-weight:600">'+balStr+'</td></tr>';
+      return pdfCategoryRowStart(cat)+pdfCategoryCell(cat, m.name)+'<td>'+m.spec+'</td><td>'+(m.thick||'')+'</td><td>'+m.totalDemanded+unit+'</td><td>'+m.totalAllocated+unit+'</td><td style="color:'+balColor+';font-weight:600">'+balStr+'</td></tr>';
     }).join('');
-    html += '<h3 style="margin:8px 0 4px">📐 '+cat+'</h3><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    html += pdfCategoryTitle(cat)+'<table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th></tr></thead><tbody>'+rows+'</tbody></table>';
   });
   printHTML('群組缺溢料 '+project+' '+groupName, html);
 }
@@ -4111,9 +4153,9 @@ function exportProjectPDF(project, chosenDates) {
         const allocated = getAllocatedQty(d.project,d.floor,d.name,d.spec,d.thick);
         const remaining = d.qty - allocated;
         const unit = d.unit||'';
-        return '<tr><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+allocated+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
+        return pdfCategoryRowStart(cat)+pdfCategoryCell(cat, d.name)+'<td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+allocated+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td><td>'+(d.note||'')+'</td></tr>';
       }).join('');
-      html += '<h3 style="margin:8px 0 4px">📐 '+cat+'</h3><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      html += pdfCategoryTitle(cat)+'<table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th><th>備註</th></tr></thead><tbody>'+rows+'</tbody></table>';
     });
   });
   printHTML('需求單 ' + project, html);
@@ -4251,9 +4293,9 @@ function mergeDemandProjects() {
             const allocated = getAllocatedQty(d.project,d.floor,d.name,d.spec,d.thick);
             const remaining = d.qty - allocated;
             const unit = d.unit||'';
-            return '<tr><td>'+d.name+'</td><td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+allocated+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td></tr>';
+            return pdfCategoryRowStart(cat)+pdfCategoryCell(cat, d.name)+'<td>'+d.spec+'</td><td>'+(d.thick||'')+'</td><td>'+d.qty+unit+'</td><td>'+allocated+unit+'</td><td style="color:'+(remaining>0?'#dc2626':'#166534')+';font-weight:600">'+(remaining>0?'-'+remaining:'完成')+'</td></tr>';
           }).join('');
-          html += '<h3 style="margin:8px 0 4px">📐 '+cat+'</h3><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th></tr></thead><tbody>'+rows+'</tbody></table>';
+          html += pdfCategoryTitle(cat)+'<table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>需求</th><th>已分配</th><th>差額</th></tr></thead><tbody>'+rows+'</tbody></table>';
         });
       });
     });
@@ -4311,10 +4353,12 @@ function getGapRowsMulti(selProjects, selFloors, useInv) {
   const demandMap = {};
   filteredDemands.forEach(d=>{
     const key = gapNorm(d.name)+'|'+gapNorm(d.spec);
-    if (!demandMap[key]) demandMap[key] = {key, name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||'', qty:0, _thicks:[], _fps:[]};
+    if (!demandMap[key]) demandMap[key] = {key, name:d.name, spec:d.spec, thick:d.thick||'', unit:d.unit||'', qty:0, category:d.category||'未分類', _thicks:[], _fps:[], _cats:[]};
     demandMap[key].qty += Number(d.qty);
     const thick = d.thick||'';
     if (!demandMap[key]._thicks.includes(thick)) demandMap[key]._thicks.push(thick);
+    const cat = d.category||'未分類';
+    if (!demandMap[key]._cats.includes(cat)) demandMap[key]._cats.push(cat);
     const fp = (d.project||'')+'|||'+(d.floor||'');
     if (!demandMap[key]._fps.includes(fp)) demandMap[key]._fps.push(fp);
   });
@@ -4344,7 +4388,8 @@ function getGapRowsMulti(selProjects, selFloors, useInv) {
     const qty=roundQty(m.qty);
     const net = hasFloor ? roundQty(qty-allocated) : roundQty(qty-shipped-inStock);
     const row={...m, qty, inStock, shipped, allocated, net, excludedQty, _floorMode:hasFloor};
-    delete row._thicks; delete row._fps;
+    row.category = m._cats.length > 1 ? m._cats.join('、') : (m._cats[0] || m.category || '未分類');
+    delete row._thicks; delete row._fps; delete row._cats;
     return row;
   }).sort((a,b)=>netOrder(a)-netOrder(b)||cmpText(materialTags[a.name],materialTags[b.name])||cmpText(a.name,b.name));
 }
@@ -4553,9 +4598,10 @@ function exportGapPDF() {
   const tableRows = rows.map(function(r){
     const col = r.net>0?'color:#dc2626;font-weight:700':r.net<0?'color:#d97706;font-weight:700':'color:#166534';
     const label = r.net>0?('缺 '+r.net+r.unit):r.net<0?('溢出 '+(-r.net)+r.unit):'✅';
-    return '<tr><td>'+(materialTags[r.name]||'—')+'</td><td>'+r.name+'</td><td>'+r.spec+'</td><td>'+(r.thick||'')+'</td><td>'+r.qty+r.unit+'</td><td>'+r.shipped+r.unit+'</td><td>'+r.inStock+r.unit+'</td><td style="'+col+'">'+label+'</td></tr>';
+    const cat = r.category || '未分類';
+    return pdfCategoryRowStart(cat)+pdfCategoryCell(cat, pdfCategoryChip(cat))+'<td>'+(materialTags[r.name]||'—')+'</td><td>'+r.name+'</td><td>'+r.spec+'</td><td>'+(r.thick||'')+'</td><td>'+r.qty+r.unit+'</td><td>'+r.shipped+r.unit+'</td><td>'+r.inStock+r.unit+'</td><td style="'+col+'">'+label+'</td></tr>';
   }).join('');
-  html += '<table><thead><tr><th>系列</th><th>材料</th><th>規格</th><th>厚度</th><th>總需求</th><th>已出貨</th><th>現有庫存</th><th>缺／溢</th></tr></thead><tbody>'+tableRows+'</tbody></table>';
+  html += '<table><thead><tr><th>分類</th><th>系列</th><th>材料</th><th>規格</th><th>厚度</th><th>總需求</th><th>已出貨</th><th>現有庫存</th><th>缺／溢</th></tr></thead><tbody>'+tableRows+'</tbody></table>';
   document.getElementById('edit-modal').classList.remove('show');
   document.getElementById('edit-save-btn').style.display = '';
   printHTML('補料需求單 '+projectLabel, html);
@@ -5718,9 +5764,9 @@ function exportAllocPDF(chosenDates) {
     floorMap[floor].forEach(function(a){ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
     Object.keys(catMap).forEach(function(cat){
       const rows = catMap[cat].map(function(a){
-        return '<tr><td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
+        return pdfCategoryRowStart(cat)+pdfCategoryCell(cat, a.name)+'<td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
       }).join('');
-      html += '<h3 style="margin:8px 0 4px">📐 '+cat+'</h3>';
+      html += pdfCategoryTitle(cat);
       html += '<table><thead><tr><th>材料名稱</th><th>規格</th><th>厚度</th><th>搬運數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
     });
   });
@@ -5774,8 +5820,10 @@ function exportSettlementPDF() {
   html += '<h1>用料結算單</h1>';
   html += '<div class="meta">案場：'+project+'　結算日期：'+today+'</div>';
   const rows = data.map(function(m){
-    const catLine = Object.keys(m.byCat).map(function(c){return c+' '+m.byCat[c]+m.unit;}).join('、');
-    return '<tr><td>'+m.name+'</td><td>'+m.spec+'</td><td>'+(m.thick||'')+'</td><td>'+catLine+'</td><td style="font-weight:700">'+m.total+m.unit+'</td></tr>';
+    const cats = Object.keys(m.byCat);
+    const primaryCat = cats[0] || '未分類';
+    const catLine = cats.map(function(c){return pdfCategoryChip(c)+' '+m.byCat[c]+m.unit;}).join(' ');
+    return pdfCategoryRowStart(primaryCat)+pdfCategoryCell(primaryCat, m.name)+'<td>'+m.spec+'</td><td>'+(m.thick||'')+'</td><td>'+catLine+'</td><td style="font-weight:700">'+m.total+m.unit+'</td></tr>';
   }).join('');
   html += '<table><thead><tr><th>材料名稱</th><th>規格</th><th>厚度</th><th>分類明細</th><th>總用量</th></tr></thead><tbody>'+rows+'</tbody></table>';
   document.getElementById('edit-modal').classList.remove('show');
@@ -5794,9 +5842,9 @@ function exportAllocDatePDF(date) {
   items.forEach(function(a){ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
   Object.keys(catMap).forEach(function(cat){
     const rows = catMap[cat].map(function(a){
-      return '<tr><td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
+      return pdfCategoryRowStart(cat)+pdfCategoryCell(cat, a.name)+'<td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
     }).join('');
-    html += '<h2>📐 '+cat+'</h2><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>搬運數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    html += pdfCategoryTitle(cat)+'<table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>搬運數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
   });
   printHTML('搬運單 '+allocActiveProject+' '+date, html);
 }
@@ -5818,9 +5866,9 @@ function buildAllocHTML(items, headerMeta) {
       floorMap[floor].forEach(function(a){ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
       Object.keys(catMap).forEach(function(cat){
         const rows = catMap[cat].map(function(a){
-          return '<tr><td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
+          return pdfCategoryRowStart(cat)+pdfCategoryCell(cat, a.name)+'<td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
         }).join('');
-        html += '<h3 style="margin:8px 0 4px">📐 '+cat+'</h3><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>搬運數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
+        html += pdfCategoryTitle(cat)+'<table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>搬運數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
       });
     });
   });
