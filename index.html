@@ -24,6 +24,26 @@
 
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(160deg,#eef2ff 0%,#f0f9ff 50%,#f0fdf4 100%);background-attachment:fixed;color:#0f172a;min-height:100vh;min-height:100dvh;padding-bottom:90px;overflow-x:hidden}
 
+body.project-entry-mode .topbar,
+body.project-entry-mode .project-context-bar,
+body.project-entry-mode .page,
+body.project-entry-mode .bottom-nav{display:none!important}
+#project-entry{display:none;min-height:100vh;padding:24px 16px 96px;background:linear-gradient(180deg,#fff 0%,#f8fafc 100%)}
+body.project-entry-mode #project-entry{display:block}
+.project-entry-inner{max-width:760px;margin:0 auto}
+.project-entry-title{font-size:24px;font-weight:900;color:#111827;margin:6px 0}
+.project-entry-sub{font-size:14px;color:#64748b;margin-bottom:18px;line-height:1.6}
+.project-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px}
+.project-card{border:0;background:#fff;border-radius:12px;padding:16px;text-align:left;box-shadow:0 10px 28px rgba(15,23,42,.08);cursor:pointer;color:#111827}
+.project-card:active{transform:scale(.98)}
+.project-card-name{font-size:18px;font-weight:850;margin-bottom:6px}
+.project-card-meta{font-size:12px;color:#64748b}
+.project-card select{width:100%;margin-top:10px;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;background:#f8fafc;color:#334155}
+.project-context-bar{position:sticky;top:58px;z-index:45;margin:0;padding:10px 14px;background:#eff6ff;border-bottom:1px solid #dbeafe;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.project-context-main{min-width:0;font-size:13px;color:#334155}
+.project-context-name{font-weight:900;color:#1e3a8a}
+.project-context-actions{display:flex;gap:6px;flex-shrink:0}
+
 /* ── Gradient Top Bar ── */
 .topbar{background:linear-gradient(135deg,#1e3a8a 0%,#2563eb 55%,#7c3aed 100%);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 4px 20px rgba(37,99,235,0.4)}
 .topbar-title{font-size:17px;font-weight:800;letter-spacing:-0.3px;text-shadow:0 1px 3px rgba(0,0,0,0.2)}
@@ -768,6 +788,15 @@ button:hover,
 </head>
 <body>
 
+<div id="project-entry">
+  <div class="project-entry-inner">
+    <div class="project-entry-title">選擇案場</div>
+    <div class="project-entry-sub">先進入案場，再管理該案場的需求、入庫、出貨、分配與 PDF。公司可先綁在案場上，後續匯出會更直覺。</div>
+    <div id="project-entry-list" class="project-list"></div>
+    <button class="btn-primary" type="button" onclick="createProjectFromEntry()">新增案場</button>
+  </div>
+</div>
+
 <header class="topbar">
   <h1 class="topbar-title">🏗️ 材料管理系統</h1>
   <div style="display:flex;gap:6px;align-items:center">
@@ -779,6 +808,13 @@ button:hover,
     </button>
   </div>
 </header>
+
+<div id="project-context-bar" class="project-context-bar">
+  <div class="project-context-main">目前案場：<span id="current-project-name" class="project-context-name"></span></div>
+  <div class="project-context-actions">
+    <button class="btn-sm" type="button" onclick="showProjectEntry()">切換案場</button>
+  </div>
+</div>
 
 <!-- 庫存清單 -->
 <div class="page" id="page-inventory">
@@ -1194,6 +1230,8 @@ let inventory = [];
 let demands = [];
 let activeProject = null;
 let activeFloor = null;
+let currentSite = localStorage.getItem('mat_current_site') || '';
+let projectCompanies = {}; // { [projectName]: companyId }
 let allocations = [];
 let archivedProjects = [];
 let allocActiveProject = null;
@@ -1382,6 +1420,119 @@ function textSafe(v) {
     .replace(/</g,'&lt;')
     .replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;');
+}
+
+function normProject(v) {
+  return String(v == null ? '' : v).trim();
+}
+
+function isCurrentProject(value) {
+  return !currentSite || normProject(value) === normProject(currentSite);
+}
+
+function getDefaultCompany() {
+  return companies.find(c=>c.isDefault) || companies[0] || company || {name:'', phone:''};
+}
+
+function getProjectCompany(project) {
+  const id = projectCompanies[normProject(project)] || '';
+  return getCompanyById(id) || getDefaultCompany();
+}
+
+function setProjectCompany(project, companyId) {
+  project = normProject(project);
+  if (!project) return;
+  projectCompanies[project] = companyId || '';
+  saveLocal();
+  renderProjectEntry();
+  updateProjectContext();
+  showToast('✅ 案場公司已更新');
+}
+
+function getProjectRecordCount(project) {
+  const p = normProject(project);
+  return demands.filter(d=>normProject(d.project)===p).length +
+    shipments.filter(s=>normProject(s.site)===p).length +
+    productions.filter(r=>normProject(r.project)===p).length +
+    allocations.filter(a=>normProject(a.project)===p).length;
+}
+
+function getProjectList() {
+  const set = new Set(Object.keys(projectCompanies || {}).filter(Boolean));
+  demands.forEach(d=>{ if(d.project) set.add(d.project); });
+  shipments.forEach(s=>{ if(s.site) set.add(s.site); });
+  productions.forEach(p=>{ if(p.project) set.add(p.project); });
+  allocations.forEach(a=>{ if(a.project) set.add(a.project); });
+  Object.values(inventoryProjects || {}).forEach(p=>{ if(p) set.add(p); });
+  return [...set].filter(p=>!archivedProjects.includes(p)).sort((a,b)=>cmpText(a,b));
+}
+
+function companyOptionsHTML(selectedId) {
+  const opts = ['<option value="">使用預設公司</option>'];
+  companies.forEach(c=>{
+    opts.push('<option value="'+textSafe(c.id)+'" '+(c.id===selectedId?'selected':'')+'>'+textSafe(c.name || '未命名公司')+'</option>');
+  });
+  return opts.join('');
+}
+
+function projectNameForJS(project) {
+  return String(project || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+}
+
+function renderProjectEntry() {
+  const list = document.getElementById('project-entry-list');
+  if (!list) return;
+  const projects = getProjectList();
+  if (!projects.length) {
+    list.innerHTML = '<div class="card"><div class="card-title">尚無案場</div><div style="font-size:13px;color:#64748b;line-height:1.6">請先新增案場，進入後再建立需求單。</div></div>';
+    return;
+  }
+  list.innerHTML = projects.map(p=>{
+    const companyId = projectCompanies[p] || '';
+    const bound = getCompanyById(companyId);
+    const companyName = bound ? bound.name : (getDefaultCompany().name ? '預設：'+getDefaultCompany().name : '尚未設定公司');
+    const safe = projectNameForJS(p);
+    return '<div class="project-card" onclick="enterProject(\''+safe+'\')">'+
+      '<div class="project-card-name">'+textSafe(p)+'</div>'+
+      '<div class="project-card-meta">'+getProjectRecordCount(p)+' 筆資料・'+textSafe(companyName)+'</div>'+
+      '<select onclick="event.stopPropagation()" onchange="setProjectCompany(\''+safe+'\', this.value)">'+companyOptionsHTML(companyId)+'</select>'+
+    '</div>';
+  }).join('');
+}
+
+function showProjectEntry() {
+  renderProjectEntry();
+  document.body.classList.add('project-entry-mode');
+}
+
+function updateProjectContext() {
+  const nameEl = document.getElementById('current-project-name');
+  if (nameEl) nameEl.textContent = currentSite || '未選案場';
+  document.body.classList.toggle('project-entry-mode', !currentSite);
+}
+
+function enterProject(project) {
+  currentSite = normProject(project);
+  if (!currentSite) return;
+  if (!Object.prototype.hasOwnProperty.call(projectCompanies, currentSite)) projectCompanies[currentSite] = '';
+  localStorage.setItem('mat_current_site', currentSite);
+  activeProject = currentSite;
+  activeFloor = null;
+  allocActiveProject = currentSite;
+  allocActiveFloor = null;
+  transferActiveProject = currentSite;
+  updateProjectContext();
+  renderAll();
+  showPage('demand', null);
+}
+
+function createProjectFromEntry() {
+  const name = prompt('請輸入案場名稱：', '');
+  const project = normProject(name);
+  if (!project) return;
+  if (!Object.prototype.hasOwnProperty.call(projectCompanies, project)) projectCompanies[project] = '';
+  enterProject(project);
+  saveLocal();
 }
 
 const PDF_CATEGORY_TONES = [
@@ -1716,7 +1867,7 @@ function getLocalSnapshot() {
     time: new Date().toLocaleString('zh-TW', { hour12:false }),
     inventory, productions, shipments, demands, allocations,
     archivedProjects, materialTags, inventoryProjects, editLogs,
-    companies, selectedCompanyId, company
+    companies, selectedCompanyId, company, projectCompanies
   };
 }
 
@@ -1823,6 +1974,8 @@ function saveLocal(markDirty = true) {
   localStorage.setItem('mat_floor_groups', JSON.stringify(floorGroups));
   localStorage.setItem('mat_companies', JSON.stringify(companies));
   localStorage.setItem('mat_selected_company', selectedCompanyId || '');
+  localStorage.setItem('mat_project_companies', JSON.stringify(projectCompanies || {}));
+  localStorage.setItem('mat_current_site', currentSite || '');
   localStorage.setItem('company', JSON.stringify(company || {}));
   if (markDirty) {
     markLocalDirty();
@@ -1856,6 +2009,9 @@ function loadLocal() {
     if (tlg) { const p = JSON.parse(tlg); if (p && typeof p==='object' && !Array.isArray(p)) transferLogGroups = p; }
     const fgrp = localStorage.getItem('mat_floor_groups');
     if (fgrp) { const p = JSON.parse(fgrp); if (p && typeof p==='object' && !Array.isArray(p)) floorGroups = p; }
+    const pc = localStorage.getItem('mat_project_companies');
+    if (pc) { const p = JSON.parse(pc); if (p && typeof p==='object' && !Array.isArray(p)) projectCompanies = p; }
+    currentSite = localStorage.getItem('mat_current_site') || currentSite || '';
     loadCompaniesFromStorage();
     orderNo = shipments.length + 1;
   } catch(e) {}
@@ -1890,6 +2046,7 @@ async function saveToSheets() {
     companies,
     selectedCompanyId,
     company,
+    projectCompanies,
     clientUpdatedAt: getLocalUpdatedAt() || Date.now()
   };
   const bodyText = JSON.stringify(payload);
@@ -2030,6 +2187,7 @@ async function loadFromSheets() {
         if (parsed.shipDateLabels && typeof parsed.shipDateLabels === 'object' && !Array.isArray(parsed.shipDateLabels)) shipDateLabels = parsed.shipDateLabels;
         if (parsed.transferLogGroups && typeof parsed.transferLogGroups === 'object' && !Array.isArray(parsed.transferLogGroups)) transferLogGroups = parsed.transferLogGroups;
         if (parsed.floorGroups && typeof parsed.floorGroups === 'object' && !Array.isArray(parsed.floorGroups)) floorGroups = parsed.floorGroups;
+        if (parsed.projectCompanies && typeof parsed.projectCompanies === 'object' && !Array.isArray(parsed.projectCompanies)) projectCompanies = parsed.projectCompanies;
         if (Array.isArray(parsed.companies)) companies = parsed.companies.map(normalizeCompany).filter(c=>c.name || c.phone);
         if (parsed.selectedCompanyId) selectedCompanyId = parsed.selectedCompanyId;
         if (!companies.length && parsed.company && (parsed.company.name || parsed.company.phone)) companies = [normalizeCompany({...parsed.company, isDefault:true})];
@@ -2253,7 +2411,7 @@ function addProduction() {
   const thick = document.getElementById('prod-thick').value.trim();
   const qtyRaw = document.getElementById('prod-qty').value.trim();
   const qty = evalQty(qtyRaw);
-  const project = (document.getElementById('prod-project')||{}).value || '';
+  const project = currentSite || (document.getElementById('prod-project')||{}).value || '';
   const floor = (document.getElementById('prod-floor')||{}).value || '';
   if (!name||!qty||qty<=0) { showToast('⚠️ 請填寫材料名稱和數量'); return; }
   const rec = {date,name,spec,thick,qty};
@@ -2330,7 +2488,7 @@ function fillDemandMaterialSelect(sel, materials, placeholder) {
 }
 
 function refreshShipDemandSelects() {
-  const site = document.getElementById('ship-site') ? document.getElementById('ship-site').value : '';
+  const site = currentSite || (document.getElementById('ship-site') ? document.getElementById('ship-site').value : '');
   const floor = document.getElementById('ship-floor') ? document.getElementById('ship-floor').value : '';
   const materials = getDemandMaterialOptions(site, floor);
   refreshInvSelect();
@@ -2441,7 +2599,7 @@ function getCurrentShipMaterial() {
 function updateDemandGap() {
   const box = document.getElementById('demand-gap-box');
   if (!box) return;
-  const site = document.getElementById('ship-site').value;
+  const site = currentSite || document.getElementById('ship-site').value;
   const floor = (document.getElementById('ship-floor')||{}).value || '';
   const mat = getCurrentShipMaterial();
   if (!site || !mat) { box.style.display='none'; return; }
@@ -2516,7 +2674,7 @@ function updateDemandGap() {
 
 function addShipment() {
   const date = document.getElementById('ship-date').value;
-  const site = document.getElementById('ship-site').value;
+  const site = currentSite || document.getElementById('ship-site').value;
   const floor = (document.getElementById('ship-floor')||{}).value || '';
   const shipCompany = getSelectedShippingCompany();
   const qtyRaw = document.getElementById('ship-qty').value.trim();
@@ -2583,7 +2741,7 @@ function addShipment() {
 
 function addAllStockShipments() {
   const date = document.getElementById('ship-date').value;
-  const site = document.getElementById('ship-site').value;
+  const site = currentSite || document.getElementById('ship-site').value;
   const floor = (document.getElementById('ship-floor')||{}).value || '';
   const shipCompany = getSelectedShippingCompany();
   const noteEl = document.getElementById('ship-note');
@@ -2675,9 +2833,11 @@ function removeOrderItem(idx) {
 
 // ── Render ──
 function renderAll() {
+  updateProjectContext();
   renderInventory(); renderProductions(); renderShipments(); renderArrival(); renderOrder(); renderDemands(); renderAllocation(); renderTransferPage();
   renderInvStats(); refreshProjectSelects(); refreshCategorySelect(); refreshFloorList(); refreshShipDemandSelects(); refreshDataLists();
   refreshCompanySelect();
+  renderProjectEntry();
   enableQuantityKeyboard();
   const em = document.getElementById('edit-modal');
   if (em && em.classList.contains('show') && (document.getElementById('edit-modal-title')||{}).textContent.includes('庫存缺口')) {
@@ -2686,13 +2846,17 @@ function renderAll() {
 }
 
 function renderInvStats() {
-  const displayRows = buildInventoryDisplayRows(inventory).filter(i=>Number(i.qty)>0);
+  const displayRows = buildInventoryDisplayRows(inventory)
+    .filter(i=>Number(i.qty)>0)
+    .filter(i=>!currentSite || getInvProject(i)===currentSite || !getInvProject(i));
   const total = displayRows.reduce((a,i)=>a+i.qty,0);
+  const prodCount = currentSite ? productions.filter(p=>p.project===currentSite).length : productions.length;
+  const shipCount = currentSite ? shipments.filter(s=>s.site===currentSite).length : shipments.length;
   document.getElementById('inv-stats').innerHTML = `
     <div class="stat-card"><div class="stat-label">材料種類</div><div class="stat-val">${displayRows.length}</div></div>
     <div class="stat-card"><div class="stat-label">總庫存數</div><div class="stat-val">${total}</div></div>
-    <div class="stat-card"><div class="stat-label">入庫次數</div><div class="stat-val">${productions.length}</div></div>
-    <div class="stat-card"><div class="stat-label">出貨次數</div><div class="stat-val">${shipments.length}</div></div>
+    <div class="stat-card"><div class="stat-label">入庫次數</div><div class="stat-val">${prodCount}</div></div>
+    <div class="stat-card"><div class="stat-label">出貨次數</div><div class="stat-val">${shipCount}</div></div>
   `;
 }
 
@@ -2713,6 +2877,7 @@ function renderInventory() {
   }
   const filteredRaw = inventory.filter(i=>{
     if (q && !(txt(i.name).includes(q)||txt(i.spec).includes(q)||txt(i.thick).includes(q))) return false;
+    if (currentSite && getInvProject(i) && getInvProject(i)!==currentSite) return false;
     if (projFilter==='__global__') return !getInvProject(i);
     if (projFilter) return getInvProject(i)===projFilter;
     return true;
@@ -2792,8 +2957,9 @@ function renderInventory() {
 
 function renderProductions() {
   const el = document.getElementById('prod-list');
-  if (!productions.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>尚無入庫紀錄</div>'; return; }
-  const reversed = [...productions].map((p,i)=>({...p,_idx:i})).reverse();
+  const source = productions.map((p,i)=>({...p,_idx:i})).filter(p=>!currentSite || p.project===currentSite);
+  if (!source.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📋</div>尚無入庫紀錄</div>'; return; }
+  const reversed = [...source].reverse();
   const sm = groupBySeriesName(reversed, p=>p.name);
   el.innerHTML = sortedSeriesKeys(sm).map(series=>{
     const nameMap = sm[series];
@@ -2827,10 +2993,12 @@ function renderProductions() {
 
 function renderShipments() {
   const el = document.getElementById('ship-list');
-  if (!shipments.length) { el.innerHTML='<div class="empty"><div class="empty-icon">🚛</div>尚無出貨紀錄</div>'; return; }
-  const returnedKeys = new Set(shipments.filter(s=>Number(s.qty)<0 && (s.note||'').includes('退回')).map(s=>s.returnOf || shipmentReturnKey(s)));
+  const source = shipments.filter(s=>!currentSite || s.site===currentSite);
+  if (!source.length) { el.innerHTML='<div class="empty"><div class="empty-icon">🚛</div>尚無出貨紀錄</div>'; return; }
+  const returnedKeys = new Set(source.filter(s=>Number(s.qty)<0 && (s.note||'').includes('退回')).map(s=>s.returnOf || shipmentReturnKey(s)));
   const withIdx = shipments
     .map((s,i)=>({...s,_idx:i}))
+    .filter(s=>!currentSite || s.site===currentSite)
     .filter(s=>Number(s.qty)!==0 && !(Number(s.qty)>0 && returnedKeys.has(shipmentReturnKey(s))));
   // 依（日期 + 備註）分組
   const groupMap = {};
@@ -2961,14 +3129,15 @@ function editShipDateLabel(date, note) {
 }
 
 function mergeShipByRange() {
-  if (!shipments.length) { showToast('⚠️ 尚無出貨紀錄'); return; }
-  const dates = Array.from(new Set(shipments.map(s=>s.date||'（無日期）'))).sort((a,b)=>cmpText(b,a));
+  const shipSource = shipments.filter(s=>!currentSite || s.site===currentSite);
+  if (!shipSource.length) { showToast('⚠️ 尚無出貨紀錄'); return; }
+  const dates = Array.from(new Set(shipSource.map(s=>s.date||'（無日期）'))).sort((a,b)=>cmpText(b,a));
   const options = dates.map(d=>{
-    const cnt = shipments.filter(s=>(s.date||'（無日期）')===d).length;
+    const cnt = shipSource.filter(s=>(s.date||'（無日期）')===d).length;
     return { value:d, label:'📅 '+d+'（'+cnt+'筆）' };
   });
   showPicker('選擇要合併的出貨日期', options, function(chosenDates){
-    const items = shipments.filter(s=>chosenDates.includes(s.date||'（無日期）'));
+    const items = shipSource.filter(s=>chosenDates.includes(s.date||'（無日期）'));
     if (!items.length) { showToast('⚠️ 無資料'); return; }
     askPDFContactPhone(function(contactPhone) {
     let html = '';
@@ -2998,7 +3167,7 @@ function mergeShipByRange() {
 
 function exportShipDatePDF(date, note) {
   note = note || '';
-  const items = shipments.filter(s=>(s.date||'（無日期）')===date && (s.note||'')===note);
+  const items = shipments.filter(s=>(!currentSite || s.site===currentSite) && (s.date||'（無日期）')===date && (s.note||'')===note);
   if (!items.length) { showToast('⚠️ 無資料'); return; }
   const extraLabel = shipDateLabels[date+'|||'+note] || '';
   const dateDisplay = date + (note?' — '+note:'') + (extraLabel?' （'+extraLabel+'）':'');
@@ -3024,9 +3193,10 @@ function exportShipDatePDF(date, note) {
 
 function renderOrder() {
   const card = document.getElementById('order-card');
-  if (!currentOrder.length) { card.style.display='none'; return; }
+  const visibleOrder = currentOrder.map((o,i)=>({...o,_idx:i})).filter(o=>!currentSite || o.site===currentSite);
+  if (!visibleOrder.length) { card.style.display='none'; return; }
   card.style.display='block';
-  const total = currentOrder.reduce((a,b)=>a+b.qty,0);
+  const total = visibleOrder.reduce((a,b)=>a+b.qty,0);
   document.getElementById('order-total').textContent = total;
   const orderCompany = getSelectedShippingCompany();
   const companyNote = orderCompany && orderCompany.name
@@ -3034,7 +3204,7 @@ function renderOrder() {
     : '';
   // 依案場分組
   const siteMap = {};
-  currentOrder.forEach((o,i)=>{ const s=o.site||'（未指定案場）'; if(!siteMap[s]) siteMap[s]=[]; siteMap[s].push({...o,_idx:i}); });
+  visibleOrder.forEach((o)=>{ const s=o.site||'（未指定案場）'; if(!siteMap[s]) siteMap[s]=[]; siteMap[s].push(o); });
   document.getElementById('order-list').innerHTML = companyNote + Object.keys(siteMap).map(site=>{
     const items = siteMap[site];
     const siteTotal = items.reduce((a,b)=>a+b.qty,0);
@@ -3061,9 +3231,10 @@ function renderOrder() {
 function renderArrival() {
   const el = document.getElementById('arrival-list');
   if (!el) return;
-  if (!shipments.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📊</div>尚無出貨紀錄</div>'; return; }
+  const source = shipments.filter(s=>!currentSite || s.site===currentSite);
+  if (!source.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📊</div>尚無出貨紀錄</div>'; return; }
   const siteMap = {};
-  shipments.forEach((s,i)=>{ if(!siteMap[s.site]) siteMap[s.site]=[]; siteMap[s.site].push({...s,_idx:i}); });
+  source.forEach((s)=>{ if(!siteMap[s.site]) siteMap[s.site]=[]; siteMap[s.site].push(s); });
   el.innerHTML = Object.keys(siteMap).map(site=>{
     const items = siteMap[site];
     const total = items.reduce((a,b)=>a+b.qty,0);
@@ -3116,11 +3287,11 @@ function showPage(name, btn) {
 function _refreshProdProjectOpts() {
   const sel = document.getElementById('prod-project');
   if (!sel) return;
-  const projects = typeof _allProjects === 'function' ? _allProjects() : [];
+  const projects = currentSite ? [currentSite] : (typeof _allProjects === 'function' ? _allProjects() : []);
   const cur = sel.value;
   sel.innerHTML = '<option value="">-- 通用（不限案場）--</option>';
   projects.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; sel.appendChild(o); });
-  sel.value = cur;
+  sel.value = currentSite || cur;
   refreshProductionFloorSelect();
 }
 
@@ -3153,12 +3324,12 @@ function fillFloorSelect(sel, project, emptyLabel) {
 }
 
 function refreshProductionFloorSelect() {
-  const project = (document.getElementById('prod-project')||{}).value || '';
+  const project = currentSite || (document.getElementById('prod-project')||{}).value || '';
   fillFloorSelect(document.getElementById('prod-floor'), project, '-- 不指定樓層 --');
 }
 
 function refreshShipFloorSelect() {
-  const site = (document.getElementById('ship-site')||{}).value || '';
+  const site = currentSite || (document.getElementById('ship-site')||{}).value || '';
   fillFloorSelect(document.getElementById('ship-floor'), site, '-- 不指定樓層 --');
 }
 
@@ -3186,7 +3357,7 @@ function getCompanyById(id) {
 
 function getSelectedShippingCompany() {
   const sel = document.getElementById('ship-company-select');
-  const id = sel && sel.value ? sel.value : selectedCompanyId;
+  const id = sel && sel.value ? sel.value : (currentSite && projectCompanies[currentSite] ? projectCompanies[currentSite] : selectedCompanyId);
   return getCompanyById(id) || company || {name:'', phone:''};
 }
 
@@ -3206,7 +3377,7 @@ function companyHeaderHTML(c) {
 function refreshCompanySelect() {
   const sel = document.getElementById('ship-company-select');
   if (!sel) return;
-  const prev = sel.value || selectedCompanyId;
+  const prev = sel.value || (currentSite ? projectCompanies[currentSite] : '') || selectedCompanyId;
   sel.innerHTML = '';
   if (!companies.length) {
     const o = document.createElement('option');
@@ -3378,14 +3549,15 @@ function askPDFContactPhone(done, label) {
 }
 
 function exportOrderPDF() {
-  if (!currentOrder.length) { showToast('⚠️ 採購單是空的'); return; }
+  if (!currentOrder.filter(o=>!currentSite || o.site===currentSite).length) { showToast('⚠️ 採購單是空的'); return; }
   askPDFContactPhone(exportOrderPDFWithContact, '出貨給供貨商');
 }
 
 function exportOrderPDFWithContact(contactPhone) {
-  if (!currentOrder.length) { showToast('⚠️ 採購單是空的'); return; }
+  const orderItems = currentOrder.filter(o=>!currentSite || o.site===currentSite);
+  if (!orderItems.length) { showToast('⚠️ 採購單是空的'); return; }
   const no = 'PO-' + String(orderNo).padStart(4,'0');
-  const total = currentOrder.reduce(function(a,b){return a+b.qty;},0);
+  const total = orderItems.reduce(function(a,b){return a+b.qty;},0);
   const orderCompany = getSelectedShippingCompany();
   let html = '';
   html += companyHeaderHTML(orderCompany);
@@ -3394,7 +3566,7 @@ function exportOrderPDFWithContact(contactPhone) {
   if (contactPhone) html += '<div class="meta">聯絡人電話：'+textSafe(contactPhone)+'</div>';
   // 依案場分組
   const siteMap = {};
-  currentOrder.forEach(function(o){ const s=o.site||'（未指定案場）'; if(!siteMap[s]) siteMap[s]=[]; siteMap[s].push(o); });
+  orderItems.forEach(function(o){ const s=o.site||'（未指定案場）'; if(!siteMap[s]) siteMap[s]=[]; siteMap[s].push(o); });
   Object.keys(siteMap).forEach(function(site){
     const items = siteMap[site];
     const siteTotal = items.reduce(function(a,b){return a+b.qty;},0);
@@ -3411,7 +3583,12 @@ function exportOrderPDFWithContact(contactPhone) {
 function exportPDF(page) {
   const titles = {inventory:'庫存清單', production:'生產清單', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
   const datePages = {production:productions, shipment:shipments, arrival:shipments, demand:demands};
-  const source = datePages[page];
+  let source = datePages[page];
+  if (source && currentSite) {
+    if (page === 'production') source = source.filter(r=>r.project===currentSite);
+    else if (page === 'shipment' || page === 'arrival') source = source.filter(r=>r.site===currentSite);
+    else if (page === 'demand') source = source.filter(r=>r.project===currentSite);
+  }
   if (source) {
     const dates = Array.from(new Set(source.map(r=>r.date||'（無日期）'))).sort((a,b)=>cmpText(b,a));
     if (!dates.length) { showToast('⚠️ 目前無資料可匯出'); return; }
@@ -3437,10 +3614,11 @@ function exportPDFByDates(page, chosenDates, contactPhone) {
   if ((page === 'production' || page === 'shipment' || page === 'arrival') && contactPhone) html += '<div class="meta">聯絡人電話：'+textSafe(contactPhone)+'</div>';
   if (page==='inventory') {
     if (!inventory.length) { showToast('⚠️ 目前無資料可匯出'); return; }
-    const rows = sortPDFMaterials(inventory).map(function(i){return pdfMaterialRowStart(i.name)+pdfMaterialSeriesCell(i.name)+'<td>'+i.name+'</td><td>'+i.spec+'</td><td>'+i.thick+'</td><td>'+i.qty+'</td><td>'+i.lastUpdate+'</td><td>'+(i.qty>0?'有庫存':'缺貨')+'</td></tr>';}).join('');
+    const invItems = inventory.filter(i=>!currentSite || getInvProject(i)===currentSite || !getInvProject(i));
+    const rows = sortPDFMaterials(invItems).map(function(i){return pdfMaterialRowStart(i.name)+pdfMaterialSeriesCell(i.name)+'<td>'+i.name+'</td><td>'+i.spec+'</td><td>'+i.thick+'</td><td>'+i.qty+'</td><td>'+i.lastUpdate+'</td><td>'+(i.qty>0?'有庫存':'缺貨')+'</td></tr>';}).join('');
     html += '<table><thead><tr><th>庫存類別</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>最後更新</th><th>狀態</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='production') {
-    const items = productions.filter(p=>!chosenDates || chosenDates.includes(p.date||'（無日期）'));
+    const items = productions.filter(p=>(!currentSite || p.project===currentSite) && (!chosenDates || chosenDates.includes(p.date||'（無日期）')));
     if (!items.length) { showToast('⚠️ 目前無資料可匯出'); return; }
     const mergeMap = {};
     items.forEach(function(p){
@@ -3451,12 +3629,12 @@ function exportPDFByDates(page, chosenDates, contactPhone) {
     const rows = sortPDFMaterials(Object.values(mergeMap)).map(function(p){return pdfMaterialRowStart(p.name)+pdfMaterialSeriesCell(p.name)+'<td>'+p.name+'</td><td>'+p.spec+'</td><td>'+p.thick+'</td><td>'+p.qty+(p.unit||'')+'</td></tr>';}).join('');
     html += '<table><thead><tr><th>庫存類別</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='shipment') {
-    const items = shipments.filter(s=>!chosenDates || chosenDates.includes(s.date||'（無日期）'));
+    const items = shipments.filter(s=>(!currentSite || s.site===currentSite) && (!chosenDates || chosenDates.includes(s.date||'（無日期）')));
     if (!items.length) { showToast('⚠️ 目前無資料可匯出'); return; }
     const rows = sortPDFMaterials(items).map(function(s){return pdfMaterialRowStart(s.name)+pdfMaterialSeriesCell(s.name)+'<td>'+s.date+'</td><td>'+s.site+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td><td>'+(s.note||'')+'</td></tr>';}).join('');
     html += '<table><thead><tr><th>庫存類別</th><th>日期</th><th>工地</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th><th>備注</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='arrival') {
-    const shipItems = shipments.filter(s=>!chosenDates || chosenDates.includes(s.date||'（無日期）'));
+    const shipItems = shipments.filter(s=>(!currentSite || s.site===currentSite) && (!chosenDates || chosenDates.includes(s.date||'（無日期）')));
     if (!shipItems.length) { showToast('⚠️ 目前無資料可匯出'); return; }
     const siteMap = {};
     shipItems.forEach(function(s){ if(!siteMap[s.site]) siteMap[s.site]=[]; siteMap[s.site].push(s); });
@@ -3468,7 +3646,7 @@ function exportPDFByDates(page, chosenDates, contactPhone) {
       html += '<table><thead><tr><th>庫存類別</th><th>日期</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th><th>備注</th></tr></thead><tbody>'+rows+'</tbody></table>';
     });
   } else if (page==='demand') {
-    const demandItems = demands.filter(d=>!chosenDates || chosenDates.includes(d.date||'（無日期）'));
+    const demandItems = demands.filter(d=>(!currentSite || d.project===currentSite) && (!chosenDates || chosenDates.includes(d.date||'（無日期）')));
     if (!demandItems.length) { showToast('⚠️ 目前無資料可匯出'); return; }
     const projectMap = {};
     demandItems.forEach(d=>{ if(!projectMap[d.project]) projectMap[d.project]=[]; projectMap[d.project].push(d); });
@@ -3704,20 +3882,18 @@ function deleteShipment(idx) {
 
 // ── Demand ──
 function getProjects() {
-  const set = new Set();
-  demands.forEach(d=>{ if(d.project) set.add(d.project); });
-  return Array.from(set).sort();
+  return getProjectList();
 }
 
 function refreshProjectSelects() {
-  const projects = getProjects();
+  const projects = currentSite ? [currentSite] : getProjects();
   // Update ship-site select
   const shipSel = document.getElementById('ship-site');
   const shipVal = shipSel ? shipSel.value : '';
   if (shipSel) {
     shipSel.innerHTML = '<option value="">-- 請選擇案件 --</option>';
     projects.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; shipSel.appendChild(o); });
-    if (shipVal) shipSel.value = shipVal;
+    shipSel.value = currentSite || shipVal || '';
   }
   refreshShipFloorSelect();
   refreshProductionFloorSelect();
@@ -3729,9 +3905,11 @@ function refreshProjectSelects() {
     projects.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; demSel.appendChild(o); });
     const newOpt = document.createElement('option');
     newOpt.value='__new__'; newOpt.textContent='＋ 新增案件...';
-    demSel.appendChild(newOpt);
+    if (!currentSite) demSel.appendChild(newOpt);
     // 還原使用者原本的選擇（包含 __new__）
-    if (demVal) {
+    if (currentSite) {
+      demSel.value = currentSite;
+    } else if (demVal) {
       let exists = false;
       for (const opt of demSel.options) { if (opt.value===demVal) { exists=true; break; } }
       if (exists) demSel.value = demVal;
@@ -3803,6 +3981,7 @@ function refreshDataLists() {
 }
 
 function getProjectName() {
+  if (currentSite) return currentSite;
   const selEl = document.getElementById('dem-project');
   const sel = selEl ? selEl.value : '';
   if (sel === '__new__') {
@@ -3832,6 +4011,7 @@ function addDemand() {
   if (!spec) { showToast('⚠️ 請填寫規格'); return; }
   if (!qty||qty<=0) { showToast('⚠️ 請填寫數量'); return; }
   const demRec = {project,floor,category,date,name,spec,thick,unit,qty,note};
+  if (!Object.prototype.hasOwnProperty.call(projectCompanies, project)) projectCompanies[project] = '';
   if (qtyRaw && qtyRaw !== String(qty)) demRec.qtyExpr = qtyRaw;
   demands.push(demRec);
   activeProject = project;
@@ -4041,7 +4221,8 @@ function renderDemands() {
   const floorTabsEl = document.getElementById('demand-floor-tabs');
   const el = document.getElementById('demand-list');
   if (!el) return;
-  if (!demands.length) {
+  const projectDemands = demands.filter(d=>!currentSite || d.project===currentSite);
+  if (!projectDemands.length) {
     if (tabsEl) tabsEl.innerHTML = '';
     if (floorTabsEl) floorTabsEl.innerHTML = '';
     setFloorContext('demand-floor-context');
@@ -4050,7 +4231,7 @@ function renderDemands() {
   }
   // 取得所有案場（排除已封存）
   const projects = [];
-  demands.forEach(d=>{ if(!projects.includes(d.project) && !archivedProjects.includes(d.project)) projects.push(d.project); });
+  projectDemands.forEach(d=>{ if(!projects.includes(d.project) && !archivedProjects.includes(d.project)) projects.push(d.project); });
   if (!projects.length) {
     if (tabsEl) tabsEl.innerHTML = '';
     if (floorTabsEl) floorTabsEl.innerHTML = '';
@@ -5586,6 +5767,7 @@ function exportTransferLogPDF() {
 }
 
 function getAllocProjects() {
+  if (currentSite) return [currentSite];
   const set = [];
   shipments.forEach(s=>{ if(!set.includes(s.site) && !archivedProjects.includes(s.site)) set.push(s.site); });
   return set;
@@ -6116,6 +6298,7 @@ function deleteAllocation(idx) {
 
 // ── 樓層調撥 ──
 function _allProjects() {
+  if (currentSite) return [currentSite];
   const set = new Set();
   shipments.forEach(s=>{ if(s.site && !archivedProjects.includes(s.site)) set.add(s.site); });
   demands.forEach(d=>{ if(d.project && !archivedProjects.includes(d.project)) set.add(d.project); });
