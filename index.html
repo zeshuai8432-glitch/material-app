@@ -1030,7 +1030,6 @@ button:hover,
     <div class="form-group"><label>備註</label><input type="text" id="dem-note" placeholder="選填" list="dl-ship-note" autocomplete="off"></div>
     <button class="btn-primary" onclick="addDemand()">新增需求</button>
   </div>
-  <button class="btn-outline" onclick="showArchiveManager()" style="width:100%;margin-bottom:6px">📦 封存管理（已完工案場）</button>
   <button class="btn-outline" onclick="mergeDemandProjects()" style="width:100%;margin-bottom:6px">📄 合併匯出多個案場需求單</button>
   <button class="btn-outline" onclick="showInventoryGap()" style="width:100%;margin-bottom:10px;border-color:#fca5a5;color:#dc2626;background:#fff5f5">📊 庫存缺口分析（需補量）</button>
   <div id="demand-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;flex-wrap:nowrap"></div>
@@ -4553,7 +4552,7 @@ function editDemand(idx) {
 }
 
 function archiveProject(project) {
-  if (!confirm('確定封存「'+project+'」？\n\n封存後會從頁籤收起來（資料保留），需要時可在「封存管理」還原。')) return;
+  if (!confirm('確定封存「'+project+'」？\n\n封存後會從選案場入口移到「已封存案場」，資料會保留，需要時可在入口還原。')) return;
   if (!archivedProjects.includes(project)) archivedProjects.push(project);
   if (currentSite === project) {
     currentSite = '';
@@ -4586,27 +4585,6 @@ function deleteProjectPermanently(project) {
     localStorage.setItem('mat_current_site', '');
   }
   renderAll(); autoSave(); showToast('🗑️ 已永久刪除「'+project+'」');
-}
-
-function showArchiveManager() {
-  let body = '';
-  if (!archivedProjects.length) {
-    body = '<div style="color:#6b7280;font-size:14px;padding:10px 0">目前沒有封存的案場。<br><br>在需求單某案場標題列點「📦 封存」即可把完工案場收起來。</div>';
-  } else {
-    body = '<div style="font-size:13px;color:#6b7280;margin-bottom:10px">已封存的案場（已從主畫面隱藏）：</div>';
-    body += archivedProjects.map(p=>`
-      <div class="list-item">
-        <div style="flex:1"><div class="list-main">🏢 ${p}</div></div>
-        <div style="display:flex;gap:6px">
-          <button class="btn-sm" onclick="unarchiveProject('${p.replace(/'/g,"\\'")}')">還原</button>
-          <button class="btn-danger-sm" onclick="deleteProjectPermanently('${p.replace(/'/g,"\\'")}')">永久刪除</button>
-        </div>
-      </div>`).join('');
-  }
-  document.getElementById('edit-modal-title').textContent = '📦 封存管理';
-  document.getElementById('edit-modal-body').innerHTML = body;
-  document.getElementById('edit-save-btn').style.display = 'none';
-  document.getElementById('edit-modal').classList.add('show');
 }
 
 function mergeDemandProjects() {
