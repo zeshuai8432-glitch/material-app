@@ -3281,6 +3281,30 @@ function printHTML(title, tableHTML) {
 
 function exportOrderPDF() {
   if (!currentOrder.length) { showToast('⚠️ 採購單是空的'); return; }
+  const orderCompany = getSelectedShippingCompany();
+  showEditModal(
+    '輸入聯絡人電話',
+    '<div class="form-group">' +
+      '<label>聯絡人電話（只會顯示在這次匯出的 PDF）</label>' +
+      '<input id="order-contact-phone" type="tel" inputmode="tel" placeholder="例如：0912-345-678" value="'+textSafe(orderCompany.phone || '')+'">' +
+    '</div>',
+    function() {
+      const phone = document.getElementById('order-contact-phone').value.trim();
+      document.getElementById('edit-modal').classList.remove('show');
+      document.getElementById('edit-save-btn').textContent = '儲存';
+      exportOrderPDFWithContact(phone);
+    }
+  );
+  const btn = document.getElementById('edit-save-btn');
+  btn.textContent = '匯出 PDF';
+  setTimeout(function(){
+    const input = document.getElementById('order-contact-phone');
+    if (input) input.focus();
+  }, 0);
+}
+
+function exportOrderPDFWithContact(contactPhone) {
+  if (!currentOrder.length) { showToast('⚠️ 採購單是空的'); return; }
   const no = 'PO-' + String(orderNo).padStart(4,'0');
   const total = currentOrder.reduce(function(a,b){return a+b.qty;},0);
   const orderCompany = getSelectedShippingCompany();
@@ -3288,6 +3312,7 @@ function exportOrderPDF() {
   html += companyHeaderHTML(orderCompany);
   html += '<h1>採購單</h1>';
   html += '<div class="meta">採購單編號：'+no+'　日期：'+today+'</div>';
+  if (contactPhone) html += '<div class="meta">聯絡人電話：'+textSafe(contactPhone)+'</div>';
   // 依案場分組
   const siteMap = {};
   currentOrder.forEach(function(o){ const s=o.site||'（未指定案場）'; if(!siteMap[s]) siteMap[s]=[]; siteMap[s].push(o); });
@@ -3391,6 +3416,7 @@ function showEditModal(title, bodyHTML, saveFn) {
   document.getElementById('edit-modal-title').textContent = title;
   document.getElementById('edit-modal-body').innerHTML = bodyHTML;
   document.getElementById('edit-save-btn').style.display = '';
+  document.getElementById('edit-save-btn').textContent = '儲存';
   document.getElementById('edit-save-btn').onclick = saveFn;
   enableQuantityKeyboard(document.getElementById('edit-modal-body'));
   document.getElementById('edit-modal').classList.add('show');
