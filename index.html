@@ -823,7 +823,10 @@ button:hover,
       <div class="qty-preview" id="prod-qty-preview"></div></div>
     </div>
     <div class="form-group"><label>指定案場（留空 = 通用庫存）</label>
-      <select id="prod-project"><option value="">-- 通用（不限案場）--</option></select>
+      <select id="prod-project" onchange="refreshProductionFloorSelect()"><option value="">-- 通用（不限案場）--</option></select>
+    </div>
+    <div class="form-group"><label>樓層（依需求單）</label>
+      <select id="prod-floor"><option value="">-- 先選案場 --</option></select>
     </div>
     <button class="btn-primary" onclick="addProduction()">確認入庫 → 自動更新庫存</button>
   </div>
@@ -848,8 +851,14 @@ button:hover,
     <div class="form-group"><label>日期</label><input type="date" id="ship-date"></div>
     <div class="form-group">
       <label>工地／案件名稱</label>
-      <select id="ship-site" onchange="refreshShipDemandSelects(); updateDemandGap()">
+      <select id="ship-site" onchange="refreshShipFloorSelect(); refreshShipDemandSelects(); updateDemandGap()">
         <option value="">-- 請選擇案件 --</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>樓層（依需求單）</label>
+      <select id="ship-floor" onchange="refreshShipDemandSelects(); updateDemandGap()">
+        <option value="">-- 先選案場 --</option>
       </select>
     </div>
     <div class="form-group">
@@ -2245,9 +2254,11 @@ function addProduction() {
   const qtyRaw = document.getElementById('prod-qty').value.trim();
   const qty = evalQty(qtyRaw);
   const project = (document.getElementById('prod-project')||{}).value || '';
+  const floor = (document.getElementById('prod-floor')||{}).value || '';
   if (!name||!qty||qty<=0) { showToast('⚠️ 請填寫材料名稱和數量'); return; }
   const rec = {date,name,spec,thick,qty};
   if (project) rec.project = project;
+  if (floor) rec.floor = floor;
   if (qtyRaw && qtyRaw !== String(qty)) rec.qtyExpr = qtyRaw;
   productions.push(rec);
   addQtyToInventory(name,spec,thick,project,qty,date);
@@ -2289,10 +2300,10 @@ function parseDemandMaterialValue(value) {
   try { return JSON.parse(decodeURIComponent(value)); } catch(e) { return null; }
 }
 
-function getDemandMaterialOptions(site) {
+function getDemandMaterialOptions(site, floor) {
   const norm = v => String(v==null?'':v).trim();
-  let rows = demands.filter(d=>!site || norm(d.project)===norm(site));
-  if (!rows.length && site) rows = demands;
+  let rows = demands.filter(d=>(!site || norm(d.project)===norm(site)) && (!floor || norm(d.floor)===norm(floor)));
+  if (!rows.length && site && !floor) rows = demands;
   const map = {};
   rows.forEach(d=>{
     const name = norm(d.name), spec = norm(d.spec), thick = norm(d.thick);
@@ -2320,7 +2331,8 @@ function fillDemandMaterialSelect(sel, materials, placeholder) {
 
 function refreshShipDemandSelects() {
   const site = document.getElementById('ship-site') ? document.getElementById('ship-site').value : '';
-  const materials = getDemandMaterialOptions(site);
+  const floor = document.getElementById('ship-floor') ? document.getElementById('ship-floor').value : '';
+  const materials = getDemandMaterialOptions(site, floor);
   refreshInvSelect();
   fillDemandMaterialSelect(document.getElementById('ship-demand-select'), materials, '-- 請選擇需求單材料 --');
   onSelectInventory();
@@ -2430,10 +2442,11 @@ function updateDemandGap() {
   const box = document.getElementById('demand-gap-box');
   if (!box) return;
   const site = document.getElementById('ship-site').value;
+  const floor = (document.getElementById('ship-floor')||{}).value || '';
   const mat = getCurrentShipMaterial();
   if (!site || !mat) { box.style.display='none'; return; }
   const normM = v => String(v==null?'':v).trim();
-  const matched = demands.filter(d=>normM(d.project)===normM(site) && normM(d.name)===normM(mat.name) && normM(d.spec)===normM(mat.spec) && normM(d.thick)===normM(mat.thick));
+  const matched = demands.filter(d=>normM(d.project)===normM(site) && (!floor || normM(d.floor)===normM(floor)) && normM(d.name)===normM(mat.name) && normM(d.spec)===normM(mat.spec) && normM(d.thick)===normM(mat.thick));
   if (!matched.length) {
     box.style.display='block';
     box.style.background='#f1efe8';
@@ -2444,7 +2457,7 @@ function updateDemandGap() {
   }
   const unit = matched[0].unit || '';
   const totalDemand = matched.reduce((a,b)=>a+Number(b.qty),0);
-  const shipped = getShippedQty(site, mat.name, mat.spec, mat.thick);
+  const shipped = getShippedQty(site, mat.name, mat.spec, mat.thick, floor);
   const inputQty = evalQty(document.getElementById('ship-qty').value) || 0;
   const afterThis = shipped + inputQty;
   const remaining = totalDemand - afterThis;
@@ -2504,6 +2517,7 @@ function updateDemandGap() {
 function addShipment() {
   const date = document.getElementById('ship-date').value;
   const site = document.getElementById('ship-site').value;
+  const floor = (document.getElementById('ship-floor')||{}).value || '';
   const shipCompany = getSelectedShippingCompany();
   const qtyRaw = document.getElementById('ship-qty').value.trim();
   const qty = evalQty(qtyRaw);
@@ -2525,10 +2539,10 @@ function addShipment() {
   }
   // 檢查是否超出該案場的需求
   const normM = v => String(v==null?'':v).trim();
-  const matchedDemands = demands.filter(d=>normM(d.project)===normM(site) && normM(d.name)===normM(name) && normM(d.spec)===normM(spec) && normM(d.thick)===normM(thick));
+  const matchedDemands = demands.filter(d=>normM(d.project)===normM(site) && (!floor || normM(d.floor)===normM(floor)) && normM(d.name)===normM(name) && normM(d.spec)===normM(spec) && normM(d.thick)===normM(thick));
   if (matchedDemands.length > 0) {
     const totalDemand = matchedDemands.reduce((a,b)=>a+b.qty,0);
-    const alreadyShipped = getShippedQty(site, name, spec, thick);
+    const alreadyShipped = getShippedQty(site, name, spec, thick, floor);
     const afterThis = alreadyShipped + qty;
     if (afterThis > totalDemand) {
       const over = afterThis - totalDemand;
@@ -2546,6 +2560,7 @@ function addShipment() {
   const noteEl = document.getElementById('ship-note');
   const note = noteEl ? (noteEl.value || '').trim() : '';
   const record = {date,site,name,spec,thick,qty,type:shipType, companyId:shipCompany.id||'', companyName:shipCompany.name||''};
+  if (floor) record.floor = floor;
   if (qtyRaw && qtyRaw !== String(qty)) record.qtyExpr = qtyRaw;
   if (note) record.note = note;
   shipments.push(record);
@@ -2569,12 +2584,13 @@ function addShipment() {
 function addAllStockShipments() {
   const date = document.getElementById('ship-date').value;
   const site = document.getElementById('ship-site').value;
+  const floor = (document.getElementById('ship-floor')||{}).value || '';
   const shipCompany = getSelectedShippingCompany();
   const noteEl = document.getElementById('ship-note');
   const note = noteEl ? (noteEl.value || '').trim() : '';
   if (!date || !site) { showToast('⚠️ 請先選日期和案場'); return; }
   const norm = v => String(v==null?'':v).trim();
-  const rows = demands.filter(d=>norm(d.project)===norm(site));
+  const rows = demands.filter(d=>norm(d.project)===norm(site) && (!floor || norm(d.floor)===norm(floor)));
   if (!rows.length) { showToast('⚠️ 此案場沒有需求單資料'); return; }
   const map = {};
   rows.forEach(d=>{
@@ -2585,7 +2601,7 @@ function addAllStockShipments() {
   const plans = [];
   const shortages = [];
   Object.values(map).forEach(m=>{
-    const shipped = getShippedQty(site, m.name, m.spec, m.thick);
+    const shipped = getShippedQty(site, m.name, m.spec, m.thick, floor);
     const remain = roundQty(m.demand - shipped);
     if (remain <= 0) return;
     const inv = findInventory(m.name, m.spec, m.thick);
@@ -2611,6 +2627,7 @@ function addAllStockShipments() {
     p.inv.qty = roundQty(Number(p.inv.qty) - p.qty);
     p.inv.lastUpdate = date;
     const record = {date, site, name:p.material.name, spec:p.material.spec, thick:p.material.thick, qty:p.qty, type:'stock', companyId:shipCompany.id||'', companyName:shipCompany.name||''};
+    if (floor) record.floor = floor;
     if (note) record.note = note;
     shipments.push(record);
     currentOrder.push({...record, shipmentIdx:shipments.length-1});
@@ -2643,7 +2660,7 @@ function cancelOrderShipment(o) {
       if (Number.isInteger(item.shipmentIdx) && item.shipmentIdx > o.shipmentIdx) item.shipmentIdx -= 1;
     });
   } else {
-    const idx = shipments.findIndex(s=>s.date===o.date && s.site===o.site && s.name===o.name && String(s.spec)===String(o.spec) && String(s.thick||'')===String(o.thick||'') && Number(s.qty)===Number(o.qty) && s.type===o.type && (s.note||'')===(o.note||''));
+    const idx = shipments.findIndex(s=>s.date===o.date && s.site===o.site && (s.floor||'')===(o.floor||'') && s.name===o.name && String(s.spec)===String(o.spec) && String(s.thick||'')===String(o.thick||'') && Number(s.qty)===Number(o.qty) && s.type===o.type && (s.note||'')===(o.note||''));
     if (idx >= 0) shipments.splice(idx, 1);
   }
 }
@@ -2787,7 +2804,7 @@ function renderProductions() {
       const isOpen = expandedGroups.has(gid);
       const rows = items.map(p=>`
         <div class="list-item">
-          <div style="flex:1"><div>${specBadge(p.spec,p.thick)}</div></div>
+          <div style="flex:1"><div>${specBadge(p.spec,p.thick)}${p.floor?`<span class="site-tag">${p.floor}</span>`:''}</div></div>
           <div class="list-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
             <div class="list-qty">+${p.qty}${qtyExprSpan(p)}</div>
             <div class="list-date">${p.date}</div>
@@ -2854,7 +2871,7 @@ function renderShipments() {
             : `<button class="btn-sm" onclick="editShipment(${s._idx})">編輯</button><button class="btn-danger-sm" onclick="deleteShipment(${s._idx})">退回</button>`;
           return `<div class="list-item">
             <div style="flex:1">
-              <div>${specBadge(s.spec,s.thick)}<span class="site-tag">${s.site}</span></div>
+              <div>${specBadge(s.spec,s.thick)}<span class="site-tag">${s.site}</span>${s.floor?`<span class="site-tag">${s.floor}</span>`:''}</div>
               ${typeBadge}
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
@@ -3104,6 +3121,45 @@ function _refreshProdProjectOpts() {
   sel.innerHTML = '<option value="">-- 通用（不限案場）--</option>';
   projects.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; sel.appendChild(o); });
   sel.value = cur;
+  refreshProductionFloorSelect();
+}
+
+function getDemandFloorsForProject(project) {
+  const norm = v => String(v==null?'':v).trim();
+  const floors = [];
+  demands.filter(d=>norm(d.project)===norm(project)).forEach(d=>{
+    const floor = (d.floor || '').trim();
+    if (floor && !floors.includes(floor)) floors.push(floor);
+  });
+  return floors.sort((a,b)=>cmpText(a,b));
+}
+
+function fillFloorSelect(sel, project, emptyLabel) {
+  if (!sel) return;
+  const prev = sel.value;
+  const floors = project ? getDemandFloorsForProject(project) : [];
+  sel.innerHTML = '';
+  const first = document.createElement('option');
+  first.value = '';
+  first.textContent = project ? (floors.length ? emptyLabel : '-- 此案場尚無需求單樓層 --') : '-- 先選案場 --';
+  sel.appendChild(first);
+  floors.forEach(f=>{
+    const opt = document.createElement('option');
+    opt.value = f;
+    opt.textContent = f;
+    sel.appendChild(opt);
+  });
+  if (prev && floors.includes(prev)) sel.value = prev;
+}
+
+function refreshProductionFloorSelect() {
+  const project = (document.getElementById('prod-project')||{}).value || '';
+  fillFloorSelect(document.getElementById('prod-floor'), project, '-- 不指定樓層 --');
+}
+
+function refreshShipFloorSelect() {
+  const site = (document.getElementById('ship-site')||{}).value || '';
+  fillFloorSelect(document.getElementById('ship-floor'), site, '-- 不指定樓層 --');
 }
 
 function goToAllocation() {
@@ -3583,6 +3639,7 @@ function editShipment(idx) {
   const body = `
     <div class="form-group"><label>日期</label><input type="date" id="es-date" value="${s.date}"></div>
     <div class="form-group"><label>工地名稱</label><input type="text" id="es-site" value="${s.site}" list="dl-ship-site" autocomplete="off"></div>
+    <div class="form-group"><label>樓層</label><input type="text" id="es-floor" value="${s.floor||''}" list="dl-floor" autocomplete="off"></div>
     <div class="form-group"><label>材料名稱</label><input type="text" id="es-name" value="${s.name}" list="dl-mat-name" autocomplete="off"></div>
     <div class="form-group"><label>規格</label><input type="text" id="es-spec" value="${s.spec}" list="dl-mat-spec" autocomplete="off"></div>
     <div class="form-group"><label>厚度</label><input type="text" id="es-thick" value="${s.thick}" list="dl-mat-thick" autocomplete="off"></div>
@@ -3606,6 +3663,8 @@ function editShipment(idx) {
     }
     shipments[idx].date = document.getElementById('es-date').value;
     shipments[idx].site = document.getElementById('es-site').value.trim();
+    const esFloor = document.getElementById('es-floor').value.trim();
+    if (esFloor) shipments[idx].floor = esFloor; else delete shipments[idx].floor;
     shipments[idx].name = document.getElementById('es-name').value.trim();
     shipments[idx].spec = document.getElementById('es-spec').value.trim();
     shipments[idx].thick = document.getElementById('es-thick').value.trim();
@@ -3660,6 +3719,8 @@ function refreshProjectSelects() {
     projects.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; shipSel.appendChild(o); });
     if (shipVal) shipSel.value = shipVal;
   }
+  refreshShipFloorSelect();
+  refreshProductionFloorSelect();
   // Update dem-project select
   const demSel = document.getElementById('dem-project');
   const demVal = demSel ? demSel.value : '';
@@ -3736,7 +3797,7 @@ function refreshDataLists() {
   fill('dl-ship-note', shipments.filter(s=>s.note && s.note!=='退回').map(s=>s.note));
   fill('dl-mat-tag',   Object.values(materialTags));
   fill('dl-ship-site', [...shipments, ...demands].map(r=>r.site||r.project).filter(Boolean));
-  fill('dl-floor',     [...demands, ...allocations].map(r=>r.floor));
+  fill('dl-floor',     [...demands, ...productions, ...shipments, ...allocations].map(r=>r.floor));
   fill('dl-category',  [...demands, ...allocations].map(r=>r.category));
   fill('dl-project',   demands.map(d=>d.project));
 }
@@ -3797,10 +3858,10 @@ function addDemand() {
   showToast('✅ 需求已新增');
 }
 
-function getShippedQty(project, name, spec, thick) {
+function getShippedQty(project, name, spec, thick, floor) {
   const norm = v => String(v==null?'':v).trim();
   return shipments
-    .filter(s=>norm(s.site)===norm(project) && norm(s.name)===norm(name) && norm(s.spec)===norm(spec) && norm(s.thick)===norm(thick))
+    .filter(s=>norm(s.site)===norm(project) && (!floor || norm(s.floor)===norm(floor)) && norm(s.name)===norm(name) && norm(s.spec)===norm(spec) && norm(s.thick)===norm(thick))
     .reduce((a,b)=>a+Number(b.qty), 0);
 }
 
