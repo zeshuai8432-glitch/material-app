@@ -1426,6 +1426,20 @@ function pdfMaterialSeriesCell(name) {
   return pdfCategoryCell(series, pdfCategoryChip(series));
 }
 
+function sortPDFMaterials(items) {
+  return (items || []).slice().sort(function(a, b) {
+    const bySeries = cmpText(materialSeries(a.name), materialSeries(b.name));
+    if (bySeries) return bySeries;
+    const byName = cmpText(a.name, b.name);
+    if (byName) return byName;
+    const bySpec = cmpText(a.spec, b.spec);
+    if (bySpec) return bySpec;
+    const byThick = cmpText(a.thick, b.thick);
+    if (byThick) return byThick;
+    return cmpText(a.date, b.date) || cmpText(a.site, b.site) || cmpText(a.floor, b.floor);
+  });
+}
+
 function parseLogRecord(raw) {
   if (!raw) return {};
   if (typeof raw === 'object') return raw;
@@ -2952,10 +2966,10 @@ function mergeShipByRange() {
       const siteMap = {};
       g.items.forEach(function(s){ const k=s.site||'（未指定）'; if(!siteMap[k]) siteMap[k]=[]; siteMap[k].push(s); });
       Object.keys(siteMap).forEach(function(site){
-        const rows = siteMap[site].map(function(s){
-          return '<tr><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+(s.thick||'')+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式')+'</td></tr>';
+        const rows = sortPDFMaterials(siteMap[site]).map(function(s){
+          return pdfMaterialRowStart(s.name)+pdfMaterialSeriesCell(s.name)+'<td>'+s.name+'</td><td>'+s.spec+'</td><td>'+(s.thick||'')+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式')+'</td></tr>';
         }).join('');
-        html += '<h3 style="margin:8px 0 4px">🏢 '+site+'</h3><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
+        html += '<h3 style="margin:8px 0 4px">🏢 '+site+'</h3><table><thead><tr><th>庫存類別</th><th>材料</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
       });
     });
     printHTML('出貨單合併', html);
@@ -2975,11 +2989,11 @@ function exportShipDatePDF(date, note) {
   const siteMap = {};
   items.forEach(function(s){ const k=s.site||'（未指定）'; if(!siteMap[k]) siteMap[k]=[]; siteMap[k].push(s); });
   Object.keys(siteMap).forEach(function(site){
-    const rows = siteMap[site].map(function(s){
-      return '<tr><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+(s.thick||'')+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式')+'</td></tr>';
+    const rows = sortPDFMaterials(siteMap[site]).map(function(s){
+      return pdfMaterialRowStart(s.name)+pdfMaterialSeriesCell(s.name)+'<td>'+s.name+'</td><td>'+s.spec+'</td><td>'+(s.thick||'')+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式')+'</td></tr>';
     }).join('');
     const st = siteMap[site].reduce(function(a,b){return a+Number(b.qty);},0);
-    html += '<h2>🏢 '+site+'</h2><table><thead><tr><th>材料</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    html += '<h2>🏢 '+site+'</h2><table><thead><tr><th>庫存類別</th><th>材料</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th></tr></thead><tbody>'+rows+'</tbody></table>';
     html += '<div style="text-align:right;font-size:12px;color:#6b7280;margin-top:4px">小計：'+st+'</div>';
   });
   printHTML('出貨單 '+dateDisplay, html);
@@ -3322,7 +3336,7 @@ function exportOrderPDFWithContact(contactPhone) {
   Object.keys(siteMap).forEach(function(site){
     const items = siteMap[site];
     const siteTotal = items.reduce(function(a,b){return a+b.qty;},0);
-    const rows = items.map(function(o){return pdfMaterialRowStart(o.name)+pdfMaterialSeriesCell(o.name)+'<td>'+o.name+'</td><td>'+o.spec+'</td><td>'+o.thick+'</td><td>'+o.qty+'</td></tr>';}).join('');
+    const rows = sortPDFMaterials(items).map(function(o){return pdfMaterialRowStart(o.name)+pdfMaterialSeriesCell(o.name)+'<td>'+o.name+'</td><td>'+o.spec+'</td><td>'+o.thick+'</td><td>'+o.qty+'</td></tr>';}).join('');
     html += '<h2>🏢 '+site+'</h2>';
     html += '<table><thead><tr><th>庫存類別</th><th>材料名稱</th><th>規格</th><th>厚度</th><th>數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
     html += '<div style="text-align:right;font-size:12px;color:#6b7280;margin-top:4px">此案場小計：'+siteTotal+'</div>';
@@ -3361,7 +3375,7 @@ function exportPDFByDates(page, chosenDates, contactPhone) {
   if ((page === 'production' || page === 'shipment' || page === 'arrival') && contactPhone) html += '<div class="meta">聯絡人電話：'+textSafe(contactPhone)+'</div>';
   if (page==='inventory') {
     if (!inventory.length) { showToast('⚠️ 目前無資料可匯出'); return; }
-    const rows = inventory.map(function(i){return pdfMaterialRowStart(i.name)+pdfMaterialSeriesCell(i.name)+'<td>'+i.name+'</td><td>'+i.spec+'</td><td>'+i.thick+'</td><td>'+i.qty+'</td><td>'+i.lastUpdate+'</td><td>'+(i.qty>0?'有庫存':'缺貨')+'</td></tr>';}).join('');
+    const rows = sortPDFMaterials(inventory).map(function(i){return pdfMaterialRowStart(i.name)+pdfMaterialSeriesCell(i.name)+'<td>'+i.name+'</td><td>'+i.spec+'</td><td>'+i.thick+'</td><td>'+i.qty+'</td><td>'+i.lastUpdate+'</td><td>'+(i.qty>0?'有庫存':'缺貨')+'</td></tr>';}).join('');
     html += '<table><thead><tr><th>庫存類別</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>最後更新</th><th>狀態</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='production') {
     const items = productions.filter(p=>!chosenDates || chosenDates.includes(p.date||'（無日期）'));
@@ -3372,12 +3386,12 @@ function exportPDFByDates(page, chosenDates, contactPhone) {
       if (!mergeMap[key]) mergeMap[key] = {name:p.name, spec:p.spec, thick:p.thick||'', unit:p.unit||'', qty:0};
       mergeMap[key].qty = roundQty(mergeMap[key].qty + (Number(p.qty)||0));
     });
-    const rows = Object.values(mergeMap).map(function(p){return pdfMaterialRowStart(p.name)+pdfMaterialSeriesCell(p.name)+'<td>'+p.name+'</td><td>'+p.spec+'</td><td>'+p.thick+'</td><td>'+p.qty+(p.unit||'')+'</td></tr>';}).join('');
+    const rows = sortPDFMaterials(Object.values(mergeMap)).map(function(p){return pdfMaterialRowStart(p.name)+pdfMaterialSeriesCell(p.name)+'<td>'+p.name+'</td><td>'+p.spec+'</td><td>'+p.thick+'</td><td>'+p.qty+(p.unit||'')+'</td></tr>';}).join('');
     html += '<table><thead><tr><th>庫存類別</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='shipment') {
     const items = shipments.filter(s=>!chosenDates || chosenDates.includes(s.date||'（無日期）'));
     if (!items.length) { showToast('⚠️ 目前無資料可匯出'); return; }
-    const rows = items.map(function(s){return pdfMaterialRowStart(s.name)+pdfMaterialSeriesCell(s.name)+'<td>'+s.date+'</td><td>'+s.site+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td><td>'+(s.note||'')+'</td></tr>';}).join('');
+    const rows = sortPDFMaterials(items).map(function(s){return pdfMaterialRowStart(s.name)+pdfMaterialSeriesCell(s.name)+'<td>'+s.date+'</td><td>'+s.site+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td><td>'+(s.note||'')+'</td></tr>';}).join('');
     html += '<table><thead><tr><th>庫存類別</th><th>日期</th><th>工地</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th><th>備注</th></tr></thead><tbody>'+rows+'</tbody></table>';
   } else if (page==='arrival') {
     const shipItems = shipments.filter(s=>!chosenDates || chosenDates.includes(s.date||'（無日期）'));
@@ -3387,7 +3401,7 @@ function exportPDFByDates(page, chosenDates, contactPhone) {
     Object.keys(siteMap).forEach(function(site){
       const items = siteMap[site];
       const total = items.reduce(function(a,b){return a+b.qty;},0);
-      const rows = items.map(function(s){return pdfMaterialRowStart(s.name)+pdfMaterialSeriesCell(s.name)+'<td>'+s.date+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td><td>'+(s.note||'')+'</td></tr>';}).join('');
+      const rows = sortPDFMaterials(items).map(function(s){return pdfMaterialRowStart(s.name)+pdfMaterialSeriesCell(s.name)+'<td>'+s.date+'</td><td>'+s.name+'</td><td>'+s.spec+'</td><td>'+s.thick+'</td><td>'+s.qty+'</td><td>'+(s.type==='stock'?'庫存出':'制式材料')+'</td><td>'+(s.note||'')+'</td></tr>';}).join('');
       html += '<h2>🏗️ '+site+'　<span style="font-weight:400;font-size:12px;color:#6b7280">合計 '+total+' 件</span></h2>';
       html += '<table><thead><tr><th>庫存類別</th><th>日期</th><th>名稱</th><th>規格</th><th>厚度</th><th>數量</th><th>類型</th><th>備注</th></tr></thead><tbody>'+rows+'</tbody></table>';
     });
@@ -3402,7 +3416,7 @@ function exportPDFByDates(page, chosenDates, contactPhone) {
       items.forEach(function(d){ const c=d.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(d); });
       let block = '<h1 style="margin-top:16px">🏢 '+project+'</h1>';
       Object.keys(catMap).forEach(function(cat){
-        const rows = catMap[cat].map(function(d){
+        const rows = sortPDFMaterials(catMap[cat]).map(function(d){
           const allocated = getAllocatedQty(d.project,d.floor,d.name,d.spec,d.thick);
           const remaining = d.qty - allocated;
           const unit = d.unit||'';
@@ -4121,7 +4135,7 @@ function exportFloorPDF(project, floor) {
   const catMap = {};
   items.forEach(function(d){ const c=d.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(d); });
   Object.keys(catMap).forEach(function(cat){
-    const rows = catMap[cat].map(function(d){
+    const rows = sortPDFMaterials(catMap[cat]).map(function(d){
       const allocated = getAllocatedQty(d.project,d.floor,d.name,d.spec,d.thick);
       const remaining = d.qty - allocated;
       const unit = d.unit||'';
@@ -4157,7 +4171,7 @@ function exportGroupPDF(groupName) {
   const catMap = {};
   Object.values(matMap).forEach(m => { const c = m.category||'未分類'; if (!catMap[c]) catMap[c]=[]; catMap[c].push(m); });
   Object.keys(catMap).forEach(function(cat) {
-    const rows = catMap[cat].map(function(m) {
+    const rows = sortPDFMaterials(catMap[cat]).map(function(m) {
       const bal = roundQty(m.totalAllocated - m.totalDemanded);
       const unit = m.unit||'';
       const balColor = bal >= 0 ? '#166534' : '#dc2626';
@@ -4190,7 +4204,7 @@ function exportProjectPDF(project, chosenDates) {
     const catMap = {};
     floorMap[floor].forEach(function(d){ const c=d.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(d); });
     Object.keys(catMap).forEach(function(cat){
-      const rows = catMap[cat].map(function(d){
+      const rows = sortPDFMaterials(catMap[cat]).map(function(d){
         const allocated = getAllocatedQty(d.project,d.floor,d.name,d.spec,d.thick);
         const remaining = d.qty - allocated;
         const unit = d.unit||'';
@@ -4331,7 +4345,7 @@ function mergeDemandProjects() {
         const catMap = {};
         floorMap[floor].forEach(function(d){ const c=d.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(d); });
         Object.keys(catMap).forEach(function(cat){
-          const rows = catMap[cat].map(function(d){
+          const rows = sortPDFMaterials(catMap[cat]).map(function(d){
             const allocated = getAllocatedQty(d.project,d.floor,d.name,d.spec,d.thick);
             const remaining = d.qty - allocated;
             const unit = d.unit||'';
@@ -4638,7 +4652,7 @@ function exportGapPDF() {
   let html = '';
   if (company.name) html += '<div class="company">'+company.name+'</div>';
   html += '<h1>補料需求單</h1><div class="meta">案場：'+projectLabel+'　日期：'+today+'　勾選項目：'+rows.length+' 筆</div>';
-  const tableRows = rows.map(function(r){
+  const tableRows = sortPDFMaterials(rows).map(function(r){
     const col = r.net>0?'color:#dc2626;font-weight:700':r.net<0?'color:#d97706;font-weight:700':'color:#166534';
     const label = r.net>0?('缺 '+r.net+r.unit):r.net<0?('溢出 '+(-r.net)+r.unit):'✅';
     const cat = materialSeries(r.name);
@@ -5476,11 +5490,13 @@ function exportTransferLogPDF() {
 
   const body = groupNames.map((gname, gi) => {
     const items = groupMap[gname];
-    const rows = items.map(r => {
+    const rows = sortPDFMaterials(items).map(r => {
       const sameProject = allocNorm(r.fromProject) === allocNorm(r.toProject);
       const fromLabel = sameProject ? r.fromFloor : `${r.fromProject} ${r.fromFloor}`;
       const toLabel   = sameProject ? r.toFloor   : `${r.toProject} ${r.toFloor}`;
-      return `<tr>
+      const series = materialSeries(r.name);
+      return `${pdfCategoryRowStart(series)}
+        ${pdfCategoryCell(series, pdfCategoryChip(series))}
         <td>${r.date||'—'}</td>
         <td style="font-weight:600">${r.name}</td>
         <td>${r.spec||''}${r.thick?' / '+r.thick:''}</td>
@@ -5493,7 +5509,7 @@ function exportTransferLogPDF() {
       <h2>調撥紀錄 — ${transferActiveProject}</h2>
       <div class="grp">🏷 ${gname}</div>
       <table>
-        <thead><tr><th>日期</th><th>材料</th><th>規格/厚度</th><th>調撥方向</th><th>數量</th></tr></thead>
+        <thead><tr><th>庫存類別</th><th>日期</th><th>材料</th><th>規格/厚度</th><th>調撥方向</th><th>數量</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -5806,7 +5822,7 @@ function exportAllocPDF(chosenDates) {
     const catMap = {};
     floorMap[floor].forEach(function(a){ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
     Object.keys(catMap).forEach(function(cat){
-      const rows = catMap[cat].map(function(a){
+      const rows = sortPDFMaterials(catMap[cat]).map(function(a){
         const series = materialSeries(a.name);
         return pdfCategoryRowStart(series)+pdfCategoryCell(series, pdfCategoryChip(series))+'<td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
       }).join('');
@@ -5863,7 +5879,7 @@ function exportSettlementPDF() {
   if (company.name) html += '<div class="company">'+company.name+'</div>';
   html += '<h1>用料結算單</h1>';
   html += '<div class="meta">案場：'+project+'　結算日期：'+today+'</div>';
-  const rows = data.map(function(m){
+  const rows = sortPDFMaterials(data).map(function(m){
     const cats = Object.keys(m.byCat);
     const primaryCat = materialSeries(m.name);
     const catLine = cats.map(function(c){return pdfCategoryChip(c)+' '+m.byCat[c]+m.unit;}).join(' ');
@@ -5885,7 +5901,7 @@ function exportAllocDatePDF(date) {
   const catMap = {};
   items.forEach(function(a){ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
   Object.keys(catMap).forEach(function(cat){
-    const rows = catMap[cat].map(function(a){
+    const rows = sortPDFMaterials(catMap[cat]).map(function(a){
       const series = materialSeries(a.name);
       return pdfCategoryRowStart(series)+pdfCategoryCell(series, pdfCategoryChip(series))+'<td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
     }).join('');
@@ -5910,7 +5926,7 @@ function buildAllocHTML(items, headerMeta) {
       const catMap = {};
       floorMap[floor].forEach(function(a){ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
       Object.keys(catMap).forEach(function(cat){
-        const rows = catMap[cat].map(function(a){
+        const rows = sortPDFMaterials(catMap[cat]).map(function(a){
           const series = materialSeries(a.name);
           return pdfCategoryRowStart(series)+pdfCategoryCell(series, pdfCategoryChip(series))+'<td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
         }).join('');
