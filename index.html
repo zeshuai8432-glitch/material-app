@@ -39,6 +39,9 @@ body.project-entry-mode #project-entry{display:block}
 .project-card-name{font-size:18px;font-weight:850;margin-bottom:6px}
 .project-card-meta{font-size:12px;color:#64748b}
 .project-card select{width:100%;margin-top:10px;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;background:#f8fafc;color:#334155}
+.project-card-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.project-section-title{font-size:13px;font-weight:850;color:#334155;margin:18px 0 8px}
+.project-card.archived{background:#f8fafc;box-shadow:inset 0 0 0 1px #e2e8f0}
 .project-context-bar{position:sticky;top:58px;z-index:45;margin:0;padding:10px 14px;background:#eff6ff;border-bottom:1px solid #dbeafe;display:flex;justify-content:space-between;align-items:center;gap:10px}
 .project-context-main{min-width:0;font-size:13px;color:#334155}
 .project-context-name{font-weight:900;color:#1e3a8a}
@@ -1457,14 +1460,18 @@ function getProjectRecordCount(project) {
     allocations.filter(a=>normProject(a.project)===p).length;
 }
 
-function getProjectList() {
+function getAllProjectList() {
   const set = new Set(Object.keys(projectCompanies || {}).filter(Boolean));
   demands.forEach(d=>{ if(d.project) set.add(d.project); });
   shipments.forEach(s=>{ if(s.site) set.add(s.site); });
   productions.forEach(p=>{ if(p.project) set.add(p.project); });
   allocations.forEach(a=>{ if(a.project) set.add(a.project); });
   Object.values(inventoryProjects || {}).forEach(p=>{ if(p) set.add(p); });
-  return [...set].filter(p=>!archivedProjects.includes(p)).sort((a,b)=>cmpText(a,b));
+  return [...set].sort((a,b)=>cmpText(a,b));
+}
+
+function getProjectList() {
+  return getAllProjectList().filter(p=>!archivedProjects.includes(p));
 }
 
 function companyOptionsHTML(selectedId) {
@@ -1483,11 +1490,8 @@ function renderProjectEntry() {
   const list = document.getElementById('project-entry-list');
   if (!list) return;
   const projects = getProjectList();
-  if (!projects.length) {
-    list.innerHTML = '<div class="card"><div class="card-title">尚無案場</div><div style="font-size:13px;color:#64748b;line-height:1.6">請先新增案場，進入後再建立需求單。</div></div>';
-    return;
-  }
-  list.innerHTML = projects.map(p=>{
+  const archived = getAllProjectList().filter(p=>archivedProjects.includes(p));
+  const renderActiveCard = p=>{
     const companyId = projectCompanies[p] || '';
     const bound = getCompanyById(companyId);
     const companyName = bound ? bound.name : (getDefaultCompany().name ? '預設：'+getDefaultCompany().name : '尚未設定公司');
@@ -1496,8 +1500,28 @@ function renderProjectEntry() {
       '<div class="project-card-name">'+textSafe(p)+'</div>'+
       '<div class="project-card-meta">'+getProjectRecordCount(p)+' 筆資料・'+textSafe(companyName)+'</div>'+
       '<select onclick="event.stopPropagation()" onchange="setProjectCompany(\''+safe+'\', this.value)">'+companyOptionsHTML(companyId)+'</select>'+
+      '<div class="project-card-actions">'+
+        '<button class="btn-sm" type="button" onclick="event.stopPropagation();archiveProject(\''+safe+'\')">封存</button>'+
+        '<button class="btn-danger-sm" type="button" onclick="event.stopPropagation();deleteProjectPermanently(\''+safe+'\')">永久刪除</button>'+
+      '</div>'+
     '</div>';
-  }).join('');
+  };
+  const renderArchivedCard = p=>{
+    const safe = projectNameForJS(p);
+    return '<div class="project-card archived">'+
+      '<div class="project-card-name">'+textSafe(p)+'</div>'+
+      '<div class="project-card-meta">已封存・'+getProjectRecordCount(p)+' 筆資料</div>'+
+      '<div class="project-card-actions">'+
+        '<button class="btn-sm" type="button" onclick="unarchiveProject(\''+safe+'\')">還原</button>'+
+        '<button class="btn-danger-sm" type="button" onclick="deleteProjectPermanently(\''+safe+'\')">永久刪除</button>'+
+      '</div>'+
+    '</div>';
+  };
+  let html = '';
+  if (projects.length) html += '<div class="project-section-title">使用中案場</div>' + projects.map(renderActiveCard).join('');
+  else html += '<div class="card"><div class="card-title">尚無使用中案場</div><div style="font-size:13px;color:#64748b;line-height:1.6">可以新增案場，或從下方封存案場還原。</div></div>';
+  if (archived.length) html += '<div class="project-section-title">已封存案場</div>' + archived.map(renderArchivedCard).join('');
+  list.innerHTML = html;
 }
 
 function showProjectEntry() {
@@ -4272,7 +4296,6 @@ function renderDemands() {
         <button onclick="event.stopPropagation();exportFloorPDF('${activeProject.replace(/'/g,"\\'")}','${activeFloor.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">📄 匯出此樓層</button>
         <button onclick="event.stopPropagation();deleteFloor('${activeProject.replace(/'/g,"\\'")}','${activeFloor.replace(/'/g,"\\'")}')" style="background:rgba(220,38,38,0.75);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">🗑️ 刪除此樓層</button>
         <button onclick="event.stopPropagation();exportProjectPDF('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">匯出整個案場</button>
-        <button onclick="event.stopPropagation();archiveProject('${activeProject.replace(/'/g,"\\'")}')" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer">📦 封存</button>
       </div>
     </div>
     <div class="site-group-body collapsible-body" id="${floorGid}" style="display:${floorOpen?'block':'none'}">`;
@@ -4532,6 +4555,10 @@ function editDemand(idx) {
 function archiveProject(project) {
   if (!confirm('確定封存「'+project+'」？\n\n封存後會從頁籤收起來（資料保留），需要時可在「封存管理」還原。')) return;
   if (!archivedProjects.includes(project)) archivedProjects.push(project);
+  if (currentSite === project) {
+    currentSite = '';
+    localStorage.setItem('mat_current_site', '');
+  }
   activeProject = null; activeFloor = null;
   allocActiveProject = null; allocActiveFloor = null;
   renderAll(); autoSave(); showToast('📦 已封存「'+project+'」');
@@ -4540,7 +4567,6 @@ function archiveProject(project) {
 function unarchiveProject(project) {
   archivedProjects = archivedProjects.filter(p=>p!==project);
   renderAll(); autoSave(); showToast('✅ 已還原「'+project+'」');
-  showArchiveManager();
 }
 
 function deleteProjectPermanently(project) {
@@ -4549,10 +4575,17 @@ function deleteProjectPermanently(project) {
   const n = v => String(v==null?'':v).trim();
   demands = demands.filter(d=>n(d.project)!==n(project));
   shipments = shipments.filter(s=>n(s.site)!==n(project));
+  productions = productions.filter(p=>n(p.project)!==n(project));
   allocations = allocations.filter(a=>n(a.project)!==n(project));
+  inventory = inventory.filter(i=>n(getInvProject(i))!==n(project));
+  Object.keys(inventoryProjects).forEach(k=>{ if (n(inventoryProjects[k])===n(project)) delete inventoryProjects[k]; });
+  delete projectCompanies[project];
   archivedProjects = archivedProjects.filter(p=>p!==project);
+  if (currentSite === project) {
+    currentSite = '';
+    localStorage.setItem('mat_current_site', '');
+  }
   renderAll(); autoSave(); showToast('🗑️ 已永久刪除「'+project+'」');
-  showArchiveManager();
 }
 
 function showArchiveManager() {
