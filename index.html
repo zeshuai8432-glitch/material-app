@@ -39,7 +39,9 @@ body.project-entry-mode #project-entry{display:block}
 .project-card-name{font-size:18px;font-weight:850;margin-bottom:6px}
 .project-card-meta{font-size:12px;color:#64748b}
 .project-card select{width:100%;margin-top:10px;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:10px;background:#f8fafc;color:#334155}
+.project-company-label{font-size:12px;font-weight:850;color:#334155;margin-top:12px}
 .project-card-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.project-entry-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
 .project-section-title{font-size:13px;font-weight:850;color:#334155;margin:18px 0 8px}
 .project-card.archived{background:#f8fafc;box-shadow:inset 0 0 0 1px #e2e8f0}
 .project-context-bar{position:sticky;top:58px;z-index:45;margin:0;padding:10px 14px;background:#eff6ff;border-bottom:1px solid #dbeafe;display:flex;justify-content:space-between;align-items:center;gap:10px}
@@ -796,7 +798,10 @@ button:hover,
     <div class="project-entry-title">選擇案場</div>
     <div class="project-entry-sub">先進入案場，再管理該案場的需求、入庫、出貨、分配與 PDF。公司可先綁在案場上，後續匯出會更直覺。</div>
     <div id="project-entry-list" class="project-list"></div>
-    <button class="btn-primary" type="button" onclick="createProjectFromEntry()">新增案場</button>
+    <div class="project-entry-actions">
+      <button class="btn-primary" type="button" onclick="createProjectFromEntry()">新增案場</button>
+      <button class="btn-outline" type="button" onclick="showCompanyModal()">公司設定</button>
+    </div>
   </div>
 </div>
 
@@ -885,7 +890,6 @@ button:hover,
   <div class="card">
     <div class="card-title">
       新增出貨品項
-      <button class="btn-sm" onclick="showCompanyModal()">⚙️ 公司設定</button>
     </div>
     <div class="form-group"><label>日期</label><input type="date" id="ship-date"></div>
     <div class="form-group">
@@ -900,7 +904,7 @@ button:hover,
         <option value="">-- 先選案場 --</option>
       </select>
     </div>
-    <div class="form-group">
+    <div class="form-group" style="display:none">
       <label>出貨公司</label>
       <select id="ship-company-select" onchange="onShipCompanyChange()">
         <option value="">-- 請先設定公司 --</option>
@@ -1446,6 +1450,7 @@ function setProjectCompany(project, companyId) {
   if (!project) return;
   projectCompanies[project] = companyId || '';
   saveLocal();
+  if (currentSite === project) refreshCompanySelect();
   renderProjectEntry();
   updateProjectContext();
   showToast('✅ 案場公司已更新');
@@ -1498,6 +1503,7 @@ function renderProjectEntry() {
     return '<div class="project-card" onclick="enterProject(\''+safe+'\')">'+
       '<div class="project-card-name">'+textSafe(p)+'</div>'+
       '<div class="project-card-meta">'+getProjectRecordCount(p)+' 筆資料・'+textSafe(companyName)+'</div>'+
+      '<div class="project-company-label">案場綁定公司</div>'+
       '<select onclick="event.stopPropagation()" onchange="setProjectCompany(\''+safe+'\', this.value)">'+companyOptionsHTML(companyId)+'</select>'+
       '<div class="project-card-actions">'+
         '<button class="btn-sm" type="button" onclick="event.stopPropagation();archiveProject(\''+safe+'\')">封存</button>'+
@@ -3371,6 +3377,7 @@ function persistCompanies(markDirty = true) {
   updateActiveCompany();
   refreshCompanySelect();
   renderCompanyList();
+  renderProjectEntry();
   if (markDirty) saveLocal();
 }
 
@@ -3380,7 +3387,7 @@ function getCompanyById(id) {
 
 function getSelectedShippingCompany() {
   const sel = document.getElementById('ship-company-select');
-  const id = sel && sel.value ? sel.value : (currentSite && projectCompanies[currentSite] ? projectCompanies[currentSite] : selectedCompanyId);
+  const id = (currentSite && projectCompanies[currentSite]) || (sel && sel.value) || selectedCompanyId;
   return getCompanyById(id) || company || {name:'', phone:''};
 }
 
@@ -3400,7 +3407,7 @@ function companyHeaderHTML(c) {
 function refreshCompanySelect() {
   const sel = document.getElementById('ship-company-select');
   if (!sel) return;
-  const prev = sel.value || (currentSite ? projectCompanies[currentSite] : '') || selectedCompanyId;
+  const prev = (currentSite ? projectCompanies[currentSite] : '') || sel.value || selectedCompanyId;
   sel.innerHTML = '';
   if (!companies.length) {
     const o = document.createElement('option');
