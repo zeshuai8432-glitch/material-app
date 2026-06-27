@@ -2953,9 +2953,11 @@ function mergeShipByRange() {
   showPicker('選擇要合併的出貨日期', options, function(chosenDates){
     const items = shipments.filter(s=>chosenDates.includes(s.date||'（無日期）'));
     if (!items.length) { showToast('⚠️ 無資料'); return; }
+    askPDFContactPhone(function(contactPhone) {
     let html = '';
     if (company.name) html += '<div class="company">'+company.name+'</div>';
     html += '<h1>出貨單（合併）</h1><div class="meta">日期：'+chosenDates.sort().join('、')+'</div>';
+    if (contactPhone) html += '<div class="meta">聯絡人電話：'+textSafe(contactPhone)+'</div>';
     // 依（日期 + 備注）分組
     const groupMap = {};
     items.forEach(function(s){ const k=(s.date||'（無日期）')+'|||'+(s.note||''); if(!groupMap[k]) groupMap[k]={date:s.date||'（無日期）',note:s.note||'',items:[]}; groupMap[k].items.push(s); });
@@ -2973,6 +2975,7 @@ function mergeShipByRange() {
       });
     });
     printHTML('出貨單合併', html);
+    }, '合併出貨 PDF');
   });
 }
 
@@ -2982,9 +2985,11 @@ function exportShipDatePDF(date, note) {
   if (!items.length) { showToast('⚠️ 無資料'); return; }
   const extraLabel = shipDateLabels[date+'|||'+note] || '';
   const dateDisplay = date + (note?' — '+note:'') + (extraLabel?' （'+extraLabel+'）':'');
+  askPDFContactPhone(function(contactPhone) {
   let html = '';
   if (company.name) html += '<div class="company">'+company.name+'</div>';
   html += '<h1>出貨單</h1><div class="meta">日期：'+dateDisplay+'</div>';
+  if (contactPhone) html += '<div class="meta">聯絡人電話：'+textSafe(contactPhone)+'</div>';
   // 依案場分組
   const siteMap = {};
   items.forEach(function(s){ const k=s.site||'（未指定）'; if(!siteMap[k]) siteMap[k]=[]; siteMap[k].push(s); });
@@ -2997,6 +3002,7 @@ function exportShipDatePDF(date, note) {
     html += '<div style="text-align:right;font-size:12px;color:#6b7280;margin-top:4px">小計：'+st+'</div>';
   });
   printHTML('出貨單 '+dateDisplay, html);
+  }, '出貨單 PDF');
 }
 
 function renderOrder() {
