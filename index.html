@@ -894,14 +894,8 @@ button:hover,
     <div class="form-group"><label>日期</label><input type="date" id="ship-date"></div>
     <div class="form-group">
       <label>工地／案件名稱</label>
-      <select id="ship-site" onchange="refreshShipFloorSelect(); refreshShipDemandSelects(); updateDemandGap()">
+      <select id="ship-site" onchange="refreshShipDemandSelects(); updateDemandGap()">
         <option value="">-- 請選擇案件 --</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label>樓層（依需求單）</label>
-      <select id="ship-floor" onchange="refreshShipDemandSelects(); updateDemandGap()">
-        <option value="">-- 先選案場 --</option>
       </select>
     </div>
     <div class="form-group" style="display:none">
@@ -2518,7 +2512,7 @@ function fillDemandMaterialSelect(sel, materials, placeholder) {
 
 function refreshShipDemandSelects() {
   const site = currentSite || (document.getElementById('ship-site') ? document.getElementById('ship-site').value : '');
-  const floor = document.getElementById('ship-floor') ? document.getElementById('ship-floor').value : '';
+  const floor = '';
   const materials = getDemandMaterialOptions(site, floor);
   refreshInvSelect();
   fillDemandMaterialSelect(document.getElementById('ship-demand-select'), materials, '-- 請選擇需求單材料 --');
@@ -2629,7 +2623,7 @@ function updateDemandGap() {
   const box = document.getElementById('demand-gap-box');
   if (!box) return;
   const site = currentSite || document.getElementById('ship-site').value;
-  const floor = (document.getElementById('ship-floor')||{}).value || '';
+  const floor = '';
   const mat = getCurrentShipMaterial();
   if (!site || !mat) { box.style.display='none'; return; }
   const normM = v => String(v==null?'':v).trim();
@@ -2704,7 +2698,7 @@ function updateDemandGap() {
 function addShipment() {
   const date = document.getElementById('ship-date').value;
   const site = currentSite || document.getElementById('ship-site').value;
-  const floor = (document.getElementById('ship-floor')||{}).value || '';
+  const floor = '';
   const shipCompany = getSelectedShippingCompany();
   const qtyRaw = document.getElementById('ship-qty').value.trim();
   const qty = evalQty(qtyRaw);
@@ -2771,7 +2765,7 @@ function addShipment() {
 function addAllStockShipments() {
   const date = document.getElementById('ship-date').value;
   const site = currentSite || document.getElementById('ship-site').value;
-  const floor = (document.getElementById('ship-floor')||{}).value || '';
+  const floor = '';
   const shipCompany = getSelectedShippingCompany();
   const noteEl = document.getElementById('ship-note');
   const note = noteEl ? (noteEl.value || '').trim() : '';
@@ -3358,8 +3352,7 @@ function refreshProductionFloorSelect() {
 }
 
 function refreshShipFloorSelect() {
-  const site = currentSite || (document.getElementById('ship-site')||{}).value || '';
-  fillFloorSelect(document.getElementById('ship-floor'), site, '-- 不指定樓層 --');
+  // 出貨不再指定樓層；樓層統一在分配頁處理。
 }
 
 function goToAllocation() {
@@ -3925,7 +3918,6 @@ function refreshProjectSelects() {
     projects.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; shipSel.appendChild(o); });
     shipSel.value = currentSite || shipVal || '';
   }
-  refreshShipFloorSelect();
   refreshProductionFloorSelect();
   // Update dem-project select
   const demSel = document.getElementById('dem-project');
