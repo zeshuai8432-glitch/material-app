@@ -3292,33 +3292,18 @@ function printHTML(title, tableHTML) {
   w.document.close();
 }
 
-function askPDFContactPhone(done) {
+function askPDFContactPhone(done, label) {
   const orderCompany = getSelectedShippingCompany();
-  showEditModal(
-    '輸入聯絡人電話',
-    '<div class="form-group">' +
-      '<label>聯絡人電話（只會顯示在這次匯出的 PDF）</label>' +
-      '<input id="pdf-contact-phone" type="tel" inputmode="tel" placeholder="例如：0912-345-678" value="'+textSafe(orderCompany.phone || '')+'">' +
-    '</div>',
-    function() {
-      const input = document.getElementById('pdf-contact-phone');
-      const phone = input ? input.value.trim() : '';
-      document.getElementById('edit-modal').classList.remove('show');
-      document.getElementById('edit-save-btn').textContent = '儲存';
-      done(phone);
-    }
-  );
-  const btn = document.getElementById('edit-save-btn');
-  btn.textContent = '匯出 PDF';
-  setTimeout(function(){
-    const input = document.getElementById('pdf-contact-phone');
-    if (input) input.focus();
-  }, 0);
+  const defaultPhone = orderCompany.phone || '';
+  const title = label || 'PDF';
+  const phone = window.prompt(title + '：請輸入聯絡人電話（只會顯示在這次匯出的 PDF）', defaultPhone);
+  if (phone === null) return;
+  done(String(phone).trim());
 }
 
 function exportOrderPDF() {
   if (!currentOrder.length) { showToast('⚠️ 採購單是空的'); return; }
-  askPDFContactPhone(exportOrderPDFWithContact);
+  askPDFContactPhone(exportOrderPDFWithContact, '出貨給供貨商');
 }
 
 function exportOrderPDFWithContact(contactPhone) {
@@ -3356,12 +3341,16 @@ function exportPDF(page) {
     if (!dates.length) { showToast('⚠️ 目前無資料可匯出'); return; }
     const options = dates.map(d=>({value:d,label:'📅 '+d+'（'+source.filter(r=>(r.date||'（無日期）')===d).length+'筆）'}));
     showPicker('選擇要匯出的日期', options, function(chosenDates){
-      if (page === 'shipment') askPDFContactPhone(phone=>exportPDFByDates(page, chosenDates, phone));
+      if (page === 'production') askPDFContactPhone(phone=>exportPDFByDates(page, chosenDates, phone), '入庫 PDF');
+      else if (page === 'shipment') askPDFContactPhone(phone=>exportPDFByDates(page, chosenDates, phone), '出貨 PDF');
+      else if (page === 'arrival') askPDFContactPhone(phone=>exportPDFByDates(page, chosenDates, phone), '到料 PDF');
       else exportPDFByDates(page, chosenDates);
     }, '匯出 PDF');
     return;
   }
-  if (page === 'shipment') askPDFContactPhone(phone=>exportPDFByDates(page, null, phone));
+  if (page === 'production') askPDFContactPhone(phone=>exportPDFByDates(page, null, phone), '入庫 PDF');
+  else if (page === 'shipment') askPDFContactPhone(phone=>exportPDFByDates(page, null, phone), '出貨 PDF');
+  else if (page === 'arrival') askPDFContactPhone(phone=>exportPDFByDates(page, null, phone), '到料 PDF');
   else exportPDFByDates(page, null);
 }
 
@@ -3369,7 +3358,7 @@ function exportPDFByDates(page, chosenDates, contactPhone) {
   const titles = {inventory:'庫存清單', production:'生產清單', shipment:'所有出貨紀錄', arrival:'到料紀錄', demand:'需求單'};
   let html = '<h1>'+titles[page]+'</h1><div class="meta">匯出日期：'+today+'</div>';
   if (chosenDates && chosenDates.length) html += '<div class="meta">資料日期：'+chosenDates.slice().sort().join('、')+'</div>';
-  if (page === 'shipment' && contactPhone) html += '<div class="meta">聯絡人電話：'+textSafe(contactPhone)+'</div>';
+  if ((page === 'production' || page === 'shipment' || page === 'arrival') && contactPhone) html += '<div class="meta">聯絡人電話：'+textSafe(contactPhone)+'</div>';
   if (page==='inventory') {
     if (!inventory.length) { showToast('⚠️ 目前無資料可匯出'); return; }
     const rows = inventory.map(function(i){return pdfMaterialRowStart(i.name)+pdfMaterialSeriesCell(i.name)+'<td>'+i.name+'</td><td>'+i.spec+'</td><td>'+i.thick+'</td><td>'+i.qty+'</td><td>'+i.lastUpdate+'</td><td>'+(i.qty>0?'有庫存':'缺貨')+'</td></tr>';}).join('');
