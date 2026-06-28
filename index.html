@@ -832,7 +832,7 @@ button:hover,
     <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:#9ca3af;flex-shrink:0"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     <input type="text" id="inv-search" placeholder="搜尋名稱、規格或厚度..." oninput="renderInventory()">
   </div>
-  <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+  <div style="display:none;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
     <span style="font-size:12px;color:#64748b;font-weight:600">篩選案場：</span>
     <select id="inv-project-filter" onchange="renderInventory()" style="border:1.5px solid #e2e8f0;border-radius:10px;padding:6px 10px;font-size:13px;background:#f8fafc">
       <option value="">全部</option>
@@ -866,7 +866,7 @@ button:hover,
       <div class="form-group"><label>數量</label><input type="text" id="prod-qty" placeholder="點此開啟計算機" readonly class="qty-tap" onclick="openCalc(this)">
       <div class="qty-preview" id="prod-qty-preview"></div></div>
     </div>
-    <div class="form-group"><label>指定案場（留空 = 通用庫存）</label>
+    <div class="form-group" style="display:none"><label>指定案場（留空 = 通用庫存）</label>
       <select id="prod-project" onchange="refreshProductionFloorSelect()"><option value="">-- 通用（不限案場）--</option></select>
     </div>
     <div class="form-group"><label>樓層（依需求單）</label>
@@ -892,7 +892,7 @@ button:hover,
       新增出貨品項
     </div>
     <div class="form-group"><label>日期</label><input type="date" id="ship-date"></div>
-    <div class="form-group">
+    <div class="form-group" style="display:none">
       <label>工地／案件名稱</label>
       <select id="ship-site" onchange="refreshShipDemandSelects(); updateDemandGap()">
         <option value="">-- 請選擇案件 --</option>
@@ -986,7 +986,7 @@ button:hover,
   <div class="flow-hint">📋 接到案場了？從這裡開始，把每層樓每個分區需要的材料需求量填進去。</div>
   <div class="card">
     <div class="card-title">新增需求</div>
-    <div class="form-group">
+    <div class="form-group" style="display:none">
       <label>案件名稱</label>
       <select id="dem-project" onchange="onSelectProject()">
         <option value="">-- 選擇現有案件或新增 --</option>
@@ -2575,7 +2575,7 @@ function toggleShipDemandPreview() {
   body.style.display = open ? 'none' : '';
   toggle.textContent = open ? '▶ 展開' : '▲ 收合';
   if (!open) {
-    const site = (document.getElementById('ship-site')||{}).value || '';
+    const site = currentSite || (document.getElementById('ship-site')||{}).value || '';
     if (site) _buildShipDemandPreview(site, body);
   }
 }
@@ -2885,7 +2885,7 @@ function renderInvStats() {
 
 function renderInventory() {
   const q = (document.getElementById('inv-search').value||'').trim().toLowerCase();
-  const projFilter = (document.getElementById('inv-project-filter')||{}).value || '';
+  const projFilter = currentSite ? '' : ((document.getElementById('inv-project-filter')||{}).value || '');
   const txt = v => String(v==null?'':v).toLowerCase();
   // Refresh project filter options
   const pfSel = document.getElementById('inv-project-filter');
@@ -3356,7 +3356,7 @@ function refreshShipFloorSelect() {
 }
 
 function goToAllocation() {
-  const site = document.getElementById('ship-site').value;
+  const site = currentSite || (document.getElementById('ship-site')||{}).value || '';
   if (site) allocActiveProject = site;
   renderAllocation();
   showPage('allocation', null);
@@ -5807,7 +5807,7 @@ function renderTransferPage() {
     transferActiveProject = projects[0];
   }
   if (tabsEl) {
-    tabsEl.innerHTML = projects.map(p =>
+    tabsEl.innerHTML = currentSite ? '' : projects.map(p =>
       `<button class="dtab ${p===transferActiveProject?'active':''}" onclick="selectTransferProject('${p.replace(/'/g,"\\'")}')">🏢 ${p}</button>`
     ).join('');
   }
@@ -5850,7 +5850,7 @@ function renderAllocation() {
   if (!allocActiveProject || !projects.includes(allocActiveProject)) { allocActiveProject = projects[0]; allocActiveFloor = null; }
   // 第一層：案場頁籤
   if (tabsEl) {
-    tabsEl.innerHTML = projects.map(p=>
+    tabsEl.innerHTML = currentSite ? '' : projects.map(p=>
       `<button class="dtab ${p===allocActiveProject?'active':''}" onclick="selectAllocTab('${p.replace(/'/g,"\\'")}')">🏢 ${p}</button>`
     ).join('');
   }
