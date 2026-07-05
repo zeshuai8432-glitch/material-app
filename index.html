@@ -3551,6 +3551,14 @@ function printHTML(title, tableHTML) {
     '.pdf-cat-chip{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--cat-bg);color:var(--cat-text);border:1px solid var(--cat-border);font-size:11px;font-weight:700;line-height:1.5}' +
     '.pdf-cat-row td{background:var(--cat-row)!important}' +
     '.pdf-cat-cell{border-left:4px solid var(--cat-color)}' +
+    '.alloc-date-h{font-size:15px;margin:18px 0 2px;padding-bottom:4px;border-bottom:2px solid #185FA5;color:#185FA5}' +
+    '.alloc-floor-h{margin:14px 0 0;padding:7px 12px;background:#185FA5;color:#fff;border-radius:8px 8px 0 0;font-size:14px;font-weight:700}' +
+    '.alloc-floor-sub{font-weight:400;font-size:12px;opacity:.85;margin-left:8px}' +
+    '.alloc-table{margin-top:0}' +
+    '.alloc-table th{background:#eef2f6;color:#334155;border-bottom:2px solid #cbd5e1}' +
+    '.alloc-table th.th-qty{text-align:right}' +
+    '.alloc-table td.qty{text-align:right;font-weight:700}' +
+    '.alloc-cat-row td{background:#eef2f6!important;color:#475569;font-weight:700;font-size:11px;letter-spacing:.5px;border-bottom:1px solid #d9e0e8}' +
     '.total{margin-top:12px;text-align:right;font-weight:700;font-size:14px}' +
     '.footer{margin-top:24px;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:8px}' +
     '@media print{body{padding:10px}}' +
@@ -6058,6 +6066,56 @@ function renderAllocList() {
   }).join('');
 }
 
+// 搬運單：一個樓層（或樓層群組）= 一張乾淨的表；分類為表內淡灰分隔列
+function buildAllocFloorTables(project, items, opts) {
+  const useGroup = !opts || opts.group !== false;
+  const groups = floorGroups[project] || [];
+  const floorToGroup = {};
+  groups.forEach(g => (g.floors||[]).forEach(f => { floorToGroup[allocNorm(f)] = g.name; }));
+  // 依顯示樓層（群組名或原樓層）分桶
+  const buckets = {};
+  items.forEach(a => {
+    const actual = a.floor || '（未分樓層）';
+    const gName = useGroup ? floorToGroup[allocNorm(actual)] : null;
+    const display = gName || actual;
+    if (!buckets[display]) buckets[display] = { members:{}, items:[] };
+    buckets[display].members[actual] = true;
+    buckets[display].items.push(a);
+  });
+  let html = '';
+  Object.keys(buckets).sort((a,b)=>cmpText(a,b)).forEach(display => {
+    const bk = buckets[display];
+    const members = Object.keys(bk.members).sort((a,b)=>cmpText(a,b));
+    const multiRoom = members.length > 1;
+    // 合併相同材料（同 分類+名+規+厚+房間）加總數量
+    const mergeMap = {};
+    bk.items.forEach(a => {
+      const fl = a.floor || '（未分樓層）';
+      const key = allocNorm(a.category)+'|'+a.name+'|'+a.spec+'|'+(a.thick||'')+'|'+fl;
+      if (!mergeMap[key]) mergeMap[key] = { category:a.category||'未分類', name:a.name, spec:a.spec, thick:a.thick||'', unit:a.unit||'', floor:fl, qty:0 };
+      mergeMap[key].qty = roundQty(mergeMap[key].qty + Number(a.qty));
+    });
+    const catMap = {};
+    Object.values(mergeMap).forEach(m => { const c=m.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(m); });
+    const colCount = multiRoom ? 5 : 4;
+    const sub = multiRoom ? '<span class="alloc-floor-sub">'+textSafe(members.join('＋'))+'</span>' : '';
+    let body = '';
+    Object.keys(catMap).sort((a,b)=>cmpText(a,b)).forEach(cat => {
+      body += '<tr class="alloc-cat-row"><td colspan="'+colCount+'">'+textSafe(cat)+'</td></tr>';
+      sortPDFMaterials(catMap[cat]).forEach(m => {
+        body += '<tr><td>'+m.name+'</td><td>'+m.spec+'</td><td>'+(m.thick||'')+'</td>'
+          + (multiRoom ? '<td>'+textSafe(m.floor)+'</td>' : '')
+          + '<td class="qty">'+m.qty+(m.unit||'')+'</td></tr>';
+      });
+    });
+    html += '<div class="alloc-floor-h">'+textSafe(display)+sub+'</div>';
+    html += '<table class="alloc-table"><thead><tr><th>材料</th><th>規格</th><th>厚度</th>'
+      + (multiRoom ? '<th>房間</th>' : '')
+      + '<th class="th-qty">搬運數量</th></tr></thead><tbody>'+body+'</tbody></table>';
+  });
+  return html;
+}
+
 function exportAllocPDF(chosenDates) {
   if (!allocActiveProject) { showToast('⚠️ 請先選案場'); return; }
   const allItems = allocations.filter(a=>!a.transferId && Number(a.qty)>0 && allocNorm(a.project)===allocNorm(allocActiveProject));
@@ -6074,22 +6132,7 @@ function exportAllocPDF(chosenDates) {
   if (company.name) html += '<div class="company">'+company.name+'</div>';
   html += '<h1>材料搬運單</h1>';
   html += '<div class="meta">案場：'+allocActiveProject+'　資料日期：'+chosenDates.slice().sort().join('、')+'</div>';
-  // 依樓層 > 分類
-  const floorMap = {};
-  items.forEach(function(a){ const f=a.floor||'（未分樓層）'; if(!floorMap[f]) floorMap[f]=[]; floorMap[f].push(a); });
-  Object.keys(floorMap).forEach(function(floor){
-    html += '<h2 style="background:#185FA5;color:#fff;padding:6px 10px;border-radius:6px">🏢 '+floor+'</h2>';
-    const catMap = {};
-    floorMap[floor].forEach(function(a){ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
-    Object.keys(catMap).forEach(function(cat){
-      const rows = sortPDFMaterials(catMap[cat]).map(function(a){
-        const series = materialSeries(a.name);
-        return pdfCategoryRowStart(series)+pdfCategoryCell(series, pdfCategoryChip(series))+'<td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
-      }).join('');
-      html += pdfCategoryTitle(cat);
-      html += '<table><thead><tr><th>庫存類別</th><th>材料名稱</th><th>規格</th><th>厚度</th><th>搬運數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
-    });
-  });
+  html += buildAllocFloorTables(allocActiveProject, items);
   printHTML('搬運單 '+allocActiveProject, html);
 }
 
@@ -6158,20 +6201,13 @@ function exportAllocDatePDF(date) {
   if (company.name) html += '<div class="company">'+company.name+'</div>';
   html += '<h1>材料搬運單</h1>';
   html += '<div class="meta">案場：'+allocActiveProject+'　樓層：'+allocActiveFloor+'　日期：'+date+'</div>';
-  const catMap = {};
-  items.forEach(function(a){ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
-  Object.keys(catMap).forEach(function(cat){
-    const rows = sortPDFMaterials(catMap[cat]).map(function(a){
-      const series = materialSeries(a.name);
-      return pdfCategoryRowStart(series)+pdfCategoryCell(series, pdfCategoryChip(series))+'<td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
-    }).join('');
-    html += pdfCategoryTitle(cat)+'<table><thead><tr><th>庫存類別</th><th>材料</th><th>規格</th><th>厚度</th><th>搬運數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
-  });
+  html += buildAllocFloorTables(allocActiveProject, items, {group:false});
   printHTML('搬運單 '+allocActiveProject+' '+date, html);
 }
 
 function buildAllocHTML(items, headerMeta) {
   items = (items || []).filter(a=>!a.transferId && Number(a.qty)>0);
+  const project = (items[0]||{}).project || allocActiveProject;
   let html = '';
   if (company.name) html += '<div class="company">'+company.name+'</div>';
   html += '<h1>材料搬運單（合併）</h1>';
@@ -6179,21 +6215,8 @@ function buildAllocHTML(items, headerMeta) {
   const dateMap = {};
   items.forEach(function(a){ const d=a.date||'（無日期）'; if(!dateMap[d]) dateMap[d]=[]; dateMap[d].push(a); });
   Object.keys(dateMap).sort((a,b)=>cmpText(b,a)).forEach(function(date){
-    html += '<h1 style="margin-top:14px;border-top:2px solid #185FA5;padding-top:8px">📅 '+date+'</h1>';
-    const floorMap = {};
-    dateMap[date].forEach(function(a){ const f=a.floor||'（未分樓層）'; if(!floorMap[f]) floorMap[f]=[]; floorMap[f].push(a); });
-    Object.keys(floorMap).forEach(function(floor){
-      html += '<h2 style="background:#185FA5;color:#fff;padding:6px 10px;border-radius:6px">🏢 '+floor+'</h2>';
-      const catMap = {};
-      floorMap[floor].forEach(function(a){ const c=a.category||'未分類'; if(!catMap[c]) catMap[c]=[]; catMap[c].push(a); });
-      Object.keys(catMap).forEach(function(cat){
-        const rows = sortPDFMaterials(catMap[cat]).map(function(a){
-          const series = materialSeries(a.name);
-          return pdfCategoryRowStart(series)+pdfCategoryCell(series, pdfCategoryChip(series))+'<td>'+a.name+'</td><td>'+a.spec+'</td><td>'+(a.thick||'')+'</td><td>'+a.qty+(a.unit||'')+'</td></tr>';
-        }).join('');
-        html += pdfCategoryTitle(cat)+'<table><thead><tr><th>庫存類別</th><th>材料</th><th>規格</th><th>厚度</th><th>搬運數量</th></tr></thead><tbody>'+rows+'</tbody></table>';
-      });
-    });
+    html += '<div class="alloc-date-h">'+textSafe(date)+'</div>';
+    html += buildAllocFloorTables(project, dateMap[date]);
   });
   return html;
 }
