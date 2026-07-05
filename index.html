@@ -6642,8 +6642,19 @@ loadFromSheets();
 
 // PWA Service Worker
 if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let swReloaded = false;
+  // 新版 SW 接管時自動重載（只在既有使用者更新時，首次安裝不重載）
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (swReloaded || !hadController) return;
+    swReloaded = true;
+    location.reload();
+  });
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
     reg.update();
+    // 開著 app 時每分鐘檢查一次新版；回到前景也檢查
+    setInterval(() => { reg.update(); }, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update(); });
   }).catch(()=>{});
 }
 </script>
