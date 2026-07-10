@@ -222,6 +222,15 @@ const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const round = n => Math.round(n*100)/100;
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const collapsed = new Set(); // dashboard group collapse (default open, store closed)
+// 同名稱 → 同色系（辨識同一種料的不同規格）
+const NAME_TONES = [
+  {c:'#1d4ed8',b:'#eff6ff'},{c:'#0f766e',b:'#ecfdf5'},{c:'#7c3aed',b:'#f5f3ff'},
+  {c:'#b45309',b:'#fffbeb'},{c:'#be123c',b:'#fff1f2'},{c:'#047857',b:'#f0fdf4'},
+  {c:'#0369a1',b:'#f0f9ff'},{c:'#c2410c',b:'#fff7ed'},{c:'#9333ea',b:'#faf5ff'},
+  {c:'#0891b2',b:'#ecfeff'},{c:'#65a30d',b:'#f7fee7'},{c:'#db2777',b:'#fdf2f8'},
+];
+function hashStr(s){ let h=0; s=String(s||''); for(let i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))>>>0; } return h; }
+function nameTone(name){ return NAME_TONES[hashStr(name) % NAME_TONES.length]; }
 
 // ── persistence ──
 function save(){ try{ localStorage.setItem('fieldmat_v1', JSON.stringify(D)); }catch(e){} }
@@ -320,10 +329,10 @@ function renderBoard(){
         const m = mat(it.matId); const c = m?m.cat:'其他';
         if(c!==lastCat){ html += `<div class="catrow">${esc(c)}</div>`; lastCat=c; }
         const lack = itemLack(it); const need = itemNeed(it); const rem = num(it.remaining); const unit = m?m.unit:'';
-        const good = lack<=0;
-        html += `<div class="mrow" onclick="quickCount('${it.id}')">
+        const good = lack<=0; const tn = nameTone(m?m.name:'');
+        html += `<div class="mrow" onclick="quickCount('${it.id}')" style="border-left:4px solid ${tn.c};padding-left:9px;background:${tn.b}">
           <div class="mi">
-            <div class="mn">${esc(m?m.name:'?')}</div>
+            <div class="mn" style="color:${tn.c}">${esc(m?m.name:'?')}</div>
             <div class="ms">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''}</div>
             <div class="nums">剩 ${rem}${esc(unit)}　需 ${need}${esc(unit)}　送 ${num(it.delivered)}${esc(unit)}</div>
           </div>
@@ -442,8 +451,9 @@ function renderCount(){
   its.forEach(it=>{
     const m = mat(it.matId); const c=m?m.cat:'其他'; const unit=m?m.unit:'';
     if(c!==lastCat){ html+=`<div class="catrow" style="padding-left:14px">${esc(c)}</div>`; lastCat=c; }
-    html += `<div class="card" style="padding:11px 13px;margin-bottom:8px">
-      <div style="font-weight:800;font-size:14px">${esc(m?m.name:'?')}</div>
+    const ctn = nameTone(m?m.name:'');
+    html += `<div class="card" style="padding:11px 13px;margin-bottom:8px;border-left:4px solid ${ctn.c}">
+      <div style="font-weight:800;font-size:14px;color:${ctn.c}">${esc(m?m.name:'?')}</div>
       <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 計畫 ${num(it.plan)}${esc(unit)} · 已送 ${num(it.delivered)}${esc(unit)}</div>
       <div class="row">
         <div><label>現場剩餘</label>
@@ -516,8 +526,8 @@ function renderSettings(){
         <span>${esc(c)} <span class="muted">(${(byCat[c]||[]).length})</span></span>
         <span><button class="btn mini gray" onclick="delCat('${esc(c)}')">刪類</button></span>
       </div>
-      ${(byCat[c]||[]).map(m=>`<div class="listitem" style="padding:7px 11px">
-        <div class="li-m"><div class="li-t">${esc(m.name)}</div><div class="li-s">${esc(m.spec||'')}${m.thick?(' · '+esc(m.thick)):''} · ${esc(m.unit||'')}</div></div>
+      ${(byCat[c]||[]).map(m=>`<div class="listitem" style="padding:7px 11px;border-left:4px solid ${nameTone(m.name).c}">
+        <div class="li-m"><div class="li-t" style="color:${nameTone(m.name).c}">${esc(m.name)}</div><div class="li-s">${esc(m.spec||'')}${m.thick?(' · '+esc(m.thick)):''} · ${esc(m.unit||'')}</div></div>
         <button class="btn mini gray" onclick="editMat('${m.id}')">編輯</button>
         <button class="btn mini red" onclick="delMat('${m.id}')">刪</button>
       </div>`).join('')||'<div class="muted" style="font-size:12px">（無材料）</div>'}
@@ -652,7 +662,7 @@ function renderPlanRows(){
       const it = D.items.find(i=>i.project===p&&i.room===room&&i.matId===m.id);
       const v = it? num(it.plan): '';
       html += `<div class="qgrid" style="margin-bottom:6px">
-        <div><div style="font-weight:700;font-size:14px">${esc(m.name)}</div>
+        <div><div style="font-weight:700;font-size:14px;color:${nameTone(m.name).c}">${esc(m.name)}</div>
           <div class="muted">${esc(m.spec||'')}${m.thick?(' · '+esc(m.thick)):''}</div></div>
         <input type="number" inputmode="decimal" id="pl-${m.id}" value="${v}" placeholder="0" style="width:88px;text-align:center">
       </div>`;
