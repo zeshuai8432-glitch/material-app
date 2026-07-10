@@ -185,6 +185,17 @@
       <button class="btn ghost sm" onclick="openPlanSheet()">✏️ 編輯房間需求量</button>
     </div>
     <div class="card">
+      <h2>☁️ 雲端同步</h2>
+      <div class="muted" style="margin-bottom:8px">貼上你的 Google Apps Script 網址，多台手機／電腦就能共用同一份資料。設定教學問我。</div>
+      <input id="cloud-url" placeholder="https://script.google.com/macros/s/.../exec">
+      <div class="row" style="margin-top:8px">
+        <button class="btn ghost sm" onclick="saveCloudUrl()">儲存網址</button>
+        <button class="btn ghost sm" onclick="cloudPull(true)">⬇ 拉取</button>
+        <button class="btn ghost sm" onclick="cloudPush(true)">⬆ 上傳</button>
+      </div>
+      <div class="muted" id="cloud-status" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
       <h2>💾 資料</h2>
       <div class="row">
         <button class="btn gray sm" onclick="exportBackup()">匯出備份</button>
@@ -250,17 +261,62 @@ function hashStr(s){ let h=0; s=String(s||''); for(let i=0;i<s.length;i++){ h=(h
 function nameTone(name){ return NAME_TONES[hashStr(name) % NAME_TONES.length]; }
 
 // ── persistence ──
-function save(){ try{ localStorage.setItem('fieldmat_v1', JSON.stringify(D)); }catch(e){} }
+function saveLocalOnly(){ try{ localStorage.setItem('fieldmat_v1', JSON.stringify(D)); }catch(e){} }
+function save(){ D.updatedAt = new Date().toISOString(); saveLocalOnly(); schedulePush(); }
+function normalize(x){
+  ['projects','archived','rooms','cats','mats','items','deliveries'].forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; });
+  if(!x.cats.length) x.cats = DEFAULT_CATS.slice();
+  x.items.forEach(it=>{ if(it.demand==null){ it.demand = it.stillNeed!=null ? num(it.stillNeed) : num(it.plan||0); } delete it.plan; delete it.stillNeed; });
+  return x;
+}
 function load(){
   try{
     const raw = localStorage.getItem('fieldmat_v1');
     if(raw){ const p = JSON.parse(raw); if(p && typeof p==='object') D = Object.assign(D, p); }
   }catch(e){}
-  if(!D.cats || !D.cats.length) D.cats = DEFAULT_CATS.slice();
-  // 舊資料遷移：計畫量+還需要 → 單一需求量
-  (D.items||[]).forEach(it=>{ if(it.demand==null){ it.demand = it.stillNeed!=null ? num(it.stillNeed) : num(it.plan||0); } delete it.plan; delete it.stillNeed; });
+  normalize(D);
   if(!cur.project) cur.project = D.projects[0] || null;
 }
+
+// ── 雲端同步 (Google Apps Script) ──
+let CLOUD_URL = localStorage.getItem('fieldmat_cloud') || '';
+let pushTimer = null, pulling = false;
+function setCloudStatus(s){ const el = document.getElementById('cloud-status'); if(el) el.textContent = s; }
+function schedulePush(){ if(!CLOUD_URL) return; clearTimeout(pushTimer); pushTimer = setTimeout(cloudPush, 1200); }
+function cloudPush(manual){
+  if(!CLOUD_URL){ if(manual)toast('⚠️ 尚未設定雲端網址'); return; }
+  setCloudStatus('⏳ 上傳中…');
+  fetch(CLOUD_URL, {method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(D)})
+    .then(()=>{ setCloudStatus('✅ 已同步 '+timeStr()); if(manual)toast('✅ 已上傳雲端'); })
+    .catch(()=>{ setCloudStatus('❌ 上傳失敗'); if(manual)toast('❌ 上傳失敗'); });
+}
+function cloudPull(manual){
+  if(!CLOUD_URL){ if(manual)toast('⚠️ 尚未設定雲端網址'); return; }
+  if(pulling) return; pulling = true;
+  setCloudStatus('⏳ 讀取中…');
+  fetch(CLOUD_URL + '?_t=' + Date.now(), {credentials:'omit'}).then(r=>r.text()).then(txt=>{
+    pulling = false;
+    if(!txt || txt.trim()==='' || txt.trim()==='{}'){ setCloudStatus('雲端尚無資料'); if(manual)toast('雲端還沒有資料，先上傳一次'); return; }
+    let cd; try{ cd = JSON.parse(txt); if(cd && typeof cd.data==='string') cd = JSON.parse(cd.data); }
+    catch(e){ setCloudStatus('❌ 解析失敗'); if(manual)toast('❌ 雲端資料解析失敗'); return; }
+    const cloudAt = cd.updatedAt || '', localAt = D.updatedAt || '';
+    if(manual || cloudAt > localAt){
+      D = Object.assign({projects:[],archived:[],rooms:[],cats:[],mats:[],items:[],deliveries:[]}, cd);
+      normalize(D);
+      if(!D.projects.includes(cur.project)) cur.project = D.projects[0] || null;
+      saveLocalOnly(); fillProjSel(); renderBoard(); if(cur.page==='set')renderSettings();
+      setCloudStatus('✅ 已同步 '+timeStr()); if(manual)toast('✅ 已從雲端更新');
+    } else {
+      setCloudStatus('✅ 已是最新 '+timeStr());
+    }
+  }).catch(e=>{ pulling=false; setCloudStatus('❌ 讀取失敗'); if(manual)toast('❌ 雲端讀取失敗'); });
+}
+function saveCloudUrl(){
+  const v = (document.getElementById('cloud-url').value||'').trim();
+  CLOUD_URL = v; localStorage.setItem('fieldmat_cloud', v);
+  if(v){ toast('✅ 已儲存網址，正在拉取雲端'); cloudPull(true); } else { toast('已清除雲端網址'); setCloudStatus(''); }
+}
+function timeStr(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 
 // ── helpers ──
 function mat(id){ return D.mats.find(m=>m.id===id); }
@@ -512,6 +568,9 @@ function saveCount(){
 //  設定 SETTINGS
 // ════════════════════════════════════════════
 function renderSettings(){
+  // cloud
+  const cu = document.getElementById('cloud-url'); if(cu && document.activeElement!==cu) cu.value = CLOUD_URL;
+  if(!CLOUD_URL) setCloudStatus('尚未設定雲端');
   // projects
   const pe = document.getElementById('set-projects');
   pe.innerHTML = D.projects.length ? D.projects.map(p=>`<div class="listitem">
@@ -786,6 +845,8 @@ function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg
 
 // ── boot ──
 load(); fillProjSel(); go('board');
+if(CLOUD_URL){ cloudPull(); }
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && CLOUD_URL) cloudPull(); });
 
 // ── service worker ──
 if('serviceWorker' in navigator){
