@@ -279,7 +279,8 @@ function load(){
 }
 
 // ── 雲端同步 (Google Apps Script) ──
-let CLOUD_URL = localStorage.getItem('fieldmat_cloud') || '';
+const DEFAULT_CLOUD = 'https://script.google.com/macros/s/AKfycbz1WSPdgyDviRXbB22vGWRBA9d-P40F3qMsPKP0tl8F2IJYHI5O_2TlNIu2GclzgRVRIQ/exec';
+let CLOUD_URL = localStorage.getItem('fieldmat_cloud') || DEFAULT_CLOUD;
 let pushTimer = null, pulling = false;
 function setCloudStatus(s){ const el = document.getElementById('cloud-status'); if(el) el.textContent = s; }
 function schedulePush(){ if(!CLOUD_URL) return; clearTimeout(pushTimer); pushTimer = setTimeout(cloudPush, 1200); }
