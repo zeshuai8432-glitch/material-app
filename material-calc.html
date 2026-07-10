@@ -1109,7 +1109,7 @@
           </div>
           <div class="field">
             <label>C型骨架規格</label>
-            <select id="p-stud-type" onchange="autoPairStud()">
+            <select id="p-stud-type" onchange="autoPairStud();refreshPartitionLengths()">
               <option value="C41">C41</option>
               <option value="C65">C65</option>
             </select>
@@ -1118,31 +1118,27 @@
         <div class="form-grid form-grid-2">
           <div class="field">
             <label>骨架下料長度（叫料統一長度）</label>
-            <div class="input-unit"><input type="number" id="p-stud-stock" value="300" min="1" step="1"><span class="unit-label">cm</span></div>
+            <select id="p-stud-stock"></select>
           </div>
           <div class="field" style="display:flex;align-items:flex-end;font-size:12px;color:var(--text-3);">一支可裁多根：牆高 ÷ 下料長度取整</div>
         </div>
         <div class="form-grid form-grid-2">
           <div class="field">
             <label>U槽鐵規格</label>
-            <select id="p-track-type">
+            <select id="p-track-type" onchange="refreshPartitionLengths()">
               <option value="U43">U43</option>
               <option value="U67">U67</option>
             </select>
           </div>
           <div class="field">
             <label>槽鐵長度</label>
-            <select id="p-track-length">
-              <option value="243" selected>8尺（243cm）</option>
-              <option value="300">10尺（300cm）</option>
-              <option value="363">12尺（363cm）</option>
-            </select>
+            <select id="p-track-length"></select>
           </div>
         </div>
         <div class="form-grid form-grid-2">
           <div class="field">
             <label>加強橫枝</label>
-            <select id="p-brace-type" onchange="updateBraceFields()">
+            <select id="p-brace-type" onchange="updateBraceFields();refreshPartitionLengths()">
               <option value="none">不加</option>
               <option value="N38">N38</option>
               <option value="N19">N19</option>
@@ -1154,10 +1150,7 @@
           <div class="form-grid form-grid-2">
             <div class="field">
               <label>長度規格</label>
-              <select id="p-brace-length">
-                <option value="243">8尺（243cm）</option>
-                <option value="363">12尺（363cm）</option>
-              </select>
+              <select id="p-brace-length"></select>
             </div>
             <div class="field">
               <label>穿幾排</label>
@@ -1426,18 +1419,18 @@ let state = {
 // ════════════════════════════════════
 const DEFAULT_MATERIALS = {
   studs: [
-    { id: 'C41', name: 'C41 骨架', length: 300, unit: '支', price: 0, custom: false },
-    { id: 'C64', name: 'C64 骨架', length: 300, unit: '支', price: 0, custom: false },
-    { id: 'C92', name: 'C92 骨架', length: 300, unit: '支', price: 0, custom: false },
+    { id: 'C41', name: 'C41 骨架', unit: '支', pricePerM: 0, lengths: [300], custom: false },
+    { id: 'C64', name: 'C64 骨架', unit: '支', pricePerM: 0, lengths: [300], custom: false },
+    { id: 'C92', name: 'C92 骨架', unit: '支', pricePerM: 0, lengths: [300], custom: false },
   ],
   tracks: [
-    { id: 'U43', name: 'U43 槽鐵', length: 300, unit: '支', price: 0, custom: false },
-    { id: 'U64', name: 'U64 槽鐵', length: 300, unit: '支', price: 0, custom: false },
-    { id: 'U92', name: 'U92 槽鐵', length: 300, unit: '支', price: 0, custom: false },
+    { id: 'U43', name: 'U43 槽鐵', unit: '支', pricePerM: 0, lengths: [243, 300, 363], custom: false },
+    { id: 'U64', name: 'U64 槽鐵', unit: '支', pricePerM: 0, lengths: [243, 300, 363], custom: false },
+    { id: 'U92', name: 'U92 槽鐵', unit: '支', pricePerM: 0, lengths: [243, 300, 363], custom: false },
   ],
   braces: [
-    { id: 'N38', name: 'N38 加強橫枝', length: 300, unit: '支', price: 0 },
-    { id: 'N19', name: 'N19 加強橫枝', length: 300, unit: '支', price: 0 },
+    { id: 'N38', name: 'N38 加強橫枝', unit: '支', pricePerM: 0, lengths: [243, 363] },
+    { id: 'N19', name: 'N19 加強橫枝', unit: '支', pricePerM: 0, lengths: [243, 363] },
   ],
   boards: [
     { id: 'calcium-6-4x6', name: '矽酸鈣板 6mm 4x6尺', unit: '片', price: 0 },
@@ -1583,11 +1576,43 @@ function doLogout() {
   document.getElementById('login-pwd').value = '';
 }
 
+// 舊資料遷移：骨架/槽鐵/加強 由「每長度一筆(元/支)」→「一材料一筆(元/M + 長度清單)」
+function migrateMaterials() {
+  ['studs','tracks','braces'].forEach(key => {
+    const arr = state.materials[key];
+    if (!Array.isArray(arr) || !arr.length) return;
+    if (arr.every(m => Array.isArray(m.lengths))) return; // 已是新結構
+    const byName = {}; const order = []; const idRemap = {};
+    arr.forEach(m => {
+      const nm = m.name || '（未命名）';
+      if (!byName[nm]) {
+        byName[nm] = { id: m.id || ('m_' + Math.random().toString(36).slice(2, 8)), name: nm, unit: m.unit || '支', pricePerM: 0, lengths: [] };
+        order.push(nm);
+      }
+      const g = byName[nm];
+      idRemap[m.id] = g.id;
+      const len = +m.length || 0;
+      if (len > 0 && !g.lengths.includes(len)) g.lengths.push(len);
+      if (!g.pricePerM && +m.price > 0 && len > 0) g.pricePerM = Math.round((+m.price) / (len / 100));
+    });
+    order.forEach(nm => byName[nm].lengths.sort((a, b) => a - b));
+    state.materials[key] = order.map(nm => byName[nm]);
+    // 把舊的區塊選材 id 對應到合併後的 id
+    const paramKey = key === 'studs' ? 'studType' : key === 'tracks' ? 'trackType' : 'braceType';
+    Object.values(state.zones || {}).forEach(zoneArr => {
+      (zoneArr || []).forEach(z => {
+        if (z.params && z.params[paramKey] && idRemap[z.params[paramKey]]) z.params[paramKey] = idRemap[z.params[paramKey]];
+      });
+    });
+  });
+}
+
 function loadUserData(data) {
   state.projects = data.projects || [];
   state.spaces = data.spaces || {};
   state.zones = data.zones || {};
   state.materials = data.materials || JSON.parse(JSON.stringify(DEFAULT_MATERIALS));
+  migrateMaterials();
   renderProjects();
   renderMaterials();
 }
@@ -1870,6 +1895,7 @@ function openZoneModal(zoneId, spaceId) {
 
   // 動態帶入骨架/槽鐵選單（隔間）
   populateStudSelects();
+  refreshPartitionLengths();
 
   if (zoneId) {
     const zone = (state.zones[spaceId] || []).find(z => z.id === zoneId);
@@ -1881,15 +1907,13 @@ function openZoneModal(zoneId, spaceId) {
         document.getElementById('p-height').value = zone.params.height;
         document.getElementById('p-stud-spacing').value = zone.params.studSpacing;
         document.getElementById('p-stud-type').value = zone.params.studType;
-        { const ss=document.getElementById('p-stud-stock'); if(ss) ss.value = zone.params.studStock || 300; }
         document.getElementById('p-track-type').value = zone.params.trackType;
-        { const tl=document.getElementById('p-track-length'); if(tl) tl.value = zone.params.trackLength || 243; }
         document.getElementById('p-brace-type').value = zone.params.braceType;
         updateBraceFields();
         if (zone.params.braceType !== 'none') {
-          document.getElementById('p-brace-length').value = zone.params.braceLength || 243;
           document.getElementById('p-brace-rows').value = zone.params.braceRows || 1;
         }
+        refreshPartitionLengths(zone.params); // 帶出並選取已存的下料/槽鐵/加強長度
         document.getElementById('p-board-type').value = zone.params.boardType;
         document.getElementById('p-board-thickness').value = zone.params.boardThickness;
         document.getElementById('p-board-size').value = zone.params.boardSize;
@@ -2216,6 +2240,23 @@ function populateStudSelects() {
   if (cFasciaTrack) cFasciaTrack.innerHTML = tracks.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
 }
 
+// 依所選材料的長度清單填入「下料長度」下拉；preset 可帶入已存值以選取
+function fillLenSelect(selId, key, matId, chosen) {
+  const sel = document.getElementById(selId); if (!sel) return;
+  const m = (state.materials[key] || []).find(x => x.id === matId);
+  const lens = (m && Array.isArray(m.lengths)) ? m.lengths.slice().sort((a, b) => a - b) : [];
+  sel.innerHTML = lens.length ? lens.map(L => `<option value="${L}">${L}cm</option>`).join('') : '<option value="">（此材料尚無長度）</option>';
+  if (chosen != null && lens.includes(+chosen)) sel.value = +chosen;
+}
+function refreshPartitionLengths(preset) {
+  const studT = document.getElementById('p-stud-type');
+  const trackT = document.getElementById('p-track-type');
+  const braceT = document.getElementById('p-brace-type');
+  fillLenSelect('p-stud-stock', 'studs', studT && studT.value, preset && preset.studStock);
+  fillLenSelect('p-track-length', 'tracks', trackT && trackT.value, preset && preset.trackLength);
+  if (braceT && braceT.value && braceT.value !== 'none') fillLenSelect('p-brace-length', 'braces', braceT.value, preset && preset.braceLength);
+}
+
 // ════════════════════════════════════
 // CEILING UI CONTROLS
 // ════════════════════════════════════
@@ -2505,18 +2546,26 @@ function calcPartition(p) {
   let totalPrice = 0;
   const priceDetail = [];
 
+  // 骨架/槽鐵/加強：以「元/M」計價，成本 = 支數 × 單支長度(m) × 元/M
   const studMat = state.materials.studs.find(s => s.id === p.studType);
-  if (studMat && studMat.price > 0) {
-    const cost = studs * studMat.price;
+  if (studMat && +studMat.pricePerM > 0) {
+    const cost = Math.round(studs * (studStock / 100) * studMat.pricePerM);
     totalPrice += cost;
-    priceDetail.push({ name: studMat.name, qty: studs, unit: '支', unitPrice: studMat.price, cost });
+    priceDetail.push({ name: studMat.name, qty: studs, unit: '支', unitPrice: studMat.pricePerM, cost });
   }
 
   const trackMat = state.materials.tracks.find(t => t.id === p.trackType);
-  if (trackMat && trackMat.price > 0) {
-    const cost = tracks * trackMat.price;
+  if (trackMat && +trackMat.pricePerM > 0) {
+    const cost = Math.round(tracks * (trackUnit / 100) * trackMat.pricePerM);
     totalPrice += cost;
-    priceDetail.push({ name: trackMat.name, qty: tracks, unit: '支', unitPrice: trackMat.price, cost });
+    priceDetail.push({ name: trackMat.name, qty: tracks, unit: '支', unitPrice: trackMat.pricePerM, cost });
+  }
+
+  const braceMat = (p.braceType && p.braceType !== 'none') ? state.materials.braces.find(b => b.id === p.braceType) : null;
+  if (braceMat && braces > 0 && +braceMat.pricePerM > 0) {
+    const cost = Math.round(braces * (braceLen / 100) * braceMat.pricePerM);
+    totalPrice += cost;
+    priceDetail.push({ name: braceMat.name, qty: braces, unit: '支', unitPrice: braceMat.pricePerM, cost });
   }
 
   const boardKey = `${p.boardType}-${p.boardThickness}-${p.boardSize}`;
@@ -2740,27 +2789,28 @@ function renderMaterials() {
   `;
 }
 
-// ── 材料庫：長條料（骨架/槽鐵/加強）以「名稱」母子分組顯示 ──
-const matGroupOpen = new Set();
+// ── 材料庫：長條料（骨架/槽鐵/加強）＝ 一材料一筆，元/M 單價 + 長度清單 ──
 const MAT_GROUP_KEYS = ['studs','tracks','braces'];
 const MAT_TONES = ['#1d4ed8','#0f766e','#7c3aed','#b45309','#be123c','#047857','#0369a1','#c2410c','#9333ea','#0891b2','#65a30d','#db2777'];
 function matHash(s){ s=String(s||''); let h=0; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return h; }
 function matTone(name){ return MAT_TONES[matHash(name)%MAT_TONES.length]; }
-function matCssSafe(s){ return String(s).replace(/[^a-zA-Z0-9]/g,'_'); }
-function matJsAttr(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
-function toggleMatGroup(gid){ if(matGroupOpen.has(gid)) matGroupOpen.delete(gid); else matGroupOpen.add(gid); renderMaterials(); }
-function renameMatGroup(key, oldName){
-  const nv = prompt('修改材料名稱（會套用到底下所有長度）', oldName);
-  if(nv===null) return; const name=nv.trim(); if(!name || name===oldName) return;
-  (state.materials[key]||[]).forEach(m=>{ if(m.name===oldName) m.name=name; });
-  matGroupOpen.delete(key+'_'+matCssSafe(oldName)); matGroupOpen.add(key+'_'+matCssSafe(name));
-  saveUserData(); renderMaterials();
+function renameMatGroup(key, idx){
+  const m = (state.materials[key]||[])[idx]; if(!m) return;
+  const nv = prompt('修改材料名稱', m.name); if(nv===null) return;
+  const name = nv.trim(); if(!name || name===m.name) return;
+  m.name = name; saveUserData(); renderMaterials();
 }
-function addLengthToGroup(key, name){
+function addLengthToMat(key, idx){
+  const m = (state.materials[key]||[])[idx]; if(!m) return;
   const lv = prompt('新增長度（cm）', '300'); if(lv===null) return;
   const len = parseInt(lv)||0; if(len<=0) return;
-  state.materials[key].push({ id:'custom_'+Date.now(), name, length:len, unit:'支', price:0, custom:true });
-  matGroupOpen.add(key+'_'+matCssSafe(name)); saveUserData(); renderMaterials();
+  if(!Array.isArray(m.lengths)) m.lengths = [];
+  if(!m.lengths.includes(len)) m.lengths.push(len);
+  m.lengths.sort((a,b)=>a-b); saveUserData(); renderMaterials();
+}
+function removeLengthFromMat(key, idx, len){
+  const m = (state.materials[key]||[])[idx]; if(!m) return;
+  m.lengths = (m.lengths||[]).filter(x=>x!==len); saveUserData(); renderMaterials();
 }
 function matSectionWrap(title, key, headers, rows, showAdd) {
   const addBtn = showAdd ? `<button class="btn btn-secondary btn-sm" onclick="addCustomMaterial('${key}')">＋ 新增材料</button>` : '';
@@ -2783,34 +2833,40 @@ function materialSection(title, key, headers) {
   let rows = '';
 
   if (MAT_GROUP_KEYS.includes(key)) {
-    const groups = {}; const order = [];
-    items.forEach((item, i) => { const nm = item.name || '（未命名）'; if(!groups[nm]){ groups[nm]=[]; order.push(nm); } groups[nm].push({item, i}); });
-    order.forEach(nm => {
-      const list = groups[nm];
-      const gid = key + '_' + matCssSafe(nm);
-      const open = matGroupOpen.has(gid);
-      const tone = matTone(nm);
-      const na = matJsAttr(nm);
-      rows += `<tr onclick="toggleMatGroup('${gid}')" style="cursor:pointer;background:#f7f9fc">
-        <td colspan="${colCount}" style="border-left:4px solid ${tone}">
-          <span style="display:inline-block;width:14px;color:#999">${open?'▾':'▸'}</span>
-          <strong style="color:${tone}">${esc(nm)}</strong>
-          <span style="color:#999;font-size:12px;margin-left:6px">${list.length} 種長度</span>
-          <button class="btn btn-sm" style="float:right" onclick="event.stopPropagation();renameMatGroup('${key}','${na}')">改名</button>
-        </td></tr>`;
-      if (open) {
-        list.forEach(({item, i}) => {
-          rows += `<tr>
-            <td style="padding-left:24px;color:#999;">↳ 長度</td>
-            <td><input type="number" value="${item.length}" onchange="state.materials['${key}'][${i}].length=+this.value;saveUserData()" style="width:80px;"></td>
-            <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
-            <td><button class="btn btn-danger btn-sm" onclick="removeMaterial('${key}',${i})">刪</button></td>
-          </tr>`;
-        });
-        rows += `<tr><td colspan="${colCount}" style="padding-left:24px;"><button class="btn btn-secondary btn-sm" onclick="addLengthToGroup('${key}','${na}')">＋ 長度</button></td></tr>`;
-      }
+    let blocks = '';
+    items.forEach((m, i) => {
+      const tone = matTone(m.name || '');
+      const rate = +m.pricePerM || 0;
+      const lens = (m.lengths || []).slice().sort((a,b)=>a-b);
+      const chips = lens.map(L => {
+        const price = rate > 0 ? '＄' + Math.round(L/100*rate) : '—';
+        return `<span style="display:inline-flex;align-items:center;gap:5px;background:#f1f5f9;border-radius:16px;padding:4px 10px;font-size:13px">
+          <b>${L}</b>cm <span style="color:#2D7A4F;font-weight:600">${price}</span>
+          <span onclick="removeLengthFromMat('${key}',${i},${L})" style="cursor:pointer;color:#c00;font-weight:700">✕</span></span>`;
+      }).join('');
+      blocks += `<div style="border-left:4px solid ${tone};padding:9px 12px;border-bottom:1px solid #eee">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <strong style="color:${tone};font-size:15px">${esc(m.name||'')}</strong>
+          <span style="font-size:13px;color:#555">單價 <input type="number" value="${rate}" onchange="state.materials['${key}'][${i}].pricePerM=+this.value;saveUserData();renderMaterials()" style="width:66px"> 元/M</span>
+          <span style="margin-left:auto;display:flex;gap:6px">
+            <button class="btn btn-sm" onclick="renameMatGroup('${key}',${i})">改名</button>
+            <button class="btn btn-danger btn-sm" onclick="removeMaterial('${key}',${i})">刪</button>
+          </span>
+        </div>
+        <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:7px;align-items:center">
+          ${chips || '<span style="color:#999;font-size:12px">尚無長度</span>'}
+          <button class="btn btn-secondary btn-sm" onclick="addLengthToMat('${key}',${i})">＋ 長度</button>
+        </div>
+      </div>`;
     });
-    return matSectionWrap(title, key, headers, rows, true);
+    return `
+      <div class="material-category">
+        <div class="card-header">
+          <div><div class="card-title">${title}</div><div style="font-size:11px;color:#999;margin-top:2px">單價以「元/M」計，各長度價格自動 = 長度 × 元/M</div></div>
+          <button class="btn btn-secondary btn-sm" onclick="addCustomMaterial('${key}')">＋ 新增材料</button>
+        </div>
+        <div>${blocks || '<div style="color:#999;padding:10px">尚無材料</div>'}</div>
+      </div>`;
   }
 
   items.forEach((item, i) => {
@@ -2857,8 +2913,8 @@ function addCustomMaterial(key) {
   if (!name) return;
   const lv = prompt('第一個長度（cm）', '300');
   const len = parseInt(lv) || 300;
-  state.materials[key].push({ id: 'custom_' + Date.now(), name: name.trim(), length: len, unit: '支', price: 0, custom: true });
-  matGroupOpen.add(key + '_' + matCssSafe(name.trim()));
+  state.materials[key].push({ id: 'custom_' + Date.now(), name: name.trim(), unit: '支', pricePerM: 0, lengths: [len], custom: true });
+  saveUserData();
   renderMaterials();
 }
 
