@@ -127,7 +127,7 @@
   <div class="page" id="pg-deliver">
     <div class="card">
       <h2>🚚 送料登記</h2>
-      <div class="hint">登記今天送了多少料到哪個房間，系統會累計「已送到」。</div>
+      <div class="hint">登記送了多少料到哪個房間。系統會累計「已送到」，並自動把「現場剩餘」加上去（之後盤點再以實數覆蓋）。</div>
       <div class="fg"><label>日期</label><input type="date" id="dv-date"></div>
       <div class="fg"><label>房間</label><select id="dv-room"></select></div>
       <div class="fg"><label>材料</label><select id="dv-mat"></select></div>
@@ -427,8 +427,9 @@ function addDelivery(){
   let it = D.items.find(i=>i.project===p && i.room===room && i.matId===matId);
   if(!it){ it = {id:uid(), project:p, room, matId, plan:0, remaining:0, stillNeed:null, delivered:0}; D.items.push(it); }
   it.delivered = round(num(it.delivered)+qty);
+  it.remaining = round(num(it.remaining)+qty); // 送到現場 = 現場剩餘增加（盤點時再以實數覆蓋）
   document.getElementById('dv-qty').value='';
-  save(); renderDeliverLog(); toast('✅ 已登記送料 '+qty);
+  save(); renderDeliverLog(); toast('✅ 已送料 '+qty+'，現場剩餘 +'+qty);
 }
 function renderDeliverLog(){
   const p = cur.project;
@@ -448,7 +449,7 @@ function renderDeliverLog(){
 function delDelivery(id){
   const d = D.deliveries.find(x=>x.id===id); if(!d) return;
   const it = D.items.find(i=>i.project===d.project && i.room===d.room && i.matId===d.matId);
-  if(it) it.delivered = round(Math.max(num(it.delivered)-d.qty,0));
+  if(it){ it.delivered = round(Math.max(num(it.delivered)-d.qty,0)); it.remaining = round(Math.max(num(it.remaining)-d.qty,0)); }
   D.deliveries = D.deliveries.filter(x=>x.id!==id);
   save(); renderDeliverLog(); toast('已刪除');
 }
