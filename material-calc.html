@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v3</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v4</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v3</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v4</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -969,6 +969,7 @@
             <h2 style="font-size:16px;font-weight:700;margin-bottom:4px;" id="calc-project-title">—</h2>
             <p style="font-size:13px;color:var(--text-2);" id="calc-project-sub">選擇房型或新增房型</p>
           </div>
+          <button class="btn btn-secondary" onclick="copyFloor()">🔁 複製樓層</button>
           <button class="btn btn-primary" onclick="openSpaceModal()">＋ 新增房型</button>
         </div>
 
@@ -1821,6 +1822,39 @@ function spaceTotalCount(s) {
 function spaceFloorSummary(s) {
   if (!s || !Array.isArray(s.floors) || !s.floors.length) return '';
   return s.floors.map(f => `${f.floor}×${f.count}`).join('・');
+}
+
+// 整層複製：把某樓層在所有房型的間數，套到一個新樓層
+function copyFloor() {
+  const pid = state.activeProjectId;
+  if (!pid) { toast('請先選案場', 'error'); return; }
+  const spaces = state.spaces[pid] || [];
+  const floors = [];
+  spaces.forEach(s => (s.floors || []).forEach(f => { if (f.floor && !floors.includes(f.floor)) floors.push(f.floor); }));
+  if (!floors.length) { toast('尚無樓層可複製（先在房型裡設定樓層配置）', 'error'); return; }
+  const src = prompt('要複製哪一個樓層？\n現有樓層：' + floors.join('、'), floors[0]);
+  if (src === null) return;
+  const source = src.trim();
+  if (!floors.includes(source)) { toast('找不到樓層「' + source + '」', 'error'); return; }
+  const tgt = prompt('把「' + source + '」複製成新的樓層名稱：', '');
+  if (tgt === null) return;
+  const target = tgt.trim();
+  if (!target || target === source) { if (target === source) toast('新樓層不能和來源相同', 'error'); return; }
+  let affected = 0;
+  spaces.forEach(s => {
+    if (!Array.isArray(s.floors)) return;
+    const srcEntry = s.floors.find(f => f.floor === source);
+    if (!srcEntry) return;
+    const existing = s.floors.find(f => f.floor === target);
+    if (existing) existing.count = srcEntry.count;
+    else s.floors.push({ floor: target, count: srcEntry.count });
+    affected++;
+  });
+  if (!affected) { toast('沒有房型使用「' + source + '」', 'error'); return; }
+  saveUserData();
+  renderSpaces();
+  renderResults();
+  toast('已把「' + source + '」複製成「' + target + '」（' + affected + ' 個房型）');
 }
 
 function openSpaceModal(id) {
