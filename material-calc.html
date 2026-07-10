@@ -1,0 +1,3046 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>材料計算系統</title>
+<style>
+  :root {
+    --bg: #EEF1F6;
+    --surface: #FFFFFF;
+    --surface2: #F5F7FA;
+    --border: #E3E7EF;
+    --border-strong: #C4CBD8;
+    --text: #14171C;
+    --text-2: #4E5560;
+    --text-3: #8B93A1;
+    --accent: #1D5FD6;
+    --accent-light: #EAF1FE;
+    --accent-dark: #1548A8;
+    --green: #17864E;
+    --green-light: #E5F6ED;
+    --orange: #E8620C;
+    --orange-light: #FDEFE2;
+    --red: #D23B3B;
+    --red-light: #FDEBEB;
+    --ink: #1A1F27;
+    --ink-2: #232935;
+    --shadow: 0 1px 2px rgba(18,28,50,.05), 0 4px 14px rgba(18,28,50,.06);
+    --shadow-md: 0 10px 34px rgba(18,28,50,.16);
+    --radius: 8px;
+    --radius-lg: 14px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.55;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection { background: var(--accent-light); color: var(--accent-dark); }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #C9CFDA; border-radius: 8px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ─── LOGIN ─── */
+  #login-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+    background:
+      linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px),
+      radial-gradient(1200px 600px at 80% -10%, rgba(29,95,214,.28), transparent 60%),
+      linear-gradient(160deg, var(--ink) 0%, #10141B 100%);
+    background-size: 28px 28px, 28px 28px, auto, auto;
+  }
+
+  .login-card {
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 18px;
+    padding: 42px 36px 36px;
+    width: 100%;
+    max-width: 380px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.45);
+    animation: rise .45s cubic-bezier(.2,.8,.25,1) both;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px) scale(.98); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  .login-card h1 {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text);
+    margin-bottom: 4px;
+    letter-spacing: -0.4px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .login-card h1::before {
+    content: '';
+    width: 10px; height: 10px;
+    border-radius: 3px;
+    background: var(--orange);
+    box-shadow: 0 0 0 4px var(--orange-light);
+    flex: none;
+  }
+
+  .login-card p {
+    color: var(--text-3);
+    font-size: 13px;
+    margin-bottom: 28px;
+    letter-spacing: .4px;
+  }
+
+  .login-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 20px 0 14px;
+  }
+
+  .login-divider hr { flex: 1; border: none; border-top: 1px solid var(--border); }
+  .login-divider span { font-size: 11px; color: var(--text-3); }
+
+  /* ─── FORM ELEMENTS ─── */
+  .field { margin-bottom: 14px; }
+
+  label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-2);
+    margin-bottom: 6px;
+    letter-spacing: .6px;
+    text-transform: uppercase;
+  }
+
+  input[type="text"],
+  input[type="password"],
+  input[type="number"],
+  select,
+  textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color .15s, box-shadow .15s, background .15s;
+    outline: none;
+    min-height: 42px;
+  }
+
+  input:hover, select:hover, textarea:hover { border-color: var(--border-strong); }
+
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3.5px rgba(29,95,214,.14);
+  }
+
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238B93A1' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 34px;
+  }
+
+  input[type="number"] { -moz-appearance: textfield; }
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+  input[type="checkbox"] { accent-color: var(--accent); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: var(--radius);
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform .12s, box-shadow .15s, background .15s, color .15s, border-color .15s;
+    font-family: inherit;
+    text-decoration: none;
+    min-height: 38px;
+  }
+
+  .btn:active { transform: translateY(1px) scale(.99); }
+
+  .btn-primary {
+    background: linear-gradient(180deg, #2A6FE8, var(--accent));
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(29,95,214,.4), inset 0 1px 0 rgba(255,255,255,.18);
+  }
+  .btn-primary:hover {
+    background: linear-gradient(180deg, #2565DB, var(--accent-dark));
+    box-shadow: 0 4px 14px rgba(29,95,214,.35), inset 0 1px 0 rgba(255,255,255,.15);
+  }
+
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 2px rgba(18,28,50,.05);
+  }
+  .btn-secondary:hover { background: var(--surface2); border-color: var(--border-strong); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-2);
+    border: 1px solid transparent;
+  }
+  .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+
+  .btn-danger {
+    background: var(--red-light);
+    color: var(--red);
+    border: 1px solid #F2C6C6;
+  }
+  .btn-danger:hover { background: #FBDCDC; border-color: #ECAFAF; }
+
+  .btn-sm { padding: 6px 10px; font-size: 12px; min-height: 32px; }
+  .btn-full { width: 100%; }
+
+  .btn-icon {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 7px;
+    color: var(--text-3);
+    display: inline-flex;
+    align-items: center;
+    transition: background .15s, color .15s;
+  }
+  .btn-icon:hover { background: var(--surface2); color: var(--text); }
+
+  :where(button, a, input, select):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ─── MAIN LAYOUT ─── */
+  #app { display: none; flex-direction: column; min-height: 100vh; }
+
+  .topbar {
+    background:
+      linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px),
+      linear-gradient(180deg, var(--ink-2), var(--ink));
+    background-size: 24px 24px, 24px 24px, auto;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    padding: 0 20px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .topbar-left { display: flex; align-items: center; gap: 16px; }
+
+  .topbar h1 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: .2px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .topbar h1::before {
+    content: '';
+    width: 9px; height: 9px;
+    border-radius: 2.5px;
+    background: var(--orange);
+    box-shadow: 0 0 10px rgba(232,98,12,.7);
+    flex: none;
+  }
+
+  .topbar-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: rgba(255,255,255,.75);
+  }
+
+  .topbar .btn-ghost { color: rgba(255,255,255,.8); }
+  .topbar .btn-ghost:hover { background: rgba(255,255,255,.12); color: #fff; }
+
+  .user-badge {
+    background: rgba(255,255,255,.12);
+    border: 1px solid rgba(255,255,255,.14);
+    color: #fff;
+    font-weight: 700;
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    backdrop-filter: blur(4px);
+  }
+
+  /* ─── TABS ─── */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,.92);
+    backdrop-filter: blur(8px);
+    padding: 6px 14px 0;
+    position: sticky;
+    top: 56px;
+    z-index: 90;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+
+  .tab {
+    padding: 9px 14px 11px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-3);
+    cursor: pointer;
+    border-radius: 8px 8px 0 0;
+    position: relative;
+    transition: color .15s, background .15s;
+    white-space: nowrap;
+    user-select: none;
+  }
+
+  .tab:hover { color: var(--text); background: var(--surface2); }
+
+  .tab.active { color: var(--accent); }
+
+  .tab.active::after {
+    content: '';
+    position: absolute;
+    left: 10px; right: 10px; bottom: -1px;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    background: var(--accent);
+  }
+
+  /* ─── MAIN CONTENT ─── */
+  .main { flex: 1; padding: 22px 20px 48px; max-width: 1100px; margin: 0 auto; width: 100%; }
+
+  .tab-content { display: none; animation: fadeUp .28s ease both; }
+  .tab-content.active { display: block; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* ─── CARDS ─── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow);
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    gap: 12px;
+  }
+
+  .card-title { font-size: 14px; font-weight: 700; color: var(--text); }
+  .card-sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+
+  /* ─── PROJECT LIST ─── */
+  .project-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .project-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 15px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .18s, transform .15s, background .15s;
+    box-shadow: 0 1px 2px rgba(18,28,50,.04);
+  }
+
+  .project-item:hover {
+    border-color: var(--accent);
+    box-shadow: 0 6px 20px rgba(29,95,214,.13);
+    transform: translateY(-1px);
+  }
+
+  .project-item.active {
+    border-color: var(--accent);
+    background: linear-gradient(0deg, var(--accent-light), var(--accent-light));
+    box-shadow: inset 3px 0 0 var(--accent), 0 1px 2px rgba(18,28,50,.05);
+  }
+
+  .project-name { font-weight: 700; font-size: 14px; }
+  .project-meta { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+  .project-actions { display: flex; gap: 4px; }
+
+  /* ─── SPACE LIST ─── */
+  .space-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+
+  .space-item {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--surface);
+    box-shadow: 0 1px 2px rgba(18,28,50,.04);
+  }
+
+  .space-header {
+    background: var(--surface);
+    padding: 13px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: background .15s;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .space-header:hover { background: var(--surface2); }
+
+  .space-name { font-weight: 700; font-size: 14px; }
+
+  .space-badge {
+    font-size: 11px;
+    background: var(--accent-light);
+    color: var(--accent-dark);
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-weight: 700;
+    letter-spacing: .2px;
+  }
+
+  .space-body { padding: 12px 16px 14px; display: none; border-top: 1px dashed var(--border); background: var(--surface2); }
+  .space-body.open { display: block; }
+
+  /* ─── ZONE ITEMS ─── */
+  .zone-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .zone-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 13px 14px;
+    box-shadow: 0 1px 2px rgba(18,28,50,.04);
+  }
+
+  .zone-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .zone-type-badge {
+    font-size: 11px;
+    font-weight: 800;
+    padding: 3px 9px;
+    border-radius: 12px;
+    letter-spacing: .3px;
+  }
+
+  .badge-partition { background: var(--accent-light); color: var(--accent-dark); }
+  .badge-ceiling { background: var(--orange-light); color: var(--orange); }
+
+  /* ─── FORM GRID ─── */
+  .form-grid { display: grid; gap: 12px; }
+  .form-grid-2 { grid-template-columns: 1fr 1fr; }
+  .form-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .form-grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  .form-row { display: flex; gap: 10px; align-items: flex-end; }
+  .form-row .field { margin-bottom: 0; flex: 1; }
+
+  .input-unit {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--surface);
+    transition: border-color .15s, box-shadow .15s;
+  }
+
+  .input-unit:hover { border-color: var(--border-strong); }
+
+  .input-unit:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3.5px rgba(29,95,214,.14);
+  }
+
+  .input-unit input {
+    border: none;
+    box-shadow: none;
+    flex: 1;
+    min-height: 40px;
+  }
+
+  .input-unit input:focus { border: none; box-shadow: none; }
+
+  .unit-label {
+    padding: 0 11px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-3);
+    white-space: nowrap;
+    border-left: 1px solid var(--border);
+    background: var(--surface2);
+    display: flex;
+    align-items: center;
+  }
+
+  /* ─── SECTION TITLES ─── */
+  .section-title {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--accent-dark);
+    margin-bottom: 10px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .section-title::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 2px;
+    background: var(--accent);
+    flex: none;
+  }
+
+  /* ─── RESULT TABLE ─── */
+  .result-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+
+  .result-header {
+    background:
+      linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px),
+      linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+    background-size: 20px 20px, 20px 20px, auto;
+    color: #fff;
+    padding: 13px 16px;
+    font-weight: 700;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    letter-spacing: .3px;
+  }
+
+  .result-table { width: 100%; border-collapse: collapse; }
+
+  .result-table th {
+    background: var(--surface2);
+    padding: 9px 14px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .6px;
+    color: var(--text-3);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .result-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+
+  .result-table tr:last-child td { border-bottom: none; }
+  .result-table tbody tr { transition: background .12s; }
+  .result-table tr:hover td { background: var(--accent-light); }
+
+  .qty { font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .unit-cell { font-size: 12px; color: var(--text-3); }
+  .price-cell { font-weight: 700; color: var(--green); font-variant-numeric: tabular-nums; }
+
+  .result-total {
+    background: var(--accent-light);
+    border-top: 2px solid var(--accent);
+    padding: 13px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  .total-price { color: var(--accent-dark); font-size: 19px; font-variant-numeric: tabular-nums; }
+
+  /* ─── MATERIAL DB ─── */
+  .material-category {
+    margin-bottom: 22px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    box-shadow: var(--shadow);
+  }
+
+  .material-category .card-header { margin-bottom: 12px; }
+
+  .material-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .material-table th {
+    background: var(--surface2);
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--text-3);
+    border-bottom: 1.5px solid var(--border);
+  }
+
+  .material-table td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+
+  .material-table tr:last-child td { border-bottom: none; }
+  .material-table tbody tr:hover td { background: var(--surface2); }
+
+  .material-table input[type="number"],
+  .material-table input[type="text"] {
+    padding: 6px 9px;
+    font-size: 13px;
+    min-height: 34px;
+  }
+
+  /* ─── TOGGLE ─── */
+  .toggle-group {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--surface2);
+    padding: 3px;
+    gap: 3px;
+  }
+
+  .toggle-btn {
+    flex: 1;
+    padding: 7px 10px;
+    border: none;
+    background: transparent;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--text-2);
+    cursor: pointer;
+    font-weight: 600;
+    transition: background .15s, color .15s, box-shadow .15s;
+    text-align: center;
+    border-radius: 6px;
+    min-height: 34px;
+  }
+
+  .toggle-btn:hover { color: var(--text); }
+
+  .toggle-btn.active {
+    background: var(--surface);
+    color: var(--accent-dark);
+    font-weight: 800;
+    box-shadow: 0 1px 3px rgba(18,28,50,.14);
+  }
+
+  /* ─── ALERTS ─── */
+  .alert {
+    padding: 11px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    margin-bottom: 12px;
+    border: 1px solid;
+  }
+
+  .alert-info {
+    background: var(--accent-light);
+    border-color: #C6DAFB;
+    color: var(--accent-dark);
+  }
+
+  .alert-warning {
+    background: var(--orange-light);
+    border-color: #F6CEA9;
+    color: var(--orange);
+  }
+
+  /* ─── EMPTY STATE ─── */
+  .empty-state {
+    text-align: center;
+    padding: 48px 20px;
+    color: var(--text-3);
+  }
+
+  .empty-state .icon { font-size: 38px; margin-bottom: 12px; filter: grayscale(.15); opacity: .9; }
+  .empty-state h3 { font-size: 14px; font-weight: 700; color: var(--text-2); margin-bottom: 6px; }
+  .empty-state p { font-size: 13px; }
+
+  /* ─── MODAL ─── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(14,18,26,.5);
+    backdrop-filter: blur(3px);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: var(--surface);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 560px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow-md);
+    animation: pop .28s cubic-bezier(.2,.9,.3,1.15) both;
+  }
+
+  @keyframes pop {
+    from { opacity: 0; transform: translateY(12px) scale(.97); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  .modal-header {
+    padding: 20px 20px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .modal-title { font-size: 16px; font-weight: 800; letter-spacing: -.2px; }
+
+  .modal-body { padding: 0 20px; }
+
+  .modal-footer {
+    padding: 16px 20px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    border-top: 1px solid var(--border);
+    margin-top: 18px;
+    position: sticky;
+    bottom: 0;
+    background: rgba(255,255,255,.94);
+    backdrop-filter: blur(6px);
+  }
+
+  /* ─── CHECKBOX ─── */
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 6px 0;
+  }
+
+  .checkbox-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+  .checkbox-row span { font-size: 13px; }
+
+  /* ─── DIVIDER ─── */
+  .divider { border: none; border-top: 1px dashed var(--border); margin: 18px 0 14px; }
+
+  /* ─── LOADER ─── */
+  .loader {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── ERROR ─── */
+  .error-msg { color: var(--red); font-size: 12px; margin-top: 5px; }
+
+  /* ─── CHEVRON ─── */
+  .chevron {
+    display: inline-block;
+    transition: transform .18s;
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .chevron.open { transform: rotate(90deg); }
+
+  /* ─── TAG ─── */
+  .tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 12px;
+  }
+
+  .tag-blue { background: var(--accent-light); color: var(--accent-dark); }
+  .tag-green { background: var(--green-light); color: var(--green); }
+  .tag-orange { background: var(--orange-light); color: var(--orange); }
+
+  /* ─── RESPONSIVE ─── */
+  @media (max-width: 600px) {
+    .form-grid-2, .form-grid-3, .form-grid-4 { grid-template-columns: 1fr; }
+    .main { padding: 14px 12px 40px; }
+    .topbar { padding: 0 12px; }
+    .tabs { padding: 6px 8px 0; }
+    .tab { padding: 9px 11px 11px; }
+    .modal { max-height: 94vh; border-radius: 14px; }
+    .space-header { padding: 12px 12px; }
+    .space-body { padding: 10px 12px 12px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: .01ms !important; }
+    .tab-content, .modal, .login-card { animation: none !important; }
+  }
+
+  /* ─── TOAST ─── */
+  #toast-wrap{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:400;display:flex;flex-direction:column;gap:8px;pointer-events:none;width:min(92vw,420px);align-items:center}
+  .toast{pointer-events:auto;padding:11px 16px;border-radius:12px;font-size:13px;font-weight:700;box-shadow:0 12px 32px rgba(10,16,28,.28);display:flex;align-items:center;gap:8px;animation:toastIn .3s cubic-bezier(.2,.9,.3,1.1) both;color:#fff;letter-spacing:.2px;max-width:100%}
+  .toast.success{background:linear-gradient(135deg,#1D8A54,#136A3F)}
+  .toast.error{background:linear-gradient(135deg,#D23B3B,#A82A2A)}
+  .toast.info{background:linear-gradient(135deg,#2A6FE8,#1548A8)}
+  .toast.out{animation:toastOut .25s ease both}
+  @keyframes toastIn{from{opacity:0;transform:translateY(-12px) scale(.96)}to{opacity:1;transform:none}}
+  @keyframes toastOut{to{opacity:0;transform:translateY(-10px)}}
+
+  /* ─── SAVE STATUS ─── */
+  .save-status{font-size:11px;font-weight:700;padding:4px 11px;border-radius:12px;display:none;letter-spacing:.3px;border:1px solid transparent}
+  .save-status.show{display:inline-flex;align-items:center;gap:5px}
+  .save-status.saving{background:rgba(255,255,255,.13);color:#fff;border-color:rgba(255,255,255,.15)}
+  .save-status.saved{background:rgba(46,190,120,.2);color:#8CE8B8;border-color:rgba(46,190,120,.3)}
+  .save-status.error{background:rgba(235,90,90,.2);color:#FFB6B6;border-color:rgba(235,90,90,.35);cursor:pointer}
+
+  /* ─── MOBILE TOUCH ─── */
+  @media (max-width:600px){
+    .btn{min-height:44px}
+    .btn-sm{min-height:40px;padding:8px 13px;font-size:12.5px}
+    .btn-icon{padding:9px}
+    input[type="text"],input[type="password"],input[type="number"],select{min-height:46px;font-size:16px}
+    .input-unit input{min-height:44px}
+    .toggle-btn{min-height:42px}
+    .zone-header>div:last-child{width:100%;justify-content:flex-end;margin-top:4px}
+    .tab{padding:11px 13px 12px;font-size:13.5px}
+    #toast-wrap{top:10px}
+  }
+  @media (prefers-reduced-motion:reduce){.toast{animation:none}}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ LOGIN ═══════════════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>材料計算系統</h1>
+    <p>隔間 · 天花板 · 材料估算</p>
+    <div class="field">
+      <label>使用者名稱</label>
+      <input type="text" id="login-name" placeholder="輸入名字" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>密碼</label>
+      <input type="password" id="login-pwd" placeholder="輸入密碼" autocomplete="current-password">
+    </div>
+    <div id="login-error" class="error-msg" style="display:none;margin-bottom:10px;"></div>
+    <button class="btn btn-primary btn-full" onclick="doLogin()">
+      <span id="login-btn-text">登入</span>
+    </button>
+    <div class="login-divider"><hr><span>首次使用？直接登入即自動建立帳號</span><hr></div>
+    <p style="font-size:12px;color:var(--text-3);text-align:center;">資料各自獨立，僅限本人查看</p>
+  </div>
+</div>
+
+<!-- ═══════════════ APP ═══════════════ -->
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-left">
+      <h1>材料計算系統</h1>
+    </div>
+    <div class="topbar-user">
+      <span id="save-status" class="save-status" onclick="retrySave()"></span>
+      <span class="user-badge" id="user-badge">—</span>
+      <button class="btn btn-ghost btn-sm" onclick="doLogout()">登出</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('projects')">📋 案場管理</div>
+    <div class="tab" onclick="switchTab('calc')">🔢 材料計算</div>
+    <div class="tab" onclick="switchTab('results')">📊 用量結果</div>
+    <div class="tab" onclick="switchTab('materials')">🗄️ 材料資料庫</div>
+  </div>
+
+  <div class="main">
+
+    <!-- ── 案場管理 ── -->
+    <div id="tab-projects" class="tab-content active">
+      <div style="display:flex;gap:12px;margin-bottom:16px;align-items:flex-start;flex-wrap:wrap;">
+        <div style="flex:1;min-width:200px;">
+          <h2 style="font-size:16px;font-weight:700;margin-bottom:4px;">我的案場</h2>
+          <p style="font-size:13px;color:var(--text-2);">管理所有工程案場及空間</p>
+        </div>
+        <button class="btn btn-primary" onclick="openProjectModal()">＋ 新增案場</button>
+      </div>
+
+      <div id="project-list" class="project-list">
+        <div class="empty-state">
+          <div class="icon">🏗️</div>
+          <h3>尚無案場</h3>
+          <p>點擊「新增案場」開始建立</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 材料計算 ── -->
+    <div id="tab-calc" class="tab-content">
+      <div id="calc-no-project" class="empty-state" style="padding:60px 20px;">
+        <div class="icon">📋</div>
+        <h3>請先選擇案場</h3>
+        <p>到「案場管理」選擇案場後，再進行計算</p>
+      </div>
+
+      <div id="calc-main" style="display:none;">
+        <div style="display:flex;gap:12px;margin-bottom:16px;align-items:flex-start;flex-wrap:wrap;">
+          <div style="flex:1;">
+            <h2 style="font-size:16px;font-weight:700;margin-bottom:4px;" id="calc-project-title">—</h2>
+            <p style="font-size:13px;color:var(--text-2);" id="calc-project-sub">選擇空間或新增空間</p>
+          </div>
+          <button class="btn btn-primary" onclick="openSpaceModal()">＋ 新增空間</button>
+        </div>
+
+        <div id="space-list" class="space-list"></div>
+      </div>
+    </div>
+
+    <!-- ── 用量結果 ── -->
+    <div id="tab-results" class="tab-content">
+      <div id="results-no-project" class="empty-state" style="padding:60px 20px;">
+        <div class="icon">📊</div>
+        <h3>尚無計算結果</h3>
+        <p>完成材料計算後，結果將顯示於此</p>
+      </div>
+      <div id="results-main" style="display:none;"></div>
+    </div>
+
+    <!-- ── 材料資料庫 ── -->
+    <div id="tab-materials" class="tab-content">
+      <div style="display:flex;gap:12px;margin-bottom:16px;align-items:flex-start;flex-wrap:wrap;">
+        <div style="flex:1;">
+          <h2 style="font-size:16px;font-weight:700;margin-bottom:4px;">材料資料庫</h2>
+          <p style="font-size:13px;color:var(--text-2);">設定材料規格與單價，計算時自動帶入</p>
+        </div>
+        <button class="btn btn-secondary" onclick="saveMaterials()">💾 儲存單價</button>
+      </div>
+
+      <div id="materials-content"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════ MODALS ═══════════════ -->
+
+<!-- 新增/編輯案場 -->
+<div class="modal-overlay" id="modal-project">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-project-title">新增案場</span>
+      <button class="btn-icon" onclick="closeModal('modal-project')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>案場名稱</label>
+        <input type="text" id="project-name-input" placeholder="例：信義路三樓隔間工程">
+      </div>
+      <div class="field">
+        <label>備註</label>
+        <input type="text" id="project-note-input" placeholder="選填">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-project')">取消</button>
+      <button class="btn btn-primary" onclick="saveProject()">確認</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新增/編輯空間 -->
+<div class="modal-overlay" id="modal-space">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-space-title">新增空間</span>
+      <button class="btn-icon" onclick="closeModal('modal-space')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>空間名稱</label>
+        <input type="text" id="space-name-input" placeholder="例：主臥室、客廳、走廊">
+      </div>
+      <div class="field">
+        <label>備註</label>
+        <input type="text" id="space-note-input" placeholder="選填">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-space')">取消</button>
+      <button class="btn btn-primary" onclick="saveSpace()">確認</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新增區塊（牆/天花板） -->
+<div class="modal-overlay" id="modal-zone">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-zone-title">新增計算區塊</span>
+      <button class="btn-icon" onclick="closeModal('modal-zone')">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- 類型選擇 -->
+      <div class="field">
+        <label>區塊類型</label>
+        <div class="toggle-group">
+          <button class="toggle-btn active" id="zone-type-partition" onclick="setZoneType('partition')">🧱 隔間系統</button>
+          <button class="toggle-btn" id="zone-type-ceiling" onclick="setZoneType('ceiling')">⬜ 天花板系統</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>區塊名稱</label>
+        <input type="text" id="zone-name-input" placeholder="例：北側牆面、主臥天花">
+      </div>
+
+      <!-- ── 隔間系統 ── -->
+      <div id="zone-partition-fields">
+        <hr class="divider">
+        <div class="section-title">尺寸</div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>牆寬</label>
+            <div class="input-unit">
+              <input type="number" id="p-width" placeholder="0" step="0.01" min="0">
+              <span class="unit-label">cm</span>
+            </div>
+          </div>
+          <div class="field">
+            <label>牆高</label>
+            <div class="input-unit">
+              <input type="number" id="p-height" placeholder="0" step="0.01" min="0">
+              <span class="unit-label">cm</span>
+            </div>
+          </div>
+        </div>
+
+        <hr class="divider">
+        <div class="section-title">骨架設定</div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>C型骨架間距</label>
+            <select id="p-stud-spacing">
+              <option value="30.5">30.5 cm</option>
+              <option value="40.7">40.7 cm</option>
+              <option value="61" selected>61 cm</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>C型骨架規格</label>
+            <select id="p-stud-type" onchange="autoPairStud()">
+              <option value="C41">C41</option>
+              <option value="C65">C65</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>骨架下料長度（叫料統一長度）</label>
+            <div class="input-unit"><input type="number" id="p-stud-stock" value="300" min="1" step="1"><span class="unit-label">cm</span></div>
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end;font-size:12px;color:var(--text-3);">一支可裁多根：牆高 ÷ 下料長度取整</div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>U槽鐵規格</label>
+            <select id="p-track-type">
+              <option value="U43">U43</option>
+              <option value="U67">U67</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>槽鐵長度</label>
+            <select id="p-track-length">
+              <option value="243" selected>8尺（243cm）</option>
+              <option value="300">10尺（300cm）</option>
+              <option value="363">12尺（363cm）</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>加強橫枝</label>
+            <select id="p-brace-type" onchange="updateBraceFields()">
+              <option value="none">不加</option>
+              <option value="N38">N38</option>
+              <option value="N19">N19</option>
+            </select>
+          </div>
+          <div class="field"></div>
+        </div>
+        <div id="brace-detail-fields" style="display:none;">
+          <div class="form-grid form-grid-2">
+            <div class="field">
+              <label>長度規格</label>
+              <select id="p-brace-length">
+                <option value="243">8尺（243cm）</option>
+                <option value="363">12尺（363cm）</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>穿幾排</label>
+              <div class="input-unit">
+                <input type="number" id="p-brace-rows" value="1" min="1" step="1">
+                <span class="unit-label">排</span>
+              </div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--text-3);margin-top:-6px;margin-bottom:4px;">第1排離地120cm，之後每排間距120cm</div>
+        </div>
+
+        <hr class="divider">
+        <div class="section-title">板材設定</div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>板材類型</label>
+            <select id="p-board-type">
+              <option value="calcium">矽酸鈣板／水泥板</option>
+              <option value="gypsum">石膏板</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>板材厚度</label>
+            <select id="p-board-thickness">
+              <option value="6">6 mm</option>
+              <option value="9" selected>9 mm</option>
+              <option value="12">12 mm</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>板材尺寸</label>
+            <select id="p-board-size">
+              <option value="4x8">4x8 尺（122×244 cm）</option>
+              <option value="4x6" selected>4x6 尺（122×183 cm）</option>
+              <option value="3x6">3x6 尺（91×183 cm）</option>
+              <option value="4x4">4x4 尺（122×122 cm）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>貼板方式</label>
+            <div class="toggle-group">
+              <button class="toggle-btn active" id="side-single" onclick="setSides('single')">單面</button>
+              <button class="toggle-btn" id="side-double" onclick="setSides('double')">雙面</button>
+            </div>
+          </div>
+        </div>
+
+        <hr class="divider">
+        <div class="section-title">填塞物設定</div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>填塞物種類</label>
+            <select id="p-fill-type">
+              <option value="none">不填塞</option>
+              <option value="rockwool">岩棉</option>
+              <option value="glasswool">玻璃棉</option>
+            </select>
+          </div>
+          <div class="field" id="fill-spec-field" style="display:none;">
+            <label>規格（已含厚度）</label>
+            <select id="p-fill-spec"></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 天花板系統 ── -->
+      <div id="zone-ceiling-fields" style="display:none;">
+        <hr class="divider">
+        <div class="section-title">天花板尺寸</div>
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>長度</label><div class="input-unit"><input type="number" id="c-length" placeholder="0" step="0.01" min="0"><span class="unit-label">cm</span></div></div>
+          <div class="field"><label>寬度</label><div class="input-unit"><input type="number" id="c-width" placeholder="0" step="0.01" min="0"><span class="unit-label">cm</span></div></div>
+        </div>
+        <hr class="divider">
+        <div class="section-title">主架系統</div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>主架系統</label>
+            <div class="toggle-group">
+              <button class="toggle-btn active" id="sys-centipede" onclick="setCeilingSys('centipede')">蜈蚣腳</button>
+              <button class="toggle-btn" id="sys-n38" onclick="setCeilingSys('n38')">N38</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>主架方向</label>
+            <div class="toggle-group">
+              <button class="toggle-btn active" id="dir-length" onclick="setCeilingDir('length')">沿長邊</button>
+              <button class="toggle-btn" id="dir-width" onclick="setCeilingDir('width')">沿寬邊</button>
+            </div>
+          </div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>主架長度規格</label>
+            <select id="c-main-length" onchange="document.getElementById('c-main-custom-field').style.display=this.value==='custom'?'':'none'">
+              <option value="243">8尺（243cm）</option>
+              <option value="305">10尺（305cm）</option>
+              <option value="365">12尺（365cm）</option>
+              <option value="custom">訂做</option>
+            </select>
+          </div>
+          <div class="field" id="c-main-custom-field" style="display:none;">
+            <label>訂做長度</label>
+            <div class="input-unit"><input type="number" id="c-main-custom-len" placeholder="0" step="1" min="0"><span class="unit-label">cm</span></div>
+          </div>
+        </div>
+        <hr class="divider">
+        <div class="section-title">螺桿設定</div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>螺桿類型</label>
+            <div class="toggle-group">
+              <button class="toggle-btn active" id="rod-std" onclick="setRodType('standard')">標準品（3M截段）</button>
+              <button class="toggle-btn" id="rod-custom" onclick="setRodType('custom')">訂做長度</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>螺桿規格</label>
+            <select id="c-rod-spec"><option value="2fen">兩分螺桿</option><option value="3fen">三分螺桿</option></select>
+          </div>
+        </div>
+        <div class="form-grid form-grid-2" id="rod-std-fields">
+          <div class="field">
+            <label>每吊點螺桿長度</label>
+            <div class="input-unit"><input type="number" id="c-rod-point-len" placeholder="例：50" step="1" min="0"><span class="unit-label">cm</span></div>
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end;"><div style="font-size:12px;color:var(--text-3);padding-bottom:10px;">系統自動計算每根3M可截幾個吊點需要幾根</div></div>
+        </div>
+        <div class="form-grid form-grid-2" id="rod-custom-fields" style="display:none;">
+          <div class="field">
+            <label>訂做每支長度</label>
+            <div class="input-unit"><input type="number" id="c-rod-custom-len" placeholder="例：120" step="1" min="0"><span class="unit-label">cm</span></div>
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end;"><div style="font-size:12px;color:var(--text-3);padding-bottom:10px;">訂做螺桿不需要擊釘片</div></div>
+        </div>
+        <hr class="divider">
+        <div class="section-title">副架（大百葉）設定</div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>副架長度規格</label>
+            <select id="c-sub-length" onchange="document.getElementById('c-sub-custom-field').style.display=this.value==='custom'?'':'none'">
+              <option value="243">8尺（243cm）</option>
+              <option value="365">12尺（365cm）</option>
+              <option value="custom">訂做</option>
+            </select>
+          </div>
+          <div class="field" id="c-sub-custom-field" style="display:none;">
+            <label>訂做長度</label>
+            <div class="input-unit"><input type="number" id="c-sub-custom-len" placeholder="0" step="1" min="0"><span class="unit-label">cm</span></div>
+          </div>
+        </div>
+        <hr class="divider">
+        <div class="section-title">板材設定</div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>板材類型</label>
+            <select id="c-board-type" onchange="updateCeilBoardThickness()">
+              <option value="calcium">矽酸鈣板／水泥板</option>
+              <option value="gypsum">石膏板</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>板材厚度</label>
+            <select id="c-board-thickness">
+              <option value="6">6 mm</option><option value="9" selected>9 mm</option><option value="12">12 mm</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>板材尺寸</label>
+            <select id="c-board-size">
+              <option value="4x8">4x8 尺（122×244 cm）</option>
+              <option value="4x6" selected>4x6 尺（122×183 cm）</option>
+              <option value="3x6">3x6 尺（91×183 cm）</option>
+              <option value="4x4">4x4 尺（122×122 cm）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>收邊料</label>
+            <select id="c-trim-type">
+              <option value="L8">L收邊 8尺（243cm）</option>
+              <option value="L10">L收邊 10尺（305cm）</option>
+              <option value="7word">七字收邊 8尺（243cm）</option>
+            </select>
+          </div>
+        </div>
+        <hr class="divider">
+        <div class="section-title">天花立板（選填）</div>
+        <div class="field">
+          <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;font-weight:500;cursor:pointer;">
+            <input type="checkbox" id="c-fascia-enable" onchange="toggleFasciaFields()">
+            <span>此天花板有立板施作</span>
+          </label>
+        </div>
+        <div id="fascia-fields" style="display:none;">
+          <div class="form-grid form-grid-2">
+            <div class="field"><label>立板總周長</label><div class="input-unit"><input type="number" id="c-fascia-perimeter" placeholder="0" step="0.01" min="0"><span class="unit-label">cm</span></div></div>
+            <div class="field"><label>立板高度</label><div class="input-unit"><input type="number" id="c-fascia-height" placeholder="0" step="0.01" min="0"><span class="unit-label">cm</span></div></div>
+          </div>
+          <div class="field">
+            <label>立板施作方式</label>
+            <select id="c-fascia-method" onchange="updateFasciaMethod()">
+              <option value="partition">隔間骨架做法（高度≥60cm）</option>
+              <option value="trim">收邊條做法（高度＜60cm）</option>
+            </select>
+          </div>
+          <div id="fascia-partition-fields">
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>骨架間距</label><select id="c-fascia-spacing"><option value="30.5">30.5 cm</option><option value="40.7">40.7 cm</option><option value="61" selected>61 cm</option></select></div>
+              <div class="field"><label>C型骨架規格</label><select id="c-fascia-stud-type"><option value="C41">C41</option></select></div>
+            </div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>U槽鐵規格</label><select id="c-fascia-track-type"><option value="U43">U43</option></select></div>
+              <div class="field"><label>立板板材尺寸</label><select id="c-fascia-board-size"><option value="4x8">4x8 尺</option><option value="4x6" selected>4x6 尺</option><option value="3x6">3x6 尺</option></select></div>
+            </div>
+          </div>
+          <div id="fascia-trim-fields" style="display:none;">
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>收邊條規格</label><select id="c-fascia-trim"><option value="L8">L收邊 8尺（243cm）</option><option value="L10">L收邊 10尺（305cm）</option><option value="7word">七字收邊 8尺（243cm）</option></select></div>
+              <div class="field"><label>百葉接縫間距</label><select id="c-fascia-louver-spacing"><option value="122">1.22 M</option><option value="183">1.83 M</option></select></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-zone')">取消</button>
+      <button class="btn btn-primary" onclick="saveZone()">計算並儲存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-wrap"></div>
+
+<script>
+// ════════════════════════════════════
+// GAS BACKEND
+// ════════════════════════════════════
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbwNB5-TufVOyK6tOf39aYfJeoQeAkKwxVVN6R-X3rwziiH7vZrRJb0JmruhQ80nIv-o/exec';
+
+// ════════════════════════════════════
+// STATE
+// ════════════════════════════════════
+let state = {
+  user: null,
+  token: null,
+  projects: [],
+  activeProjectId: null,
+  spaces: {},     // projectId -> []
+  zones: {},      // spaceId -> []
+  editingProject: null,
+  editingSpace: null,
+  editingZone: null,
+  zoneType: 'partition',
+  sides: 'single',
+  materials: null,
+};
+
+// ════════════════════════════════════
+// MATERIAL DEFAULTS
+// ════════════════════════════════════
+const DEFAULT_MATERIALS = {
+  studs: [
+    { id: 'C41', name: 'C41 骨架', length: 300, unit: '支', price: 0, custom: false },
+    { id: 'C64', name: 'C64 骨架', length: 300, unit: '支', price: 0, custom: false },
+    { id: 'C92', name: 'C92 骨架', length: 300, unit: '支', price: 0, custom: false },
+  ],
+  tracks: [
+    { id: 'U43', name: 'U43 槽鐵', length: 300, unit: '支', price: 0, custom: false },
+    { id: 'U64', name: 'U64 槽鐵', length: 300, unit: '支', price: 0, custom: false },
+    { id: 'U92', name: 'U92 槽鐵', length: 300, unit: '支', price: 0, custom: false },
+  ],
+  braces: [
+    { id: 'N38', name: 'N38 加強橫枝', length: 300, unit: '支', price: 0 },
+    { id: 'N19', name: 'N19 加強橫枝', length: 300, unit: '支', price: 0 },
+  ],
+  boards: [
+    { id: 'calcium-6-4x6', name: '矽酸鈣板 6mm 4x6尺', unit: '片', price: 0 },
+    { id: 'calcium-9-4x6', name: '矽酸鈣板 9mm 4x6尺', unit: '片', price: 0 },
+    { id: 'calcium-12-4x6', name: '矽酸鈣板 12mm 4x6尺', unit: '片', price: 0 },
+    { id: 'calcium-6-3x6', name: '矽酸鈣板 6mm 3x6尺', unit: '片', price: 0 },
+    { id: 'calcium-9-3x6', name: '矽酸鈣板 9mm 3x6尺', unit: '片', price: 0 },
+    { id: 'calcium-12-3x6', name: '矽酸鈣板 12mm 3x6尺', unit: '片', price: 0 },
+    { id: 'calcium-6-4x8', name: '矽酸鈣板 6mm 4x8尺', unit: '片', price: 0 },
+    { id: 'calcium-9-4x8', name: '矽酸鈣板 9mm 4x8尺', unit: '片', price: 0 },
+    { id: 'calcium-12-4x8', name: '矽酸鈣板 12mm 4x8尺', unit: '片', price: 0 },
+    { id: 'calcium-6-4x4', name: '矽酸鈣板 6mm 4x4尺', unit: '片', price: 0 },
+    { id: 'calcium-9-4x4', name: '矽酸鈣板 9mm 4x4尺', unit: '片', price: 0 },
+    { id: 'calcium-12-4x4', name: '矽酸鈣板 12mm 4x4尺', unit: '片', price: 0 },
+    { id: 'gypsum-9-4x6', name: '石膏板 9mm 4x6尺', unit: '片', price: 0 },
+    { id: 'gypsum-12-4x6', name: '石膏板 12mm 4x6尺', unit: '片', price: 0 },
+    { id: 'gypsum-15-4x6', name: '石膏板 15mm 4x6尺', unit: '片', price: 0 },
+    { id: 'gypsum-19-4x6', name: '石膏板 19mm 4x6尺', unit: '片', price: 0 },
+    { id: 'gypsum-9-4x8', name: '石膏板 9mm 4x8尺', unit: '片', price: 0 },
+    { id: 'gypsum-12-4x8', name: '石膏板 12mm 4x8尺', unit: '片', price: 0 },
+    { id: 'gypsum-15-4x8', name: '石膏板 15mm 4x8尺', unit: '片', price: 0 },
+    { id: 'gypsum-19-4x8', name: '石膏板 19mm 4x8尺', unit: '片', price: 0 },
+  ],
+  rockwool: [
+    { id: 'rw-60k-30x120', name: '岩棉 60K 30x120cm', unit: '包', piecesPerPack: 4, price: 0 },
+    { id: 'rw-60k-40x120', name: '岩棉 60K 40x120cm', unit: '包', piecesPerPack: 4, price: 0 },
+    { id: 'rw-60k-60x120', name: '岩棉 60K 60x120cm', unit: '包', piecesPerPack: 4, price: 0 },
+  ],
+  glasswool: [
+    { id: 'gw-24k-25', name: '玻璃棉 24K 厚25mm', rollSize: 1.2*20, unit: '捲', price: 0 },
+    { id: 'gw-24k-50', name: '玻璃棉 24K 厚50mm', rollSize: 1.2*10, unit: '捲', price: 0 },
+    { id: 'gw-24k-75', name: '玻璃棉 24K 厚75mm', rollSize: 1.2*6.67, unit: '捲', price: 0 },
+  ],
+  trims: [
+    { id: 'L8', name: 'L收邊 8尺（243cm）', length: 243, unit: '支', price: 0 },
+    { id: 'L10', name: 'L收邊 10尺（305cm）', length: 305, unit: '支', price: 0 },
+    { id: '7word', name: '七字收邊 8尺（243cm）', length: 243, unit: '支', price: 0 },
+  ],
+  rods: [
+    { id: '2fen', name: '兩分螺桿 3M', length: 300, unit: '支', price: 0 },
+    { id: '3fen', name: '三分螺桿 3M', length: 300, unit: '支', price: 0 },
+  ],
+  mainFrames: [
+    { id: 'centipede_8', name: '蜈蚣腳 8尺（243cm）', length: 243, unit: '支', price: 0 },
+    { id: 'centipede_10', name: '蜈蚣腳 10尺（305cm）', length: 305, unit: '支', price: 0 },
+    { id: 'n38_8', name: 'N38主架 8尺（243cm）', length: 243, unit: '支', price: 0 },
+    { id: 'n38_12', name: 'N38主架 12尺（365cm）', length: 365, unit: '支', price: 0 },
+  ],
+  subFrames: [
+    { id: 'louver_8', name: '大百葉 8尺（243cm）', length: 243, unit: '支', price: 0 },
+    { id: 'louver_12', name: '大百葉 12尺（365cm）', length: 365, unit: '支', price: 0 },
+  ],
+  hardware: [
+    { id: 'nut', name: '螺母', unit: '個', price: 0 },
+    { id: 'hitnail', name: '擊釘片', unit: '個', price: 0 },
+    { id: 'clip4', name: '四齒夾', unit: '個', price: 0 },
+    { id: 'hook', name: '吊勾具', unit: '個', price: 0 },
+  ],
+};
+
+// board size lookup (cm)
+const BOARD_SIZES = {
+  '4x8': { w: 122, h: 244 },
+  '4x6': { w: 122, h: 183 },
+  '3x6': { w: 91, h: 183 },
+  '4x4': { w: 122, h: 122 },
+};
+
+// ════════════════════════════════════
+// LOGIN
+// ════════════════════════════════════
+async function doLogin() {
+  const name = document.getElementById('login-name').value.trim();
+  const pwd = document.getElementById('login-pwd').value.trim();
+  if (!name || !pwd) { showLoginError('請輸入名字和密碼'); return; }
+
+  const btn = document.getElementById('login-btn-text');
+  btn.innerHTML = '<span class="loader"></span>';
+
+  try {
+    // 1. 登入/註冊
+    const loginRes = await gasCall('login', { username: name, password: pwd });
+    if (!loginRes.ok) { showLoginError(loginRes.error || '登入失敗'); btn.textContent = '登入'; return; }
+
+    state.user = name;
+    state.password = pwd; // 保存用於後續 API 呼叫
+
+    // 2. 載入雲端資料
+    const dataRes = await gasCall('loadData', { username: name, password: pwd });
+    let userData;
+    if (dataRes.ok && dataRes.data) {
+      userData = dataRes.data;
+      // 確保新欄位存在
+      if (!userData.materials.mainFrames) userData.materials.mainFrames = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.mainFrames));
+      if (!userData.materials.subFrames) userData.materials.subFrames = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.subFrames));
+      if (!userData.materials.trims) userData.materials.trims = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.trims));
+      if (!userData.materials.rods) userData.materials.rods = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.rods));
+      if (!userData.materials.hardware) userData.materials.hardware = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.hardware));
+    } else {
+      userData = { projects: [], spaces: {}, zones: {}, materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)) };
+    }
+
+    loadUserData(userData);
+    // 記住登入狀態
+    localStorage.setItem('mc_session', JSON.stringify({ user: name, password: pwd }));
+
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    document.getElementById('user-badge').textContent = state.user;
+    if (loginRes.isNew) {
+      setTimeout(() => toast('歡迎！帳號已建立，資料會自動儲存到雲端','info',3200), 300);
+    }
+  } catch(e) {
+    showLoginError('連線失敗，請稍後再試');
+  }
+  btn.textContent = '登入';
+}
+
+async function gasCall(action, payload) {
+  const res = await fetch(GAS_URL, {
+    method: 'POST',
+    body: JSON.stringify({ action, payload }),
+  });
+  return await res.json();
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function doLogout() {
+  clearTimeout(saveTimer);
+  flushSaveBeacon();
+  cloudSaveState = 'idle';
+  const ss = document.getElementById('save-status'); if (ss) ss.className = 'save-status';
+  state = { user: null, password: null, projects: [], activeProjectId: null, spaces: {}, zones: {}, editingProject: null, editingSpace: null, editingZone: null, zoneType: 'partition', sides: 'single', materials: null };
+  localStorage.removeItem('mc_session');
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-name').value = '';
+  document.getElementById('login-pwd').value = '';
+}
+
+function loadUserData(data) {
+  state.projects = data.projects || [];
+  state.spaces = data.spaces || {};
+  state.zones = data.zones || {};
+  state.materials = data.materials || JSON.parse(JSON.stringify(DEFAULT_MATERIALS));
+  renderProjects();
+  renderMaterials();
+}
+
+let saveTimer = null;
+let cloudSaveState = 'idle'; // idle | pending | saving | saved | error
+let saveStatusHideTimer = null;
+
+function saveUserData() {
+  if (!state.user || !state.password) return;
+  cloudSaveState = 'pending';
+  setSaveStatus('saving', '☁ 儲存中…');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(doCloudSave, 800);
+}
+
+async function doCloudSave() {
+  if (!state.user || !state.password) return;
+  clearTimeout(saveTimer);
+  cloudSaveState = 'saving';
+  setSaveStatus('saving', '☁ 儲存中…');
+  const data = { projects: state.projects, spaces: state.spaces, zones: state.zones, materials: state.materials };
+  try {
+    const res = await gasCall('saveData', { username: state.user, password: state.password, data });
+    if (res && res.ok) { cloudSaveState = 'saved'; setSaveStatus('saved', '✓ 已儲存', true); }
+    else { cloudSaveState = 'error'; setSaveStatus('error', '⚠ 儲存失敗，點此重試'); }
+  } catch(e) {
+    cloudSaveState = 'error';
+    setSaveStatus('error', '⚠ 儲存失敗，點此重試');
+  }
+}
+
+function setSaveStatus(cls, text, autoHide) {
+  const el = document.getElementById('save-status');
+  if (!el) return;
+  clearTimeout(saveStatusHideTimer);
+  el.className = 'save-status show ' + cls;
+  el.textContent = text;
+  if (autoHide) saveStatusHideTimer = setTimeout(() => { el.className = 'save-status'; }, 2200);
+}
+
+function retrySave() {
+  if (cloudSaveState === 'error') doCloudSave();
+}
+
+function flushSaveBeacon() {
+  if (!state.user || !state.password) return;
+  if (cloudSaveState !== 'pending' && cloudSaveState !== 'error') return;
+  const data = { projects: state.projects, spaces: state.spaces, zones: state.zones, materials: state.materials };
+  try { navigator.sendBeacon(GAS_URL, JSON.stringify({ action: 'saveData', payload: { username: state.user, password: state.password, data } })); } catch(e) {}
+}
+
+window.addEventListener('pagehide', flushSaveBeacon);
+window.addEventListener('beforeunload', e => {
+  if (cloudSaveState === 'pending' || cloudSaveState === 'saving') { e.preventDefault(); e.returnValue = ''; }
+});
+
+// ════════════════════════════════════
+// TABS
+// ════════════════════════════════════
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'calc') renderCalcTab();
+  if (tab === 'results') renderResults();
+}
+
+// ════════════════════════════════════
+// PROJECTS
+// ════════════════════════════════════
+function openProjectModal(id) {
+  state.editingProject = id || null;
+  document.getElementById('modal-project-title').textContent = id ? '編輯案場' : '新增案場';
+  if (id) {
+    const p = state.projects.find(x => x.id === id);
+    document.getElementById('project-name-input').value = p.name;
+    document.getElementById('project-note-input').value = p.note || '';
+  } else {
+    document.getElementById('project-name-input').value = '';
+    document.getElementById('project-note-input').value = '';
+  }
+  openModal('modal-project');
+}
+
+function saveProject() {
+  const name = document.getElementById('project-name-input').value.trim();
+  if (!name) return;
+  if (state.editingProject) {
+    const p = state.projects.find(x => x.id === state.editingProject);
+    p.name = name;
+    p.note = document.getElementById('project-note-input').value.trim();
+  } else {
+    const id = 'proj_' + Date.now();
+    state.projects.push({ id, name, note: document.getElementById('project-note-input').value.trim(), createdAt: new Date().toLocaleDateString('zh-TW') });
+    state.spaces[id] = [];
+  }
+  saveUserData();
+  renderProjects();
+  closeModal('modal-project');
+  toast('案場已儲存');
+}
+
+function deleteProject(id) {
+  if (!confirm('確定刪除此案場？所有空間與計算資料也會一併刪除。')) return;
+  state.projects = state.projects.filter(p => p.id !== id);
+  delete state.spaces[id];
+  if (state.activeProjectId === id) state.activeProjectId = null;
+  saveUserData();
+  renderProjects();
+  toast('案場已刪除','info');
+}
+
+function selectProject(id) {
+  state.activeProjectId = id;
+  renderProjects();
+  // 切到計算頁
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab')[1].classList.add('active');
+  document.getElementById('tab-calc').classList.add('active');
+  renderCalcTab();
+}
+
+function renderProjects() {
+  const el = document.getElementById('project-list');
+  if (!state.projects.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">🏗️</div><h3>尚無案場</h3><p>點擊「新增案場」開始建立</p></div>';
+    return;
+  }
+  el.innerHTML = state.projects.map(p => {
+    const spaceCount = (state.spaces[p.id] || []).length;
+    const active = state.activeProjectId === p.id ? ' active' : '';
+    return `
+      <div class="project-item${active}" onclick="selectProject('${p.id}')">
+        <div>
+          <div class="project-name">${esc(p.name)}</div>
+          <div class="project-meta">${p.createdAt} · ${spaceCount} 個空間${p.note ? ' · ' + esc(p.note) : ''}</div>
+        </div>
+        <div class="project-actions" onclick="event.stopPropagation()">
+          <button class="btn btn-ghost btn-sm" onclick="openProjectModal('${p.id}')">✏️</button>
+          <button class="btn btn-ghost btn-sm" onclick="deleteProject('${p.id}')">🗑️</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ════════════════════════════════════
+// CALC TAB
+// ════════════════════════════════════
+function renderCalcTab() {
+  if (!state.activeProjectId) {
+    document.getElementById('calc-no-project').style.display = 'block';
+    document.getElementById('calc-main').style.display = 'none';
+    return;
+  }
+  document.getElementById('calc-no-project').style.display = 'none';
+  document.getElementById('calc-main').style.display = 'block';
+  const p = state.projects.find(x => x.id === state.activeProjectId);
+  document.getElementById('calc-project-title').textContent = p.name;
+  document.getElementById('calc-project-sub').textContent = p.note || '';
+  renderSpaces();
+}
+
+// ════════════════════════════════════
+// SPACES
+// ════════════════════════════════════
+function openSpaceModal(id) {
+  state.editingSpace = id || null;
+  document.getElementById('modal-space-title').textContent = id ? '編輯空間' : '新增空間';
+  if (id) {
+    const spaces = state.spaces[state.activeProjectId] || [];
+    const s = spaces.find(x => x.id === id);
+    document.getElementById('space-name-input').value = s.name;
+    document.getElementById('space-note-input').value = s.note || '';
+  } else {
+    document.getElementById('space-name-input').value = '';
+    document.getElementById('space-note-input').value = '';
+  }
+  openModal('modal-space');
+}
+
+function saveSpace() {
+  const name = document.getElementById('space-name-input').value.trim();
+  if (!name) return;
+  const pid = state.activeProjectId;
+  if (!state.spaces[pid]) state.spaces[pid] = [];
+  if (state.editingSpace) {
+    const s = state.spaces[pid].find(x => x.id === state.editingSpace);
+    s.name = name;
+    s.note = document.getElementById('space-note-input').value.trim();
+  } else {
+    const id = 'sp_' + Date.now();
+    state.spaces[pid].push({ id, name, note: document.getElementById('space-note-input').value.trim() });
+    state.zones[id] = [];
+  }
+  saveUserData();
+  renderSpaces();
+  closeModal('modal-space');
+  toast('空間已儲存');
+}
+
+function deleteSpace(id) {
+  if (!confirm('確定刪除此空間？')) return;
+  const pid = state.activeProjectId;
+  state.spaces[pid] = (state.spaces[pid] || []).filter(s => s.id !== id);
+  delete state.zones[id];
+  saveUserData();
+  renderSpaces();
+  toast('空間已刪除','info');
+}
+
+function toggleSpaceBody(id) {
+  const body = document.getElementById('space-body-' + id);
+  const chevron = document.getElementById('chevron-' + id);
+  body.classList.toggle('open');
+  chevron.classList.toggle('open');
+}
+
+function renderSpaces() {
+  const el = document.getElementById('space-list');
+  const spaces = state.spaces[state.activeProjectId] || [];
+  if (!spaces.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">🏠</div><h3>尚無空間</h3><p>點擊「新增空間」開始建立</p></div>';
+    return;
+  }
+  el.innerHTML = spaces.map(s => {
+    const zones = state.zones[s.id] || [];
+    const zoneCount = zones.length;
+    return `
+      <div class="space-item">
+        <div class="space-header" onclick="toggleSpaceBody('${s.id}')">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="chevron" id="chevron-${s.id}">▶</span>
+            <div>
+              <div class="space-name">${esc(s.name)}</div>
+              ${s.note ? `<div style="font-size:12px;color:var(--text-3)">${esc(s.note)}</div>` : ''}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;" onclick="event.stopPropagation()">
+            <span class="space-badge">${zoneCount} 個區塊</span>
+            <button class="btn btn-primary btn-sm" onclick="openZoneModal(null,'${s.id}')">＋ 新增區塊</button>
+            <button class="btn-icon" onclick="openSpaceModal('${s.id}')">✏️</button>
+            <button class="btn-icon" onclick="deleteSpace('${s.id}')">🗑️</button>
+          </div>
+        </div>
+        <div class="space-body" id="space-body-${s.id}">
+          ${renderZonesHTML(s.id)}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ════════════════════════════════════
+// ZONES
+// ════════════════════════════════════
+function openZoneModal(zoneId, spaceId) {
+  state.editingZone = zoneId || null;
+  state.editingZoneSpace = spaceId;
+  document.getElementById('modal-zone-title').textContent = zoneId ? '編輯計算區塊' : '新增計算區塊';
+
+  // reset
+  setZoneType('partition');
+  setSides('single');
+  ceilingSys = 'centipede';
+  ceilingDir = 'length';
+  rodType = 'standard';
+  document.getElementById('p-fill-type').value = 'none';
+  document.getElementById('p-brace-type').value = 'none';
+  document.getElementById('brace-detail-fields').style.display = 'none';
+  document.getElementById('p-brace-rows').value = 1;
+  document.getElementById('c-fascia-enable').checked = false;
+  document.getElementById('fascia-fields').style.display = 'none';
+  document.getElementById('rod-std-fields').style.display = '';
+  document.getElementById('rod-custom-fields').style.display = 'none';
+  document.getElementById('c-main-custom-field').style.display = 'none';
+  document.getElementById('c-sub-custom-field').style.display = 'none';
+  updateFillFields();
+
+  // 動態帶入骨架/槽鐵選單（隔間）
+  populateStudSelects();
+
+  if (zoneId) {
+    const zone = (state.zones[spaceId] || []).find(z => z.id === zoneId);
+    if (zone) {
+      document.getElementById('zone-name-input').value = zone.name;
+      setZoneType(zone.type);
+      if (zone.type === 'partition') {
+        document.getElementById('p-width').value = zone.params.width;
+        document.getElementById('p-height').value = zone.params.height;
+        document.getElementById('p-stud-spacing').value = zone.params.studSpacing;
+        document.getElementById('p-stud-type').value = zone.params.studType;
+        { const ss=document.getElementById('p-stud-stock'); if(ss) ss.value = zone.params.studStock || 300; }
+        document.getElementById('p-track-type').value = zone.params.trackType;
+        { const tl=document.getElementById('p-track-length'); if(tl) tl.value = zone.params.trackLength || 243; }
+        document.getElementById('p-brace-type').value = zone.params.braceType;
+        updateBraceFields();
+        if (zone.params.braceType !== 'none') {
+          document.getElementById('p-brace-length').value = zone.params.braceLength || 243;
+          document.getElementById('p-brace-rows').value = zone.params.braceRows || 1;
+        }
+        document.getElementById('p-board-type').value = zone.params.boardType;
+        document.getElementById('p-board-thickness').value = zone.params.boardThickness;
+        document.getElementById('p-board-size').value = zone.params.boardSize;
+        setSides(zone.params.sides);
+        document.getElementById('p-fill-type').value = zone.params.fillType;
+        updateFillFields();
+        if (zone.params.fillSpec) document.getElementById('p-fill-spec').value = zone.params.fillSpec;
+      }
+      if (zone.type === 'ceiling') {
+        const cp = zone.params;
+        document.getElementById('c-length').value = cp.cLength;
+        document.getElementById('c-width').value = cp.cWidth;
+        setCeilingSys(cp.sys);
+        setCeilingDir(cp.mainDir);
+        document.getElementById('c-main-length').value = cp.mainLen;
+        if (cp.mainLen === 'custom') {
+          document.getElementById('c-main-custom-field').style.display = '';
+          document.getElementById('c-main-custom-len').value = cp.mainLenCustom || '';
+        }
+        setRodType(cp.rodType);
+        document.getElementById('c-rod-spec').value = cp.rodSpec;
+        document.getElementById('c-rod-point-len').value = cp.rodPointLen || '';
+        document.getElementById('c-rod-custom-len').value = cp.rodCustomLen || '';
+        document.getElementById('c-sub-length').value = cp.subLen;
+        if (cp.subLen === 'custom') {
+          document.getElementById('c-sub-custom-field').style.display = '';
+          document.getElementById('c-sub-custom-len').value = cp.subLenCustom || '';
+        }
+        document.getElementById('c-board-type').value = cp.boardType;
+        updateCeilBoardThickness();
+        document.getElementById('c-board-thickness').value = cp.boardThickness;
+        document.getElementById('c-board-size').value = cp.boardSize;
+        document.getElementById('c-trim-type').value = cp.trimType;
+        if (cp.fasciaEnable) {
+          document.getElementById('c-fascia-enable').checked = true;
+          document.getElementById('fascia-fields').style.display = '';
+          document.getElementById('c-fascia-perimeter').value = cp.fasciaPerimeter || '';
+          document.getElementById('c-fascia-height').value = cp.fasciaHeight || '';
+          document.getElementById('c-fascia-method').value = cp.fasciaMethod;
+          updateFasciaMethod();
+          document.getElementById('c-fascia-spacing').value = cp.fasciaSpacing;
+          document.getElementById('c-fascia-stud-type').value = cp.fasciaStudType;
+          document.getElementById('c-fascia-track-type').value = cp.fasciaTrackType;
+          document.getElementById('c-fascia-board-size').value = cp.fasciaBoardSize;
+          document.getElementById('c-fascia-trim').value = cp.fasciaTrim;
+          document.getElementById('c-fascia-louver-spacing').value = cp.fasciaLouverSpacing;
+        }
+      }
+    }
+  } else {
+    document.getElementById('zone-name-input').value = '';
+    document.getElementById('p-width').value = '';
+    document.getElementById('p-height').value = '';
+    document.getElementById('c-length').value = '';
+    document.getElementById('c-width').value = '';
+    document.getElementById('c-rod-point-len').value = '';
+  }
+
+  updateBoardThicknessOptions();
+  document.getElementById('p-board-type').onchange = updateBoardThicknessOptions;
+  document.getElementById('p-fill-type').onchange = updateFillFields;
+  openModal('modal-zone');
+}
+
+function setZoneType(type) {
+  state.zoneType = type;
+  document.getElementById('zone-type-partition').classList.toggle('active', type === 'partition');
+  document.getElementById('zone-type-ceiling').classList.toggle('active', type === 'ceiling');
+  document.getElementById('zone-partition-fields').style.display = type === 'partition' ? '' : 'none';
+  document.getElementById('zone-ceiling-fields').style.display = type === 'ceiling' ? '' : 'none';
+}
+
+function setSides(v) {
+  state.sides = v;
+  document.getElementById('side-single').classList.toggle('active', v === 'single');
+  document.getElementById('side-double').classList.toggle('active', v === 'double');
+}
+
+function updateBraceFields() {
+  const type = document.getElementById('p-brace-type').value;
+  document.getElementById('brace-detail-fields').style.display = type !== 'none' ? '' : 'none';
+}
+
+// 查材料庫名稱（找不到就回傳代號）
+function matName(coll, id) { const m = (state.materials[coll] || []).find(x => x.id === id); return m ? m.name : (id || ''); }
+// 數字規則自動搭配：槽鐵 = U(骨架號碼+2)；橫枝 ≤41→N19，其餘→N38
+// 例：C41→U43,N19 ; C65→U67,N38 ; C75→U77,N38 ; C92→U94,N38
+// 特殊不規則料（名稱沒數字或找不到對應槽鐵）不自動配，改由使用者手動選
+function autoPairStud() {
+  const studSel = document.getElementById('p-stud-type'); if (!studSel) return;
+  const stud = (state.materials.studs || []).find(s => s.id === studSel.value); if (!stud) return;
+  const numMatch = (stud.name || stud.id || '').match(/(\d+)/); if (!numMatch) return;
+  const n = parseInt(numMatch[1]);
+  const trackToken = 'U' + (n + 2);
+  const braceToken = (n <= 41) ? 'N19' : 'N38';
+  const has = (item, token) => item && ((item.name || '').includes(token) || (item.id || '').includes(token));
+  const tk = (state.materials.tracks || []).find(t => has(t, trackToken));
+  const tkSel = document.getElementById('p-track-type'); if (tk && tkSel) tkSel.value = tk.id;
+  const br = (state.materials.braces || []).find(b => has(b, braceToken));
+  const brSel = document.getElementById('p-brace-type'); if (br && brSel) { brSel.value = br.id; updateBraceFields(); }
+}
+
+function updateBoardThicknessOptions() {
+  const type = document.getElementById('p-board-type').value;
+  const sel = document.getElementById('p-board-thickness');
+  const current = sel.value;
+  if (type === 'calcium') {
+    sel.innerHTML = [6, 9, 12].map(v => `<option value="${v}">${v} mm</option>`).join('');
+  } else {
+    sel.innerHTML = [9, 12, 15, 19].map(v => `<option value="${v}">${v} mm</option>`).join('');
+  }
+  if ([...sel.options].some(o => o.value === current)) sel.value = current;
+}
+
+function updateFillFields() {
+  const type = document.getElementById('p-fill-type').value;
+  const specField = document.getElementById('fill-spec-field');
+  specField.style.display = type !== 'none' ? '' : 'none';
+
+  const sel = document.getElementById('p-fill-spec');
+  if (type === 'rockwool') {
+    sel.innerHTML = state.materials.rockwool.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+  } else if (type === 'glasswool') {
+    sel.innerHTML = state.materials.glasswool.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+  }
+}
+
+function saveZone() {
+  const name = document.getElementById('zone-name-input').value.trim() || '未命名區塊';
+  const spaceId = state.editingZoneSpace;
+  if (!state.zones[spaceId]) state.zones[spaceId] = [];
+
+  let zoneData = { id: state.editingZone || 'zone_' + Date.now(), name, type: state.zoneType, params: {}, result: null };
+
+  if (state.zoneType === 'partition') {
+    const width = parseFloat(document.getElementById('p-width').value) || 0;
+    const height = parseFloat(document.getElementById('p-height').value) || 0;
+    if (!width || !height) { toast('請輸入牆寬和牆高','error'); return; }
+    zoneData.params = {
+      width, height,
+      studSpacing: parseFloat(document.getElementById('p-stud-spacing').value),
+      studType: document.getElementById('p-stud-type').value,
+      studStock: parseInt((document.getElementById('p-stud-stock')||{}).value) || 300,
+      trackType: document.getElementById('p-track-type').value,
+      trackLength: parseInt((document.getElementById('p-track-length')||{}).value) || 243,
+      braceType: document.getElementById('p-brace-type').value,
+      braceLength: parseInt(document.getElementById('p-brace-length').value) || 243,
+      braceRows: parseInt(document.getElementById('p-brace-rows').value) || 1,
+      boardType: document.getElementById('p-board-type').value,
+      boardThickness: parseInt(document.getElementById('p-board-thickness').value),
+      boardSize: document.getElementById('p-board-size').value,
+      sides: state.sides,
+      fillType: document.getElementById('p-fill-type').value,
+      fillSpec: document.getElementById('p-fill-spec').value,
+    };
+    zoneData.result = calcPartition(zoneData.params);
+  }
+
+  if (state.zoneType === 'ceiling') {
+    const cL = parseFloat(document.getElementById('c-length').value) || 0;
+    const cW = parseFloat(document.getElementById('c-width').value) || 0;
+    if (!cL || !cW) { toast('請輸入天花板長度和寬度','error'); return; }
+    const mainLenVal = document.getElementById('c-main-length').value;
+    const subLenVal = document.getElementById('c-sub-length').value;
+    const fasciaEnable = document.getElementById('c-fascia-enable').checked;
+    const fasciaMethod = document.getElementById('c-fascia-method').value;
+    zoneData.params = {
+      cLength: cL, cWidth: cW,
+      sys: ceilingSys,
+      mainDir: ceilingDir,
+      mainLen: mainLenVal,
+      mainLenCustom: mainLenVal === 'custom' ? (parseFloat(document.getElementById('c-main-custom-len').value)||0) : null,
+      rodType,
+      rodSpec: document.getElementById('c-rod-spec').value,
+      rodPointLen: parseFloat(document.getElementById('c-rod-point-len').value)||0,
+      rodCustomLen: parseFloat(document.getElementById('c-rod-custom-len').value)||0,
+      subLen: subLenVal,
+      subLenCustom: subLenVal === 'custom' ? (parseFloat(document.getElementById('c-sub-custom-len').value)||0) : null,
+      boardType: document.getElementById('c-board-type').value,
+      boardThickness: parseInt(document.getElementById('c-board-thickness').value),
+      boardSize: document.getElementById('c-board-size').value,
+      trimType: document.getElementById('c-trim-type').value,
+      fasciaEnable,
+      fasciaPerimeter: fasciaEnable ? (parseFloat(document.getElementById('c-fascia-perimeter').value)||0) : 0,
+      fasciaHeight: fasciaEnable ? (parseFloat(document.getElementById('c-fascia-height').value)||0) : 0,
+      fasciaMethod,
+      fasciaSpacing: parseFloat(document.getElementById('c-fascia-spacing').value)||61,
+      fasciaStudType: document.getElementById('c-fascia-stud-type').value,
+      fasciaTrackType: document.getElementById('c-fascia-track-type').value,
+      fasciaBoardSize: document.getElementById('c-fascia-board-size').value,
+      fasciaTrim: document.getElementById('c-fascia-trim').value,
+      fasciaLouverSpacing: parseFloat(document.getElementById('c-fascia-louver-spacing').value)||122,
+    };
+    zoneData.result = calcCeiling(zoneData.params);
+  }
+
+  if (state.editingZone) {
+    const idx = state.zones[spaceId].findIndex(z => z.id === state.editingZone);
+    state.zones[spaceId][idx] = zoneData;
+  } else {
+    state.zones[spaceId].push(zoneData);
+  }
+
+  saveUserData();
+  renderSpaces();
+  // reopen the space body
+  setTimeout(() => {
+    const body = document.getElementById('space-body-' + spaceId);
+    const chevron = document.getElementById('chevron-' + spaceId);
+    if (body) { body.classList.add('open'); chevron.classList.add('open'); }
+  }, 50);
+  closeModal('modal-zone');
+  toast('已計算並儲存');
+}
+
+function deleteZone(spaceId, zoneId) {
+  if (!confirm('確定刪除此區塊？')) return;
+  state.zones[spaceId] = (state.zones[spaceId] || []).filter(z => z.id !== zoneId);
+  saveUserData();
+  renderSpaces();
+  toast('區塊已刪除','info');
+}
+
+function duplicateZone(spaceId, zoneId) {
+  const zones = state.zones[spaceId] || [];
+  const z = zones.find(x => x.id === zoneId);
+  if (!z) return;
+  const copy = JSON.parse(JSON.stringify(z));
+  copy.id = 'zone_' + Date.now();
+  copy.name = z.name + '（複製）';
+  const idx = zones.findIndex(x => x.id === zoneId);
+  zones.splice(idx + 1, 0, copy);
+  saveUserData();
+  renderSpaces();
+  setTimeout(() => {
+    const body = document.getElementById('space-body-' + spaceId);
+    const chevron = document.getElementById('chevron-' + spaceId);
+    if (body) { body.classList.add('open'); chevron.classList.add('open'); }
+  }, 50);
+  toast('已複製區塊，可點編輯修改尺寸');
+}
+
+function renderZonesHTML(spaceId) {
+  const zones = state.zones[spaceId] || [];
+  zones.forEach(recalcZone); // 用最新算法重算，卡片顯示才會有原始用量欄位
+  if (!zones.length) {
+    return '<div style="text-align:center;padding:20px;color:var(--text-3);font-size:13px;">尚無計算區塊，點擊「新增區塊」開始計算</div>';
+  }
+  return `<div class="zone-list">${zones.map(z => {
+    const typeLabel = z.type === 'partition' ? '隔間系統' : '天花板系統';
+    const typeBadge = z.type === 'partition' ? 'badge-partition' : 'badge-ceiling';
+    const r = z.result;
+    let summary = '';
+    if (r && z.type === 'partition') {
+      const tkRaw = r.rawTrackCm!=null ? (r.rawTrackCm/r.trackUnit).toFixed(2) : r.tracks;
+      const bdRaw = r.boardsRawNum!=null ? r.boardsRawNum.toFixed(2) : r.boards;
+      const brRaw = r.rawBraceCm ? (r.rawBraceCm/r.braceLen).toFixed(2) : 0;
+      const flRaw = r.fill ? (r.fill.rawPieces!=null ? (r.fill.rawPieces/r.fill.perPack) : (r.fill.rawM2!=null ? r.fill.rawM2/r.fill.rollArea : r.fill.qty)).toFixed(2) : 0;
+      summary = `<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--text-2);">
+        <span>骨架 <strong>${r.studs}</strong> 支${r.studStock?`（下料${r.studStock}cm・${r.studPerStickText}）`:''}</span>
+        <span>槽鐵 <strong>${tkRaw}</strong> 支</span>
+        ${r.braces > 0 ? `<span>加強橫枝 <strong>${brRaw}</strong> 支</span>` : ''}
+        <span>板材 <strong>${bdRaw}</strong> 片</span>
+        ${r.fill ? `<span>填塞物 <strong>${flRaw}</strong> ${r.fill.unit}</span>` : ''}
+        ${r.totalPrice ? `<span style="color:var(--green)">估價 <strong>$${r.totalPrice.toLocaleString()}</strong></span>` : ''}
+      </div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:2px">單牆為原始用量（可能帶小數）；實際採購看「結果」的全案彙總</div>`;
+    }
+    if (r && z.type === 'ceiling') {
+      const sysLabel = z.params.sys === 'centipede' ? '蜈蚣腳' : 'N38';
+      summary = `<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--text-2);">
+        <span>${sysLabel}主架 <strong>${r.mainTotal}</strong> 支</span>
+        <span>百葉 <strong>${r.subTotal}</strong> 支</span>
+        <span>螺桿 <strong>${r.rodResult.rods}</strong> 支</span>
+        <span>板材 <strong>${r.boards}</strong> 片</span>
+        ${r.totalPrice ? `<span style="color:var(--green)">估價 <strong>$${r.totalPrice.toLocaleString()}</strong></span>` : ''}
+      </div>`;
+    }
+    const pStr = z.type === 'partition'
+      ? `${z.params.width}×${z.params.height} cm｜${z.params.studSpacing}cm 間距｜${z.params.sides === 'single' ? '單面' : '雙面'}`
+      : z.type === 'ceiling'
+      ? `${z.params.cLength}×${z.params.cWidth} cm｜${z.params.sys==='centipede'?'蜈蚣腳':'N38'}｜${z.params.mainDir==='length'?'沿長邊':'沿寬邊'}`
+      : '';
+    return `
+      <div class="zone-item">
+        <div class="zone-header">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span class="zone-type-badge ${typeBadge}">${typeLabel}</span>
+              <strong style="font-size:14px;">${esc(z.name)}</strong>
+            </div>
+            <div style="font-size:12px;color:var(--text-3);">${pStr}</div>
+            ${summary}
+          </div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">
+            <button class="btn btn-secondary btn-sm" onclick="duplicateZone('${spaceId}','${z.id}')">📋 複製</button>
+            <button class="btn btn-secondary btn-sm" onclick="openZoneModal('${z.id}','${spaceId}')">✏️ 編輯</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteZone('${spaceId}','${z.id}')">🗑️</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('')}</div>`;
+}
+
+// ════════════════════════════════════
+// DYNAMIC SELECTS
+// ════════════════════════════════════
+function populateStudSelects() {
+  const studs = state.materials.studs || [];
+  const tracks = state.materials.tracks || [];
+  const braces = state.materials.braces || [];
+
+  // 隔間骨架選單
+  const pStud = document.getElementById('p-stud-type');
+  const pTrack = document.getElementById('p-track-type');
+  const pBrace = document.getElementById('p-brace-type');
+  const cFasciaStud = document.getElementById('c-fascia-stud-type');
+  const cFasciaTrack = document.getElementById('c-fascia-track-type');
+
+  if (pStud) pStud.innerHTML = studs.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  if (pTrack) pTrack.innerHTML = tracks.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+  if (pBrace) pBrace.innerHTML = '<option value="none">不加</option>' + braces.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+  if (cFasciaStud) cFasciaStud.innerHTML = studs.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  if (cFasciaTrack) cFasciaTrack.innerHTML = tracks.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+}
+
+// ════════════════════════════════════
+// CEILING UI CONTROLS
+// ════════════════════════════════════
+let ceilingSys = 'centipede';
+let ceilingDir = 'length';
+let rodType = 'standard';
+
+function setCeilingSys(sys) {
+  ceilingSys = sys;
+  document.getElementById('sys-centipede').classList.toggle('active', sys === 'centipede');
+  document.getElementById('sys-n38').classList.toggle('active', sys === 'n38');
+  // 預設收邊料
+  const trimSel = document.getElementById('c-trim-type');
+  if (sys === 'n38') trimSel.value = '7word';
+  else trimSel.value = 'L8';
+}
+
+function setCeilingDir(dir) {
+  ceilingDir = dir;
+  document.getElementById('dir-length').classList.toggle('active', dir === 'length');
+  document.getElementById('dir-width').classList.toggle('active', dir === 'width');
+}
+
+function setRodType(type) {
+  rodType = type;
+  document.getElementById('rod-std').classList.toggle('active', type === 'standard');
+  document.getElementById('rod-custom').classList.toggle('active', type === 'custom');
+  document.getElementById('rod-std-fields').style.display = type === 'standard' ? '' : 'none';
+  document.getElementById('rod-custom-fields').style.display = type === 'custom' ? '' : 'none';
+}
+
+function toggleFasciaFields() {
+  const en = document.getElementById('c-fascia-enable').checked;
+  document.getElementById('fascia-fields').style.display = en ? '' : 'none';
+}
+
+function updateFasciaMethod() {
+  const m = document.getElementById('c-fascia-method').value;
+  document.getElementById('fascia-partition-fields').style.display = m === 'partition' ? '' : 'none';
+  document.getElementById('fascia-trim-fields').style.display = m === 'trim' ? '' : 'none';
+}
+
+function updateCeilBoardThickness() {
+  const type = document.getElementById('c-board-type').value;
+  const sel = document.getElementById('c-board-thickness');
+  const cur = sel.value;
+  if (type === 'calcium') sel.innerHTML = [6,9,12].map(v=>`<option value="${v}">${v} mm</option>`).join('');
+  else sel.innerHTML = [9,12,15,19].map(v=>`<option value="${v}">${v} mm</option>`).join('');
+  if ([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+}
+
+// 同步骨架選單到立板
+function syncFasciaStudSelects() {
+  const studs = state.materials.studs;
+  const tracks = state.materials.tracks;
+  const sEl = document.getElementById('c-fascia-stud-type');
+  const tEl = document.getElementById('c-fascia-track-type');
+  if (sEl) sEl.innerHTML = studs.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  if (tEl) tEl.innerHTML = tracks.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+}
+
+// ════════════════════════════════════
+// CALCULATION — CEILING
+// ════════════════════════════════════
+const TRIM_LENGTHS = { L8: 243, L10: 305, '7word': 243 };
+
+function calcCeiling(p) {
+  const L = p.cLength;   // cm 長
+  const W = p.cWidth;    // cm 寬
+  const area = L * W;    // cm²
+  const perimeter = 2 * (L + W);
+
+  // 主架方向跨距（主架沿哪個方向排）
+  const mainSpan = p.mainDir === 'length' ? L : W;  // 主架長度方向
+  const mainCount_dim = p.mainDir === 'length' ? W : L; // 垂直方向（決定幾排主架）
+
+  // 主架排數：從牆出30cm一排，之後每90cm一排
+  const mainRows = 1 + Math.ceil((mainCount_dim - 30) / 90);
+
+  // 主架長度
+  const mainLen = p.mainLenCustom ? p.mainLenCustom : parseInt(p.mainLen);
+
+  // 每排主架需幾支（搭接30cm）
+  let mainPerRow;
+  if (p.sys === 'centipede') {
+    mainPerRow = Math.ceil(mainSpan / mainLen);
+  } else {
+    // N38 搭接30cm，有效長度 = mainLen - 30，第一支全長
+    const overlap = 30;
+    mainPerRow = mainSpan <= mainLen ? 1 : 1 + Math.ceil((mainSpan - mainLen) / (mainLen - overlap));
+  }
+  const mainTotal = mainRows * mainPerRow;
+
+  // 螺桿與吊點（每排主架：牆出30一個，每90一個）
+  const hangPoints_per_row = 1 + Math.ceil((mainSpan - 30) / 90);
+  const hangPointsTotal = hangPoints_per_row * mainRows;
+
+  let rodResult = {};
+  if (p.rodType === 'standard') {
+    const rodFullLen = 300; // 3M
+    const pointLen = p.rodPointLen || 0;
+    const pointsPerRod = pointLen > 0 ? Math.floor(rodFullLen / pointLen) : 1;
+    const rodsNeeded = Math.ceil(hangPointsTotal / pointsPerRod);
+    rodResult = { isStandard: true, hangPoints: hangPointsTotal, pointLen, pointsPerRod, rods: rodsNeeded, needHitNail: true };
+  } else {
+    rodResult = { isStandard: false, hangPoints: hangPointsTotal, customLen: p.rodCustomLen, rods: hangPointsTotal, needHitNail: false };
+  }
+
+  // 螺母：每吊點2個
+  const nuts = hangPointsTotal * 2;
+  // 擊釘片：標準品才需要，數量 = 吊點數
+  const hitNails = rodResult.needHitNail ? hangPointsTotal : 0;
+  // 四齒夾：N38才需要（百葉與N38的結合點）
+  // 副架（百葉）從牆出30.5cm，間距30.5cm，副架沿垂直於主架方向排
+  const subSpan = p.mainDir === 'length' ? W : L;
+  const subCount = 1 + Math.ceil((subSpan - 30.5) / 30.5);
+  // 每支副架長度
+  const subLen = p.subLenCustom ? p.subLenCustom : parseInt(p.subLen);
+  const subPerRow = Math.ceil(mainSpan / subLen);
+  const subTotal = subCount * subPerRow;
+  // 四齒夾 = 副架條數 × 每條跟幾支主架交叉
+  const clipsTotal = p.sys === 'n38' ? subCount * mainRows : 0;
+  // 吊勾具 = N38 吊點數
+  const hooksTotal = p.sys === 'n38' ? hangPointsTotal : 0;
+
+  // 板材
+  const bs = BOARD_SIZES[p.boardSize];
+  const boardArea = bs.w * bs.h;
+  const boardsRaw = area / boardArea;
+  const boards = Math.ceil(boardsRaw * 1.05);
+
+  // 收邊料
+  const trimLen = TRIM_LENGTHS[p.trimType] || 243;
+  const trims = Math.ceil(perimeter / trimLen);
+
+  // 立板
+  let fascia = null;
+  if (p.fasciaEnable) {
+    fascia = calcFascia(p);
+  }
+
+  // 估價
+  let totalPrice = 0;
+  const priceDetail = [];
+  const addP = (matArr, id, qty, unit) => {
+    if (!matArr) return;
+    const m = matArr.find(x=>x.id===id);
+    if (m && m.price > 0) { const cost = qty * m.price; totalPrice += cost; priceDetail.push({name:m.name,qty,unit,unitPrice:m.price,cost}); }
+  };
+
+  // 主架（對應材料庫 mainFrames）
+  const mainFrameId = p.sys === 'centipede'
+    ? (p.mainLen === '243' || p.mainLen === 243 ? 'centipede_8' : p.mainLen === '305' || p.mainLen === 305 ? 'centipede_10' : 'centipede_8')
+    : (p.mainLen === '243' || p.mainLen === 243 ? 'n38_8' : 'n38_12');
+  addP(state.materials.mainFrames, mainFrameId, mainTotal, '支');
+  // 副架（對應材料庫 subFrames）
+  const subFrameId = (p.subLen === '243' || p.subLen === 243) ? 'louver_8' : 'louver_12';
+  addP(state.materials.subFrames, subFrameId, subTotal, '支');
+  // 板材
+  const boardKey = `${p.boardType}-${p.boardThickness}-${p.boardSize}`;
+  addP(state.materials.boards, boardKey, boards, '片');
+  // 收邊料
+  addP(state.materials.trims, p.trimType, trims, '支');
+  // 螺桿
+  addP(state.materials.rods, p.rodSpec, rodResult.rods, '支');
+  // 五金
+  addP(state.materials.hardware, 'nut', nuts, '個');
+  if (hitNails > 0) addP(state.materials.hardware, 'hitnail', hitNails, '個');
+  if (clipsTotal > 0) addP(state.materials.hardware, 'clip4', clipsTotal, '個');
+  if (hooksTotal > 0) addP(state.materials.hardware, 'hook', hooksTotal, '個');
+
+  return {
+    area: (area/10000).toFixed(2),
+    perimeter: (perimeter/100).toFixed(2),
+    mainRows, mainPerRow, mainTotal, mainLen,
+    hangPointsTotal, rodResult, nuts, hitNails,
+    subCount, subPerRow, subTotal, subLen,
+    clipsTotal, hooksTotal,
+    boards, boardsRaw: boardsRaw.toFixed(2),
+    trims, trimType: p.trimType,
+    fascia,
+    totalPrice, priceDetail,
+    sys: p.sys,
+  };
+}
+
+function calcFascia(p) {
+  const perim = p.fasciaPerimeter;
+  const h = p.fasciaHeight;
+  if (!perim || !h) return null;
+
+  if (p.fasciaMethod === 'partition') {
+    // 隔間骨架做法
+    const studs = Math.floor((perim - 1) / p.fasciaSpacing) + 2;
+    const trackUnit = 300;
+    const tracks = Math.ceil(perim / trackUnit) * 2;
+    const trackRawM = (perim / 100 * 2).toFixed(2);
+    const bs = BOARD_SIZES[p.fasciaBoardSize] || BOARD_SIZES['4x6'];
+    const fasciaArea = perim * h;
+    const boardsRaw = fasciaArea / (bs.w * bs.h);
+    const boards = Math.ceil(boardsRaw * 1.05);
+    return { method: 'partition', studs, tracks, trackRawM, boards, boardSize: p.fasciaBoardSize, studType: p.fasciaStudType, trackType: p.fasciaTrackType };
+  } else {
+    // 收邊條做法
+    const trimLen = TRIM_LENGTHS[p.fasciaTrim] || 243;
+    const trims = Math.ceil(perim / trimLen) * 2; // 上下各一排
+    const louverSpacing = p.fasciaLouverSpacing || 122;
+    const louvers = Math.ceil(perim / louverSpacing);
+    return { method: 'trim', trims, trimType: p.fasciaTrim, louvers, louverSpacing };
+  }
+}
+
+
+function calcPartition(p) {
+  const W = p.width;    // cm
+  const H = p.height;   // cm
+  const spacing = p.studSpacing;
+
+  // C型骨架：兩端各一支，中間每 spacing 間距一支（studPosts = 需要幾根立柱）
+  // 公式：floor((W - 1) / spacing) + 1（含兩端頭尾各一）
+  const studPosts = Math.floor((W - 1) / spacing) + 2;
+  // 下料：一支下料長度可裁幾根（牆高 H）；不夠長則一根要接幾支
+  const studStock = p.studStock || 300;
+  const perStick = Math.floor(studStock / H);           // 一支下料可裁幾根立柱
+  const studs = perStick >= 1
+    ? Math.ceil(studPosts / perStick)                   // 夠長：均分裁切，總支數
+    : studPosts * Math.ceil(H / studStock);             // 太短：每根要接數支
+  const studPerStickText = perStick >= 1 ? `一支裁 ${perStick} 根` : `每根接 ${Math.ceil(H/studStock)} 支`;
+
+  // U槽鐵：上下兩條，總長 = 牆寬 × 2，可從整支裁切共用
+  // 支數 = ceil(牆寬×2 / 支長)（預設 243cm＝8尺，可於表單改）
+  const trackUnit = p.trackLength || 243; // 一支槽鐵長度 cm
+  const tracks = Math.ceil((W * 2) / trackUnit); // 上下共用整支，總長進位
+
+  // U槽鐵損耗（由使用者判斷，這裡標示原始數量）
+  const trackRaw = (W / 100 * 2).toFixed(2); // 實際需要幾公尺
+
+  // 加強橫枝
+  let braces = 0;
+  let bracePerRow = 0;
+  const braceLen = p.braceLength || 243;
+  let rawBraceCm = 0;
+  if (p.braceType !== 'none' && p.braceType) {
+    bracePerRow = Math.ceil(W / braceLen);
+    braces = bracePerRow * (p.braceRows || 1);
+    rawBraceCm = W * (p.braceRows || 1); // 原始總長（給全案合併用）
+  }
+
+  // 板材
+  const bs = BOARD_SIZES[p.boardSize];
+  const boardW = bs.w;
+  const boardH = bs.h;
+  const sides = p.sides === 'double' ? 2 : 1;
+  const wallArea = W * H;
+  const boardArea = boardW * boardH;
+  const boardsRaw = (wallArea * sides) / boardArea;
+  const boards = Math.ceil(boardsRaw * 1.05); // +5% 損耗
+
+  // 填塞物
+  let fill = null;
+  if (p.fillType === 'rockwool') {
+    const rw = state.materials.rockwool.find(r => r.id === p.fillSpec);
+    if (rw) {
+      // 岩棉：以面積換算片數，再換算包數
+      const rwSize = rw.name.match(/(\d+)x(\d+)cm/);
+      if (rwSize) {
+        const rwW = parseInt(rwSize[1]);
+        const rwH = parseInt(rwSize[2]);
+        const rawPieces = wallArea / (rwW * rwH); // 原始片數（未進位）
+        const piecesNeeded = Math.ceil(rawPieces);
+        const perPack = rw.piecesPerPack || 4;
+        const packs = Math.ceil(piecesNeeded / perPack);
+        fill = { label: rw.name, qty: packs, unit: '包', piecesNeeded, rawPieces, perPack };
+      }
+    }
+  } else if (p.fillType === 'glasswool') {
+    const gw = state.materials.glasswool.find(g => g.id === p.fillSpec);
+    if (gw) {
+      const rollArea = gw.rollSize; // m²
+      const wallAreaM2 = wallArea / 10000;
+      const rolls = Math.ceil(wallAreaM2 / rollArea);
+      fill = { label: gw.name, qty: rolls, unit: '捲', rawM2: wallAreaM2, rollArea };
+    }
+  }
+
+  // 估價
+  let totalPrice = 0;
+  const priceDetail = [];
+
+  const studMat = state.materials.studs.find(s => s.id === p.studType);
+  if (studMat && studMat.price > 0) {
+    const cost = studs * studMat.price;
+    totalPrice += cost;
+    priceDetail.push({ name: studMat.name, qty: studs, unit: '支', unitPrice: studMat.price, cost });
+  }
+
+  const trackMat = state.materials.tracks.find(t => t.id === p.trackType);
+  if (trackMat && trackMat.price > 0) {
+    const cost = tracks * trackMat.price;
+    totalPrice += cost;
+    priceDetail.push({ name: trackMat.name, qty: tracks, unit: '支', unitPrice: trackMat.price, cost });
+  }
+
+  const boardKey = `${p.boardType}-${p.boardThickness}-${p.boardSize}`;
+  const boardMat = state.materials.boards.find(b => b.id === boardKey);
+  if (boardMat && boardMat.price > 0) {
+    const cost = boards * boardMat.price;
+    totalPrice += cost;
+    priceDetail.push({ name: boardMat.name, qty: boards, unit: '片', unitPrice: boardMat.price, cost });
+  }
+
+  if (fill) {
+    let fillMat = null;
+    if (p.fillType === 'rockwool') fillMat = state.materials.rockwool.find(r => r.id === p.fillSpec);
+    if (p.fillType === 'glasswool') fillMat = state.materials.glasswool.find(g => g.id === p.fillSpec);
+    if (fillMat && fillMat.price > 0) {
+      const cost = fill.qty * fillMat.price;
+      totalPrice += cost;
+      priceDetail.push({ name: fillMat.name, qty: fill.qty, unit: fill.unit, unitPrice: fillMat.price, cost });
+    }
+  }
+
+  return { studs, studPosts, studLen: H, studStock, studPerStickText, tracks, trackRaw, trackUnit, rawTrackCm: W * 2, boards, boardsRaw: boardsRaw.toFixed(2), boardsRawNum: boardsRaw, fill, braces, bracePerRow, braceLen, rawBraceCm, totalPrice: totalPrice || 0, priceDetail };
+}
+
+// ════════════════════════════════════
+// RESULTS
+// ════════════════════════════════════
+// 用最新算法重算某道牆的結果（避免用到舊版存下來的結果）
+function recalcZone(z){
+  if (!z || !z.params || !z.type) return;
+  if (z.type === 'partition') z.result = calcPartition(z.params);
+  else if (z.type === 'ceiling') z.result = calcCeiling(z.params);
+}
+function recalcActiveProject(){
+  const spaces = state.spaces[state.activeProjectId] || [];
+  spaces.forEach(s => (state.zones[s.id] || []).forEach(recalcZone));
+}
+function renderResults() {
+  const el = document.getElementById('results-main');
+  if (!state.activeProjectId) {
+    document.getElementById('results-no-project').style.display = 'block';
+    el.style.display = 'none';
+    return;
+  }
+  document.getElementById('results-no-project').style.display = 'none';
+  el.style.display = 'block';
+  recalcActiveProject(); // 每次都用最新算法重算，既有的牆也套用新規則
+
+  const p = state.projects.find(x => x.id === state.activeProjectId);
+  const spaces = state.spaces[state.activeProjectId] || [];
+
+  // 彙總所有材料
+  const totals = {};
+  const addTotal = (key, label, qty, unit) => {
+    if (!totals[key]) totals[key] = { label, qty: 0, unit };
+    totals[key].qty += qty;
+  };
+  // 可裁切材料：先加總「原始用量」，最後才進位一次（短牆共用零頭）
+  const pool = {};
+  const addPool = (key, label, unit, kind, raw, div) => {
+    if (!pool[key]) pool[key] = { label, unit, kind, raw: 0, div };
+    pool[key].raw += raw;
+  };
+  const finalizePool = () => { // 把各材料的原始用量進位，併入 totals
+    Object.entries(pool).forEach(([key, p]) => {
+      let qty;
+      if (p.kind === 'board') qty = Math.ceil(p.raw * 1.05); // 板材含5%損耗
+      else qty = Math.ceil(p.raw / p.div);                    // 支/包/捲：原始總量 ÷ 單位量
+      if (!totals[key]) totals[key] = { label: p.label, qty: 0, unit: p.unit };
+      totals[key].qty += qty;
+    });
+  };
+
+  let html = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+      <h2 style="font-size:16px;font-weight:700;">${esc(p.name)} — 用量彙總</h2>
+      <button class="btn btn-secondary" onclick="printResults()">🖨️ 列印報表</button>
+    </div>`;
+
+  // 按空間分列
+  html += '<div style="margin-bottom:24px;">';
+  spaces.forEach(s => {
+    const zones = (state.zones[s.id] || []).filter(z => z.result);
+    if (!zones.length) return;
+    html += `<div class="card" style="margin-bottom:12px;">
+      <div class="card-header"><div class="card-title">📦 ${esc(s.name)}</div></div>`;
+
+    zones.forEach(z => {
+      const r = z.result;
+      const params = z.params;
+      if (!r) return;
+
+      if (z.type === 'partition') {
+        html += `
+          <div style="margin-bottom:12px;">
+            <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text-2);">🧱 ${esc(z.name)}</div>
+            <table class="result-table">
+              <thead><tr><th>材料</th><th>數量</th><th>備註</th></tr></thead>
+              <tbody>
+                <tr><td>${matName('studs', params.studType)} 骨架（下料 ${r.studStock}cm）</td><td class="qty">${r.studs} 支</td><td class="unit-cell">牆高 ${r.studLen}cm・需 ${r.studPosts} 根・${r.studPerStickText}</td></tr>
+                <tr><td>${matName('tracks', params.trackType)} 槽鐵</td><td class="qty">${(r.rawTrackCm/r.trackUnit).toFixed(2)} 支</td><td class="unit-cell">單支 ${r.trackUnit}cm／原始 ${r.trackRaw}m（合併後看總表）</td></tr>
+                ${r.braces > 0 ? `<tr><td>${matName('braces', params.braceType)} 加強橫枝 ${params.braceLength}cm</td><td class="qty">${(r.rawBraceCm/r.braceLen).toFixed(2)} 支</td><td class="unit-cell">${params.braceRows}排（原始用量）</td></tr>` : ''}
+                <tr><td>${params.boardType === 'calcium' ? '矽酸鈣板' : '石膏板'} ${params.boardThickness}mm ${params.boardSize}尺</td><td class="qty">${r.boardsRawNum.toFixed(2)} 片</td><td class="unit-cell">原始用量（總表才含5%損耗）</td></tr>
+                ${r.fill ? `<tr><td>${r.fill.label}</td><td class="qty">${(r.fill.rawPieces!=null ? r.fill.rawPieces/r.fill.perPack : r.fill.rawM2/r.fill.rollArea).toFixed(2)} ${r.fill.unit}</td><td class="unit-cell">原始用量（合併後看總表）</td></tr>` : ''}
+              </tbody>
+            </table>
+            ${r.totalPrice > 0 ? `<div style="text-align:right;margin-top:6px;font-size:13px;color:var(--green);font-weight:600;">小計：$${r.totalPrice.toLocaleString()}</div>` : ''}
+          </div>`;
+        addTotal(params.studType+'_'+r.studStock, matName('studs', params.studType) + ' 骨架（下料 ' + r.studStock + 'cm）', r.studs, '支'); // 依下料長度分列，數量為叫料支數
+        addPool(params.trackType, matName('tracks', params.trackType) + ' 槽鐵', '支', 'stick', r.rawTrackCm, r.trackUnit);
+        if (r.braces > 0) addPool(params.braceType+'_'+params.braceLength, matName('braces', params.braceType)+' 加強橫枝 '+params.braceLength+'cm', '支', 'stick', r.rawBraceCm, r.braceLen);
+        const boardKey = `${params.boardType}-${params.boardThickness}-${params.boardSize}`;
+        addPool(boardKey, `${params.boardType === 'calcium' ? '矽酸鈣板' : '石膏板'} ${params.boardThickness}mm ${params.boardSize}尺`, '片', 'board', r.boardsRawNum);
+        if (r.fill) {
+          if (r.fill.rawPieces != null) addPool(params.fillSpec || params.fillType, r.fill.label, r.fill.unit, 'pack', r.fill.rawPieces, r.fill.perPack);
+          else if (r.fill.rawM2 != null) addPool(params.fillSpec || params.fillType, r.fill.label, r.fill.unit, 'roll', r.fill.rawM2, r.fill.rollArea);
+        }
+      }
+
+      if (z.type === 'ceiling') {
+        const sysLabel = params.sys === 'centipede' ? '蜈蚣腳' : 'N38';
+        const rodLabel = params.rodSpec === '2fen' ? '兩分螺桿' : '三分螺桿';
+        const trimNames = { L8:'L收邊 8尺', L10:'L收邊 10尺', '7word':'七字收邊 8尺' };
+        const fasciaR = r.fascia;
+        html += `
+          <div style="margin-bottom:12px;">
+            <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text-2);">⬜ ${esc(z.name)}（天花板 ${params.cLength}×${params.cWidth}cm，${r.area}m²）</div>
+            <table class="result-table">
+              <thead><tr><th>材料</th><th>數量</th><th>備註</th></tr></thead>
+              <tbody>
+                <tr><td>${sysLabel} 主架（${r.mainLen}cm）</td><td class="qty">${r.mainTotal} 支</td><td class="unit-cell">${r.mainRows}排 × ${r.mainPerRow}支/排</td></tr>
+                <tr><td>大百葉 副架（${r.subLen}cm）</td><td class="qty">${r.subTotal} 支</td><td class="unit-cell">${r.subCount}條 × ${r.subPerRow}支/條</td></tr>
+                <tr><td>${rodLabel}${params.rodType==='standard'?' 3M':' 訂做'+params.rodCustomLen+'cm'}</td><td class="qty">${r.rodResult.rods} 支</td><td class="unit-cell">${params.rodType==='standard'?r.rodResult.hangPoints+'個吊點，每根可截'+r.rodResult.pointsPerRod+'個':r.rodResult.hangPoints+' 個吊點'}</td></tr>
+                <tr><td>螺母</td><td class="qty">${r.nuts} 個</td><td class="unit-cell">每吊點2個</td></tr>
+                ${r.hitNails > 0 ? `<tr><td>擊釘片</td><td class="qty">${r.hitNails} 個</td><td class="unit-cell">標準品螺桿需要</td></tr>` : ''}
+                ${r.clipsTotal > 0 ? `<tr><td>四齒夾</td><td class="qty">${r.clipsTotal} 個</td><td class="unit-cell">N38與百葉結合</td></tr>` : ''}
+                ${r.hooksTotal > 0 ? `<tr><td>吊勾具</td><td class="qty">${r.hooksTotal} 個</td><td class="unit-cell">N38系統專用</td></tr>` : ''}
+                <tr><td>${params.boardType === 'calcium' ? '矽酸鈣板' : '石膏板'} ${params.boardThickness}mm ${params.boardSize}尺</td><td class="qty">${r.boards} 片</td><td class="unit-cell">含5%損耗（淨算 ${r.boardsRaw} 片）</td></tr>
+                <tr><td>${trimNames[params.trimType]||params.trimType}</td><td class="qty">${r.trims} 支</td><td class="unit-cell">周長 ${r.perimeter}m</td></tr>
+                ${fasciaR && fasciaR.method==='partition' ? `
+                <tr><td colspan="3" style="background:var(--surface2);font-weight:600;font-size:12px;">立板（骨架做法）</td></tr>
+                <tr><td>${fasciaR.studType} 骨架</td><td class="qty">${fasciaR.studs} 支</td><td class="unit-cell">立板骨架</td></tr>
+                <tr><td>${fasciaR.trackType} 槽鐵</td><td class="qty">${fasciaR.tracks} 支</td><td class="unit-cell">實際 ${fasciaR.trackRawM}m</td></tr>
+                <tr><td>立板板材 ${fasciaR.boardSize}尺</td><td class="qty">${fasciaR.boards} 片</td><td class="unit-cell">含5%損耗</td></tr>
+                ` : ''}
+                ${fasciaR && fasciaR.method==='trim' ? `
+                <tr><td colspan="3" style="background:var(--surface2);font-weight:600;font-size:12px;">立板（收邊條做法）</td></tr>
+                <tr><td>${trimNames[fasciaR.trimType]||fasciaR.trimType}</td><td class="qty">${fasciaR.trims} 支</td><td class="unit-cell">上下各一排</td></tr>
+                <tr><td>百葉補強</td><td class="qty">${fasciaR.louvers} 支</td><td class="unit-cell">接縫間距 ${fasciaR.louverSpacing}cm</td></tr>
+                ` : ''}
+              </tbody>
+            </table>
+            ${r.totalPrice > 0 ? `<div style="text-align:right;margin-top:6px;font-size:13px;color:var(--green);font-weight:600;">小計：$${r.totalPrice.toLocaleString()}</div>` : ''}
+          </div>`;
+        addTotal('main_'+params.sys, sysLabel+' 主架 '+r.mainLen+'cm', r.mainTotal, '支');
+        addTotal('sub_louver', '大百葉 '+r.subLen+'cm', r.subTotal, '支');
+        addTotal('rod_'+params.rodSpec, rodLabel, r.rodResult.rods, '支');
+        addTotal('nut', '螺母', r.nuts, '個');
+        if (r.hitNails > 0) addTotal('hitnail', '擊釘片', r.hitNails, '個');
+        if (r.clipsTotal > 0) addTotal('clip4', '四齒夾', r.clipsTotal, '個');
+        if (r.hooksTotal > 0) addTotal('hook', '吊勾具', r.hooksTotal, '個');
+        const cBoardKey = `${params.boardType}-${params.boardThickness}-${params.boardSize}`;
+        addTotal(cBoardKey, `${params.boardType === 'calcium' ? '矽酸鈣板' : '石膏板'} ${params.boardThickness}mm ${params.boardSize}尺`, r.boards, '片');
+        addTotal('trim_'+params.trimType, trimNames[params.trimType]||params.trimType, r.trims, '支');
+        if (fasciaR) {
+          if (fasciaR.method === 'partition') {
+            addTotal(fasciaR.studType+'_fascia', fasciaR.studType+' 骨架（立板）', fasciaR.studs, '支');
+            addTotal(fasciaR.trackType+'_fascia', fasciaR.trackType+' 槽鐵（立板）', fasciaR.tracks, '支');
+            const fBoardKey = `board_fascia_${fasciaR.boardSize}`;
+            addTotal(fBoardKey, '立板板材 '+fasciaR.boardSize+'尺', fasciaR.boards, '片');
+          } else {
+            addTotal('trim_fascia_'+fasciaR.trimType, (trimNames[fasciaR.trimType]||fasciaR.trimType)+'（立板）', fasciaR.trims, '支');
+            addTotal('louver_fascia', '百葉補強（立板）', fasciaR.louvers, '支');
+          }
+        }
+      }
+    });
+
+    html += '</div></div>';
+  });
+  html += '</div>';
+
+  finalizePool(); // 可裁切材料：原始用量加總後才進位，併入 totals
+
+  // 全案彙總
+  if (Object.keys(totals).length) {
+    html += `
+      <div class="result-section">
+        <div class="result-header">📊 全案材料彙總</div>
+        <table class="result-table">
+          <thead><tr><th>材料</th><th>總數量</th><th>單位</th></tr></thead>
+          <tbody>
+            ${Object.values(totals).map(t => `
+              <tr><td>${t.label}</td><td class="qty">${t.qty.toLocaleString()}</td><td class="unit-cell">${t.unit}</td></tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  el.innerHTML = html || '<div class="empty-state"><div class="icon">📊</div><h3>尚無計算資料</h3><p>請先在「材料計算」頁面新增區塊</p></div>';
+}
+
+// ════════════════════════════════════
+// MATERIALS
+// ════════════════════════════════════
+function renderMaterials() {
+  const el = document.getElementById('materials-content');
+  el.innerHTML = `
+    ${materialSection('C型骨架', 'studs', ['規格', '長度(cm)', '單價(元/支)'])}
+    ${materialSection('U槽鐵', 'tracks', ['規格', '長度(cm)', '單價(元/支)'])}
+    ${materialSection('加強橫枝', 'braces', ['規格', '長度(cm)', '單價(元/支)'])}
+    ${materialSection('板材', 'boards', ['品名', '單價(元/片)'])}
+    ${materialSection('岩棉', 'rockwool', ['規格', '幾片/包', '單價(元/包)'])}
+    ${materialSection('玻璃棉', 'glasswool', ['規格', '單價(元/捲)'])}
+    ${materialSection('收邊料', 'trims', ['規格', '長度(cm)', '單價(元/支)'])}
+    ${materialSection('螺桿', 'rods', ['規格', '長度(cm)', '單價(元/支)'])}
+    ${materialSection('天花主架', 'mainFrames', ['規格', '長度(cm)', '單價(元/支)'])}
+    ${materialSection('大百葉副架', 'subFrames', ['規格', '長度(cm)', '單價(元/支)'])}
+    ${materialSection('天花五金', 'hardware', ['品名', '單價(元/個)'])}
+  `;
+}
+
+// ── 材料庫：長條料（骨架/槽鐵/加強）以「名稱」母子分組顯示 ──
+const matGroupOpen = new Set();
+const MAT_GROUP_KEYS = ['studs','tracks','braces'];
+const MAT_TONES = ['#1d4ed8','#0f766e','#7c3aed','#b45309','#be123c','#047857','#0369a1','#c2410c','#9333ea','#0891b2','#65a30d','#db2777'];
+function matHash(s){ s=String(s||''); let h=0; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return h; }
+function matTone(name){ return MAT_TONES[matHash(name)%MAT_TONES.length]; }
+function matCssSafe(s){ return String(s).replace(/[^a-zA-Z0-9]/g,'_'); }
+function matJsAttr(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+function toggleMatGroup(gid){ if(matGroupOpen.has(gid)) matGroupOpen.delete(gid); else matGroupOpen.add(gid); renderMaterials(); }
+function renameMatGroup(key, oldName){
+  const nv = prompt('修改材料名稱（會套用到底下所有長度）', oldName);
+  if(nv===null) return; const name=nv.trim(); if(!name || name===oldName) return;
+  (state.materials[key]||[]).forEach(m=>{ if(m.name===oldName) m.name=name; });
+  matGroupOpen.delete(key+'_'+matCssSafe(oldName)); matGroupOpen.add(key+'_'+matCssSafe(name));
+  saveUserData(); renderMaterials();
+}
+function addLengthToGroup(key, name){
+  const lv = prompt('新增長度（cm）', '300'); if(lv===null) return;
+  const len = parseInt(lv)||0; if(len<=0) return;
+  state.materials[key].push({ id:'custom_'+Date.now(), name, length:len, unit:'支', price:0, custom:true });
+  matGroupOpen.add(key+'_'+matCssSafe(name)); saveUserData(); renderMaterials();
+}
+function matSectionWrap(title, key, headers, rows, showAdd) {
+  const addBtn = showAdd ? `<button class="btn btn-secondary btn-sm" onclick="addCustomMaterial('${key}')">＋ 新增材料</button>` : '';
+  return `
+    <div class="material-category">
+      <div class="card-header">
+        <div><div class="card-title">${title}</div></div>
+        ${addBtn}
+      </div>
+      <table class="material-table">
+        <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}<th></th></tr></thead>
+        <tbody id="mat-tbody-${key}">${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function materialSection(title, key, headers) {
+  const items = state.materials[key] || [];
+  const colCount = headers.length + 1;
+  let rows = '';
+
+  if (MAT_GROUP_KEYS.includes(key)) {
+    const groups = {}; const order = [];
+    items.forEach((item, i) => { const nm = item.name || '（未命名）'; if(!groups[nm]){ groups[nm]=[]; order.push(nm); } groups[nm].push({item, i}); });
+    order.forEach(nm => {
+      const list = groups[nm];
+      const gid = key + '_' + matCssSafe(nm);
+      const open = matGroupOpen.has(gid);
+      const tone = matTone(nm);
+      const na = matJsAttr(nm);
+      rows += `<tr onclick="toggleMatGroup('${gid}')" style="cursor:pointer;background:#f7f9fc">
+        <td colspan="${colCount}" style="border-left:4px solid ${tone}">
+          <span style="display:inline-block;width:14px;color:#999">${open?'▾':'▸'}</span>
+          <strong style="color:${tone}">${esc(nm)}</strong>
+          <span style="color:#999;font-size:12px;margin-left:6px">${list.length} 種長度</span>
+          <button class="btn btn-sm" style="float:right" onclick="event.stopPropagation();renameMatGroup('${key}','${na}')">改名</button>
+        </td></tr>`;
+      if (open) {
+        list.forEach(({item, i}) => {
+          rows += `<tr>
+            <td style="padding-left:24px;color:#999;">↳ 長度</td>
+            <td><input type="number" value="${item.length}" onchange="state.materials['${key}'][${i}].length=+this.value;saveUserData()" style="width:80px;"></td>
+            <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
+            <td><button class="btn btn-danger btn-sm" onclick="removeMaterial('${key}',${i})">刪</button></td>
+          </tr>`;
+        });
+        rows += `<tr><td colspan="${colCount}" style="padding-left:24px;"><button class="btn btn-secondary btn-sm" onclick="addLengthToGroup('${key}','${na}')">＋ 長度</button></td></tr>`;
+      }
+    });
+    return matSectionWrap(title, key, headers, rows, true);
+  }
+
+  items.forEach((item, i) => {
+    if (key === 'boards') {
+      rows += `<tr>
+        <td>${esc(item.name)}</td>
+        <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
+        <td></td>
+      </tr>`;
+    } else if (key === 'rockwool') {
+      rows += `<tr>
+        <td>${esc(item.name)}</td>
+        <td><input type="number" value="${item.piecesPerPack || 4}" onchange="state.materials['${key}'][${i}].piecesPerPack=+this.value;saveUserData()" style="width:60px;"></td>
+        <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
+        <td></td>
+      </tr>`;
+    } else if (key === 'glasswool') {
+      rows += `<tr>
+        <td>${esc(item.name)}</td>
+        <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
+        <td></td>
+      </tr>`;
+    } else if (key === 'trims' || key === 'rods' || key === 'mainFrames' || key === 'subFrames') {
+      rows += `<tr>
+        <td>${esc(item.name)}</td>
+        <td><input type="number" value="${item.length}" onchange="state.materials['${key}'][${i}].length=+this.value;saveUserData()" style="width:80px;"></td>
+        <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
+        <td></td>
+      </tr>`;
+    } else if (key === 'hardware') {
+      rows += `<tr>
+        <td>${esc(item.name)}</td>
+        <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
+        <td></td>
+      </tr>`;
+    }
+  });
+
+  return matSectionWrap(title, key, headers, rows, false);
+}
+
+function addCustomMaterial(key) {
+  const name = prompt('新增材料名稱（例：C64 骨架）');
+  if (!name) return;
+  const lv = prompt('第一個長度（cm）', '300');
+  const len = parseInt(lv) || 300;
+  state.materials[key].push({ id: 'custom_' + Date.now(), name: name.trim(), length: len, unit: '支', price: 0, custom: true });
+  matGroupOpen.add(key + '_' + matCssSafe(name.trim()));
+  renderMaterials();
+}
+
+function removeMaterial(key, idx) {
+  state.materials[key].splice(idx, 1);
+  saveUserData();
+  renderMaterials();
+}
+
+function saveMaterials() {
+  const btn = event.target;
+  btn.textContent = '☁ 儲存中…';
+  doCloudSave().then(() => {
+    const okSave = cloudSaveState === 'saved';
+    btn.textContent = okSave ? '✅ 已儲存' : '⚠ 失敗';
+    toast(okSave ? '單價已儲存' : '儲存失敗，請重試', okSave ? 'success' : 'error');
+    setTimeout(() => btn.textContent = '💾 儲存單價', 1600);
+  });
+}
+
+function printResults() {
+  if (!state.activeProjectId) return;
+  recalcActiveProject(); // 用最新算法重算
+  const p = state.projects.find(x => x.id === state.activeProjectId);
+  const spaces = state.spaces[state.activeProjectId] || [];
+  const now = new Date().toLocaleDateString('zh-TW');
+  const trimNames = { L8:'L收邊 8尺', L10:'L收邊 10尺', '7word':'七字收邊 8尺' };
+
+  const totals = {};
+  const addT = (key, label, qty, unit) => {
+    if (!totals[key]) totals[key] = { label, qty: 0, unit };
+    totals[key].qty += qty;
+  };
+  const pool = {};
+  const addP = (key, label, unit, kind, raw, div) => {
+    if (!pool[key]) pool[key] = { label, unit, kind, raw: 0, div };
+    pool[key].raw += raw;
+  };
+  const finalizePool = () => {
+    Object.entries(pool).forEach(([key, pp]) => {
+      const qty = pp.kind === 'board' ? Math.ceil(pp.raw * 1.05) : Math.ceil(pp.raw / pp.div);
+      if (!totals[key]) totals[key] = { label: pp.label, qty: 0, unit: pp.unit };
+      totals[key].qty += qty;
+    });
+  };
+
+  let body = '';
+  spaces.forEach(s => {
+    const zones = (state.zones[s.id] || []).filter(z => z.result);
+    if (!zones.length) return;
+    body += `<h3 style="margin:16px 0 8px;font-size:14px;border-bottom:1px solid #ccc;padding-bottom:4px;">▌ ${s.name}</h3>`;
+    zones.forEach(z => {
+      const r = z.result; const params = z.params;
+      if (z.type === 'partition') {
+        body += `<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;margin-bottom:4px;">🧱 ${z.name}（${params.width}×${params.height}cm）</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <tr style="background:#f0f0f0;"><th style="border:1px solid #ccc;padding:4px 8px;text-align:left;">材料</th><th style="border:1px solid #ccc;padding:4px 8px;">數量</th><th style="border:1px solid #ccc;padding:4px 8px;">備註</th></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${matName('studs', params.studType)} 骨架（下料${r.studStock}cm）</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.studs} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">牆高${r.studLen}cm・${r.studPosts}根・${r.studPerStickText}</td></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${matName('tracks', params.trackType)} 槽鐵</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${(r.rawTrackCm/r.trackUnit).toFixed(2)} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">單支${r.trackUnit}cm・原始 ${r.trackRaw}m</td></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${params.boardType==='calcium'?'矽酸鈣板':'石膏板'} ${params.boardThickness}mm ${params.boardSize}尺</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.boardsRawNum.toFixed(2)} 片</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>
+          ${r.fill ? `<tr><td style="border:1px solid #ccc;padding:4px 8px;">${r.fill.label}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${(r.fill.rawPieces!=null ? r.fill.rawPieces/r.fill.perPack : r.fill.rawM2/r.fill.rollArea).toFixed(2)} ${r.fill.unit}</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>` : ''}
+        </table>
+        ${r.totalPrice > 0 ? `<div style="text-align:right;font-size:11px;color:#2D7A4F;font-weight:600;margin-top:2px;">小計 $${r.totalPrice.toLocaleString()}</div>` : ''}</div>`;
+        addT(params.studType+'_'+r.studStock, matName('studs', params.studType)+' 骨架（下料 '+r.studStock+'cm）', r.studs, '支');
+        addP(params.trackType, matName('tracks', params.trackType)+' 槽鐵', '支', 'stick', r.rawTrackCm, r.trackUnit);
+        if (r.braces > 0) addP(params.braceType+'_'+params.braceLength, matName('braces', params.braceType)+' 加強橫枝 '+params.braceLength+'cm', '支', 'stick', r.rawBraceCm, r.braceLen);
+        const bk = `${params.boardType}-${params.boardThickness}-${params.boardSize}`;
+        addP(bk, `${params.boardType==='calcium'?'矽酸鈣板':'石膏板'} ${params.boardThickness}mm ${params.boardSize}尺`, '片', 'board', r.boardsRawNum);
+        if (r.fill) {
+          if (r.fill.rawPieces != null) addP(params.fillSpec||params.fillType, r.fill.label, r.fill.unit, 'pack', r.fill.rawPieces, r.fill.perPack);
+          else if (r.fill.rawM2 != null) addP(params.fillSpec||params.fillType, r.fill.label, r.fill.unit, 'roll', r.fill.rawM2, r.fill.rollArea);
+        }
+      }
+      if (z.type === 'ceiling') {
+        const sysLabel = params.sys==='centipede'?'蜈蚣腳':'N38';
+        const rodLabel = params.rodSpec==='2fen'?'兩分螺桿':'三分螺桿';
+        body += `<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;margin-bottom:4px;">⬜ ${z.name}（${params.cLength}×${params.cWidth}cm，${r.area}m²，${sysLabel}）</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <tr style="background:#f0f0f0;"><th style="border:1px solid #ccc;padding:4px 8px;text-align:left;">材料</th><th style="border:1px solid #ccc;padding:4px 8px;">數量</th><th style="border:1px solid #ccc;padding:4px 8px;">備註</th></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${sysLabel} 主架</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.mainTotal} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.mainRows}排×${r.mainPerRow}支</td></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">大百葉 副架</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.subTotal} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.subCount}條×${r.subPerRow}支</td></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${rodLabel}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.rodResult.rods} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.hangPointsTotal}個吊點</td></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">螺母</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.nuts} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>
+          ${r.hitNails>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">擊釘片</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.hitNails} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
+          ${r.clipsTotal>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">四齒夾</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.clipsTotal} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
+          ${r.hooksTotal>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">吊勾具</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.hooksTotal} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${params.boardType==='calcium'?'矽酸鈣板':'石膏板'} ${params.boardThickness}mm ${params.boardSize}尺</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.boards} 片</td><td style="border:1px solid #ccc;padding:4px 8px;">含5%損耗</td></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${trimNames[params.trimType]||params.trimType}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.trims} 支</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>
+        </table>
+        ${r.totalPrice>0?`<div style="text-align:right;font-size:11px;color:#2D7A4F;font-weight:600;margin-top:2px;">小計 $${r.totalPrice.toLocaleString()}</div>`:''}</div>`;
+        addT('main_'+params.sys, sysLabel+' 主架', r.mainTotal, '支');
+        addT('sub_louver', '大百葉 副架', r.subTotal, '支');
+        addT('rod_'+params.rodSpec, rodLabel, r.rodResult.rods, '支');
+        addT('nut', '螺母', r.nuts, '個');
+        if (r.hitNails>0) addT('hitnail','擊釘片',r.hitNails,'個');
+        if (r.clipsTotal>0) addT('clip4','四齒夾',r.clipsTotal,'個');
+        if (r.hooksTotal>0) addT('hook','吊勾具',r.hooksTotal,'個');
+        const ck=`${params.boardType}-${params.boardThickness}-${params.boardSize}`;
+        addT(ck,`${params.boardType==='calcium'?'矽酸鈣板':'石膏板'} ${params.boardThickness}mm ${params.boardSize}尺`,r.boards,'片');
+        addT('trim_'+params.trimType,trimNames[params.trimType]||params.trimType,r.trims,'支');
+      }
+    });
+  });
+
+  finalizePool(); // 可裁切材料合併零頭後才進位
+
+  // 全案彙總表
+  let totalTable = '';
+  if (Object.keys(totals).length) {
+    totalTable = `<h3 style="margin:20px 0 8px;font-size:14px;border-bottom:1px solid #ccc;padding-bottom:4px;">📊 全案材料彙總</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <tr style="background:#2B5F8E;color:#fff;"><th style="padding:6px 10px;text-align:left;">材料</th><th style="padding:6px 10px;">總數量</th><th style="padding:6px 10px;">單位</th></tr>
+      ${Object.values(totals).map((t,i)=>`<tr style="background:${i%2?'#f8f8f8':'#fff'};"><td style="border:1px solid #ddd;padding:5px 10px;">${t.label}</td><td style="border:1px solid #ddd;padding:5px 10px;text-align:center;font-weight:700;">${t.qty.toLocaleString()}</td><td style="border:1px solid #ddd;padding:5px 10px;color:#666;">${t.unit}</td></tr>`).join('')}
+    </table>`;
+  }
+
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${p.name} 用量報表</title>
+  <style>body{font-family:'PingFang TC','Microsoft JhengHei',sans-serif;padding:24px;max-width:900px;margin:0 auto;color:#1a1916;}
+  @media print{body{padding:0;} button{display:none;}}</style></head><body>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+    <div><h1 style="font-size:18px;font-weight:700;margin:0 0 4px;">${p.name}</h1>
+    <div style="font-size:12px;color:#666;">製表人：${state.user}　製表日期：${now}</div></div>
+    <button onclick="window.print()" style="padding:8px 16px;background:#2B5F8E;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">🖨️ 列印</button>
+  </div>
+  <hr style="border:none;border-top:2px solid #2B5F8E;margin-bottom:16px;">
+  ${body}
+  ${totalTable}
+  </body></html>`);
+  win.document.close();
+}
+
+// ════════════════════════════════════
+// MODAL HELPERS
+// ════════════════════════════════════
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// 點外面不再關閉彈窗（避免手機誤觸把輸入到一半的資料整個關掉）；只有 ✕/取消 才關
+
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.open').forEach(el => el.classList.remove('open'));
+});
+
+document.getElementById('login-pwd').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// 自動登入
+(async function autoLogin() {
+  const session = localStorage.getItem('mc_session');
+  if (!session) return;
+  try {
+    const { user, password } = JSON.parse(session);
+    if (!user || !password) return;
+    document.getElementById('login-name').value = user;
+    document.getElementById('login-pwd').value = password;
+    await doLogin();
+  } catch(e) {
+    localStorage.removeItem('mc_session');
+  }
+})();
+
+// ════════════════════════════════════
+// UTILS
+// ════════════════════════════════════
+function toast(msg, type, ms) {
+  type = type || 'success';
+  ms = ms || 2400;
+  const wrap = document.getElementById('toast-wrap');
+  if (!wrap) { alert(msg); return; }
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = (type === 'success' ? '✓ ' : type === 'error' ? '✕ ' : 'ℹ ') + msg;
+  wrap.appendChild(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 260); }, ms);
+}
+
+function esc(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
