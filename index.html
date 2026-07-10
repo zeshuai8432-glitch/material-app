@@ -100,6 +100,13 @@
   .stepper button{width:34px;height:38px;border-radius:9px;background:#eef2f7;font-size:18px;font-weight:800;color:var(--blue)}
   .stepper input{width:64px;text-align:center;padding:9px 4px}
   .hint{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:9px 12px;font-size:12.5px;color:#1e40af;margin-bottom:12px}
+  /* print preview */
+  #printov{position:fixed;inset:0;z-index:90;background:#fff;display:none;flex-direction:column}
+  #printov.show{display:flex}
+  #printbar{display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 10px) 12px 10px;background:var(--blue);color:#fff}
+  #printbar .t{flex:1;font-weight:800;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #printbar button{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.32);color:#fff;padding:8px 13px;border-radius:10px;font-weight:800;font-size:14px;white-space:nowrap}
+  #printframe{flex:1;border:0;width:100%;background:#eef1f5}
 </style>
 </head>
 <body>
@@ -200,6 +207,16 @@
 
 <div id="toast"></div>
 <div class="ov" id="ov" onclick="if(event.target===this)closeSheet()"><div class="sheet" id="sheet"></div></div>
+
+<!-- 列印預覽（app 內，可關閉不用退出程式） -->
+<div id="printov">
+  <div id="printbar">
+    <button onclick="closePrint()">✕ 關閉</button>
+    <div class="t" id="printtitle">預覽</div>
+    <button onclick="doPrint()">🖨 列印 / 存PDF</button>
+  </div>
+  <iframe id="printframe" title="列印預覽"></iframe>
+</div>
 
 <script>
 // ════════════════════════════════════════════
@@ -712,7 +729,6 @@ function exportRefillPDF(){
   printHTML('補料單 '+p, body);
 }
 function printHTML(title, inner){
-  const w = window.open('','_blank');
   const html = `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:-apple-system,"Microsoft JhengHei","PingFang TC",sans-serif;padding:18px;color:#111;font-size:13px}
@@ -728,9 +744,16 @@ function printHTML(title, inner){
     tr:nth-child(even) td{background:#fafbfc}
     .foot{margin-top:22px;font-size:11px;color:#999;border-top:1px solid #e5e7eb;padding-top:8px}
     @media print{body{padding:6px}}
-  </style></head><body>${inner}<div class="foot">現場材料管理系統・${todayStr()}</div>
-  <script>window.onload=function(){window.print()}<\/script></body></html>`;
-  w.document.write(html); w.document.close();
+  </style></head><body>${inner}<div class="foot">現場材料管理系統・${todayStr()}</div></body></html>`;
+  document.getElementById('printtitle').textContent = title;
+  document.getElementById('printframe').srcdoc = html;
+  document.getElementById('printov').classList.add('show');
+}
+function closePrint(){ document.getElementById('printov').classList.remove('show'); document.getElementById('printframe').srcdoc=''; }
+function doPrint(){
+  const f = document.getElementById('printframe');
+  try{ f.contentWindow.focus(); f.contentWindow.print(); }
+  catch(e){ try{ window.print(); }catch(_){ toast('請用瀏覽器選單列印'); } }
 }
 
 // ════════════════════════════════════════════
