@@ -148,7 +148,7 @@
   <div class="page" id="pg-count">
     <div class="card">
       <h2>📋 現場盤點</h2>
-      <div class="hint">選一個房間，把每種材料「現在還剩多少」重新數一次填進去。「還需要」預設帶計畫量，可現場改。</div>
+      <div class="hint">選一個房間，把每種材料「現在還剩多少」重新數一次填進去。「需求量」是這房間總共要用多少，可現場改。</div>
       <div class="fg"><label>房間</label><select id="ct-room" onchange="renderCount()"></select></div>
     </div>
     <div id="ct-list"></div>
@@ -172,7 +172,7 @@
     </div>
     <div class="card">
       <h2>🗄️ 材料分類與材料庫</h2>
-      <div class="muted" style="margin-bottom:8px">先有分類（骨架、板材…），材料掛在分類底下。盤點與計畫都從這裡挑。</div>
+      <div class="muted" style="margin-bottom:8px">先有分類（骨架、板材…），材料掛在分類底下。盤點與需求量都從這裡挑。</div>
       <div id="set-mats"></div>
       <div class="row" style="margin-top:6px">
         <button class="btn ghost sm" onclick="openCatSheet()">＋ 分類</button>
@@ -180,9 +180,9 @@
       </div>
     </div>
     <div class="card">
-      <h2>📐 計畫量</h2>
-      <div class="muted" style="margin-bottom:8px">設定每個房間「應該用多少」各種材料。這是總覽紅綠判斷的基準。</div>
-      <button class="btn ghost sm" onclick="openPlanSheet()">✏️ 編輯房間計畫量</button>
+      <h2>📐 需求量</h2>
+      <div class="muted" style="margin-bottom:8px">設定每個房間各種材料「總共要用多少」。這是總覽紅綠與「要補」的判斷基準。</div>
+      <button class="btn ghost sm" onclick="openPlanSheet()">✏️ 編輯房間需求量</button>
     </div>
     <div class="card">
       <h2>💾 資料</h2>
@@ -229,7 +229,7 @@ let D = {
   rooms: [],         // [{project, floor, name}]  floor=樓層, name=房間
   cats: [],          // [分類名]
   mats: [],          // [{id, cat, name, spec, thick, unit}]
-  items: [],         // [{id, project, room, matId, plan, remaining, stillNeed, delivered}]
+  items: [],         // [{id, project, room, matId, demand, remaining, delivered}]
   deliveries: [],    // [{id, date, project, room, matId, qty}]
 };
 let cur = { project: null, page: 'board' };
@@ -257,6 +257,8 @@ function load(){
     if(raw){ const p = JSON.parse(raw); if(p && typeof p==='object') D = Object.assign(D, p); }
   }catch(e){}
   if(!D.cats || !D.cats.length) D.cats = DEFAULT_CATS.slice();
+  // 舊資料遷移：計畫量+還需要 → 單一需求量
+  (D.items||[]).forEach(it=>{ if(it.demand==null){ it.demand = it.stillNeed!=null ? num(it.stillNeed) : num(it.plan||0); } delete it.plan; delete it.stillNeed; });
   if(!cur.project) cur.project = D.projects[0] || null;
 }
 
@@ -266,7 +268,7 @@ function matLabel(m){ if(!m) return '(材料已刪)'; return m.name + (m.spec?('
 function projItems(p){ return D.items.filter(i=>i.project===p); }
 function projRooms(p){ return D.rooms.filter(r=>r.project===p); }
 function roomFloor(p, room){ const r = D.rooms.find(x=>x.project===p && x.name===room); return r ? (r.floor||room) : room; }
-function itemNeed(it){ return it.stillNeed!=null ? num(it.stillNeed) : num(it.plan); }
+function itemNeed(it){ return num(it.demand); } // 需求量
 function itemLack(it){ return round(itemNeed(it) - num(it.remaining)); } // >0 需補
 function catOrder(c){ const i = D.cats.indexOf(c); return i<0?999:i; }
 
@@ -301,9 +303,9 @@ function renderAll(){ fillProjSel(); renderBoard(); if(cur.page==='deliver')rend
 function renderBoard(){
   const el = document.getElementById('board');
   const p = cur.project;
-  if(!p){ el.innerHTML = emptyBox('🏗️','還沒有案場','到「設定」新增案場，再建房間與計畫量'); return; }
+  if(!p){ el.innerHTML = emptyBox('🏗️','還沒有案場','到「設定」新增案場，再建房間與需求量'); return; }
   const items = projItems(p);
-  if(!items.length){ el.innerHTML = emptyBox('📋','此案場尚無材料','到「設定 → 計畫量」設定各房間要用的材料'); return; }
+  if(!items.length){ el.innerHTML = emptyBox('📋','此案場尚無材料','到「設定 → 需求量」設定各房間要用的材料'); return; }
 
   // group by 樓層 -> 房間 -> 分類
   const floors = {};
@@ -378,14 +380,14 @@ function quickCount(itemId){
       <div class="stepper"><button type="button" onclick="stepQty('qc-rem',-1)">−</button>
       <input type="number" id="qc-rem" inputmode="decimal" value="${num(it.remaining)}" style="flex:1;width:auto;text-align:left">
       <button type="button" onclick="stepQty('qc-rem',1)">＋</button></div></div>
-    <div class="fg"><label>還需要（${esc(unit)}）· 預設計畫量 ${num(it.plan)}</label>
+    <div class="fg"><label>需求量（${esc(unit)}）· 這房間總共要用多少</label>
       <input type="number" id="qc-need" inputmode="decimal" value="${itemNeed(it)}"></div>
     <button class="btn" onclick="saveQuickCount('${it.id}')">儲存</button>`);
 }
 function saveQuickCount(itemId){
   const it = D.items.find(i=>i.id===itemId); if(!it) return;
   it.remaining = round(num(document.getElementById('qc-rem').value));
-  it.stillNeed = round(num(document.getElementById('qc-need').value));
+  it.demand = round(num(document.getElementById('qc-need').value));
   save(); closeSheet(); renderBoard(); toast('✅ 已更新');
 }
 
@@ -425,7 +427,7 @@ function addDelivery(){
   D.deliveries.push({id:uid(), date:document.getElementById('dv-date').value||todayStr(), project:p, room, matId, qty});
   // accumulate into item.delivered, create item if missing
   let it = D.items.find(i=>i.project===p && i.room===room && i.matId===matId);
-  if(!it){ it = {id:uid(), project:p, room, matId, plan:0, remaining:0, stillNeed:null, delivered:0}; D.items.push(it); }
+  if(!it){ it = {id:uid(), project:p, room, matId, demand:0, remaining:0, delivered:0}; D.items.push(it); }
   it.delivered = round(num(it.delivered)+qty);
   it.remaining = round(num(it.remaining)+qty); // 送到現場 = 現場剩餘增加（盤點時再以實數覆蓋）
   document.getElementById('dv-qty').value='';
@@ -464,7 +466,7 @@ function renderCount(){
   if(!p || !room){ el.innerHTML = emptyBox('📋','沒有房間','到「設定」新增房間'); return; }
   const its = D.items.filter(i=>i.project===p && i.room===room)
     .sort((a,b)=> catOrder(mat(a.matId)?.cat)-catOrder(mat(b.matId)?.cat));
-  if(!its.length){ el.innerHTML = emptyBox('📦','此房間尚無材料','到「設定 → 計畫量」加材料，或直接送料'); return; }
+  if(!its.length){ el.innerHTML = emptyBox('📦','此房間尚無材料','到「設定 → 需求量」加材料，或直接送料'); return; }
   let html = '', lastCat=null;
   its.forEach(it=>{
     const m = mat(it.matId); const c=m?m.cat:'其他'; const unit=m?m.unit:'';
@@ -472,13 +474,13 @@ function renderCount(){
     const ctn = nameTone(m?m.name:'');
     html += `<div class="card" style="padding:11px 13px;margin-bottom:8px;border-left:4px solid ${ctn.c}">
       <div style="font-weight:800;font-size:14px;color:${ctn.c}">${esc(m?m.name:'?')}</div>
-      <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 計畫 ${num(it.plan)}${esc(unit)} · 已送 ${num(it.delivered)}${esc(unit)}</div>
+      <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 已送 ${num(it.delivered)}${esc(unit)}</div>
       <div class="row">
         <div><label>現場剩餘</label>
           <div class="stepper"><button type="button" onclick="stepQty('ct-rem-${it.id}',-1)">−</button>
           <input type="number" id="ct-rem-${it.id}" inputmode="decimal" value="${num(it.remaining)}" style="flex:1;width:auto;text-align:left" onchange="liveCount('${it.id}')">
           <button type="button" onclick="stepQty('ct-rem-${it.id}',1)">＋</button></div></div>
-        <div><label>還需要</label>
+        <div><label>需求量</label>
           <input type="number" id="ct-need-${it.id}" inputmode="decimal" value="${itemNeed(it)}" onchange="liveCount('${it.id}')"></div>
       </div>
       <div id="ct-res-${it.id}" style="text-align:right;margin-top:7px;font-weight:800">${countResHTML(it)}</div>
@@ -493,7 +495,7 @@ function countResHTML(it){
 }
 function liveCount(id){
   const it = D.items.find(i=>i.id===id); if(!it) return;
-  const tmp = Object.assign({}, it, {remaining:num(document.getElementById('ct-rem-'+id).value), stillNeed:num(document.getElementById('ct-need-'+id).value)});
+  const tmp = Object.assign({}, it, {remaining:num(document.getElementById('ct-rem-'+id).value), demand:num(document.getElementById('ct-need-'+id).value)});
   document.getElementById('ct-res-'+id).innerHTML = countResHTML(tmp);
 }
 function saveCount(){
@@ -501,7 +503,7 @@ function saveCount(){
   D.items.filter(i=>i.project===p && i.room===room).forEach(it=>{
     const r=document.getElementById('ct-rem-'+it.id), n=document.getElementById('ct-need-'+it.id);
     if(r) it.remaining = round(num(r.value));
-    if(n) it.stillNeed = round(num(n.value));
+    if(n) it.demand = round(num(n.value));
   });
   save(); toast('✅ 盤點已儲存'); renderCount();
 }
@@ -599,7 +601,7 @@ function saveRoom(oldName){
   save(); closeSheet(); renderAll(); renderSettings(); toast('✅ 已儲存房間');
 }
 function delRoom(name){
-  if(!confirm('刪除房間「'+name+'」？該房間的計畫/盤點/送料紀錄也會刪除')) return;
+  if(!confirm('刪除房間「'+name+'」？該房間的需求/盤點/送料紀錄也會刪除')) return;
   const p=cur.project;
   D.rooms = D.rooms.filter(r=>!(r.project===p&&r.name===name));
   D.items = D.items.filter(i=>!(i.project===p&&i.room===name));
@@ -647,7 +649,7 @@ function saveMat(id){
   save(); closeSheet(); renderSettings(); toast('✅ 已儲存材料');
 }
 function delMat(id){
-  if(D.items.some(i=>i.matId===id)){ if(!confirm('此材料已用於某些房間，一併刪除相關計畫/盤點紀錄？')) return; }
+  if(D.items.some(i=>i.matId===id)){ if(!confirm('此材料已用於某些房間，一併刪除相關需求/盤點紀錄？')) return; }
   D.items = D.items.filter(i=>i.matId!==id);
   D.deliveries = D.deliveries.filter(d=>d.matId!==id);
   D.mats = D.mats.filter(m=>m.id!==id);
@@ -661,11 +663,11 @@ function openPlanSheet(){
   if(!rooms.length){ toast('⚠️ 先建房間'); return; }
   if(!D.mats.length){ toast('⚠️ 先建材料'); return; }
   const roomOpts = rooms.map(r=>`<option value="${esc(r.name)}">${esc(r.floor&&r.floor!==r.name?(r.floor+' / '):'')}${esc(r.name)}</option>`).join('');
-  openSheet(`<h3>編輯計畫量<span class="x" onclick="closeSheet()">✕</span></h3>
+  openSheet(`<h3>編輯需求量<span class="x" onclick="closeSheet()">✕</span></h3>
     <div class="fg"><label>房間</label><select id="pl-room" onchange="renderPlanRows()">${roomOpts}</select></div>
-    <div class="hint">為這個房間設定每種材料「應該用多少」。設 0 或留空代表這房間不用此料。</div>
+    <div class="hint">為這個房間設定每種材料「總共要用多少」。設 0 或留空代表這房間不用此料。之後盤點也可隨時改。</div>
     <div id="pl-rows"></div>
-    <button class="btn" onclick="savePlan()" style="margin-top:8px">💾 儲存計畫量</button>`);
+    <button class="btn" onclick="savePlan()" style="margin-top:8px">💾 儲存需求量</button>`);
   renderPlanRows();
 }
 function renderPlanRows(){
@@ -678,7 +680,7 @@ function renderPlanRows(){
     html += `<div class="catrow">${esc(c)}</div>`;
     byCat[c].forEach(m=>{
       const it = D.items.find(i=>i.project===p&&i.room===room&&i.matId===m.id);
-      const v = it? num(it.plan): '';
+      const v = it? num(it.demand): '';
       html += `<div class="qgrid" style="margin-bottom:6px">
         <div><div style="font-weight:700;font-size:14px;color:${nameTone(m.name).c}">${esc(m.name)}</div>
           <div class="muted">${esc(m.spec||'')}${m.thick?(' · '+esc(m.thick)):''}</div></div>
@@ -695,15 +697,15 @@ function savePlan(){
     const v = round(num(inp.value));
     let it = D.items.find(i=>i.project===p&&i.room===room&&i.matId===m.id);
     if(v>0){
-      if(!it){ it={id:uid(),project:p,room,matId:m.id,plan:v,remaining:0,stillNeed:null,delivered:0}; D.items.push(it); }
-      else it.plan=v;
+      if(!it){ it={id:uid(),project:p,room,matId:m.id,demand:v,remaining:0,delivered:0}; D.items.push(it); }
+      else it.demand=v;
     } else if(it){
-      // plan 0: remove only if no other data
+      // 需求量 0：若無其他資料就移除
       if(!num(it.remaining)&&!num(it.delivered)) D.items = D.items.filter(x=>x!==it);
-      else it.plan=0;
+      else it.demand=0;
     }
   });
-  save(); closeSheet(); renderAll(); toast('✅ 計畫量已儲存');
+  save(); closeSheet(); renderAll(); toast('✅ 需求量已儲存');
 }
 
 // ════════════════════════════════════════════
@@ -725,7 +727,7 @@ function exportRefillPDF(){
       const m=mat(it.matId); const u=m?m.unit:'';
       rows.push(`<tr><td>${esc(m?m.cat:'')}</td><td>${esc(m?m.name:'?')}</td><td>${esc((m&&m.spec)||'')}</td><td>${esc((m&&m.thick)||'')}</td>${multi?`<td>${esc(rn)}</td>`:''}<td class="q">剩 ${num(it.remaining)}${u}</td><td class="q">需 ${itemNeed(it)}${u}</td><td class="q lack">補 ${itemLack(it)}${u}</td></tr>`);
     }); });
-    body += `<table><thead><tr><th>分類</th><th>材料</th><th>規格</th><th>厚度</th>${multi?'<th>房間</th>':''}<th>現場剩餘</th><th>還需要</th><th>要補</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+    body += `<table><thead><tr><th>分類</th><th>材料</th><th>規格</th><th>厚度</th>${multi?'<th>房間</th>':''}<th>現場剩餘</th><th>需求量</th><th>要補</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
   });
   printHTML('補料單 '+p, body);
 }
