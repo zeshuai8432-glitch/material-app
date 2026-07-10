@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v2</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v3</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v2</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v3</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -967,9 +967,9 @@
         <div style="display:flex;gap:12px;margin-bottom:16px;align-items:flex-start;flex-wrap:wrap;">
           <div style="flex:1;">
             <h2 style="font-size:16px;font-weight:700;margin-bottom:4px;" id="calc-project-title">—</h2>
-            <p style="font-size:13px;color:var(--text-2);" id="calc-project-sub">選擇空間或新增空間</p>
+            <p style="font-size:13px;color:var(--text-2);" id="calc-project-sub">選擇房型或新增房型</p>
           </div>
-          <button class="btn btn-primary" onclick="openSpaceModal()">＋ 新增空間</button>
+          <button class="btn btn-primary" onclick="openSpaceModal()">＋ 新增房型</button>
         </div>
 
         <div id="space-list" class="space-list"></div>
@@ -1037,8 +1037,14 @@
     </div>
     <div class="modal-body">
       <div class="field">
-        <label>空間名稱</label>
-        <input type="text" id="space-name-input" placeholder="例：主臥室、客廳、走廊">
+        <label>房型名稱</label>
+        <input type="text" id="space-name-input" placeholder="例：標準房、套房、走廊">
+      </div>
+      <div class="field">
+        <label>樓層配置（同房型各樓層間數）</label>
+        <div id="space-floors-list"></div>
+        <button class="btn btn-secondary btn-sm" onclick="addSpaceFloorRow()">＋ 樓層</button>
+        <div style="font-size:11px;color:var(--text-3);margin-top:6px">例：3F × 20、5F × 15。材料用量會自動 × 總間數。留空＝當作 1 間。</div>
       </div>
       <div class="field">
         <label>備註</label>
@@ -1781,17 +1787,55 @@ function renderCalcTab() {
 // ════════════════════════════════════
 // SPACES
 // ════════════════════════════════════
+// 一個房型的樓層配置：[{floor, count}]
+function spaceFloorRowHTML(floor, count) {
+  return `<div class="sfrow" style="display:flex;gap:6px;margin-bottom:5px;align-items:center">
+    <input type="text" class="sf-floor" placeholder="樓層 3F" value="${esc(floor||'')}" style="flex:1">
+    <span style="color:var(--text-3)">×</span>
+    <input type="number" class="sf-count" placeholder="間數" value="${count!=null?count:''}" min="1" style="width:74px">
+    <button type="button" class="btn-icon" onclick="this.closest('.sfrow').remove()">🗑️</button>
+  </div>`;
+}
+function renderSpaceFloors(floors) {
+  const el = document.getElementById('space-floors-list');
+  el.innerHTML = (floors && floors.length) ? floors.map(f => spaceFloorRowHTML(f.floor, f.count)).join('') : '';
+}
+function addSpaceFloorRow() {
+  document.getElementById('space-floors-list').insertAdjacentHTML('beforeend', spaceFloorRowHTML('', ''));
+}
+function collectSpaceFloors() {
+  const rows = [...document.querySelectorAll('#space-floors-list .sfrow')];
+  const out = [];
+  rows.forEach(r => {
+    const floor = r.querySelector('.sf-floor').value.trim();
+    const count = parseInt(r.querySelector('.sf-count').value) || 1;
+    if (floor) out.push({ floor, count });
+  });
+  return out;
+}
+// 房型總間數（未設定樓層 = 1 間）
+function spaceTotalCount(s) {
+  if (s && Array.isArray(s.floors) && s.floors.length) return s.floors.reduce((a, f) => a + (parseInt(f.count) || 0), 0) || 1;
+  return 1;
+}
+function spaceFloorSummary(s) {
+  if (!s || !Array.isArray(s.floors) || !s.floors.length) return '';
+  return s.floors.map(f => `${f.floor}×${f.count}`).join('・');
+}
+
 function openSpaceModal(id) {
   state.editingSpace = id || null;
-  document.getElementById('modal-space-title').textContent = id ? '編輯空間' : '新增空間';
+  document.getElementById('modal-space-title').textContent = id ? '編輯房型' : '新增房型';
   if (id) {
     const spaces = state.spaces[state.activeProjectId] || [];
     const s = spaces.find(x => x.id === id);
     document.getElementById('space-name-input').value = s.name;
     document.getElementById('space-note-input').value = s.note || '';
+    renderSpaceFloors(s.floors || []);
   } else {
     document.getElementById('space-name-input').value = '';
     document.getElementById('space-note-input').value = '';
+    renderSpaceFloors([]);
   }
   openModal('modal-space');
 }
@@ -1801,19 +1845,21 @@ function saveSpace() {
   if (!name) return;
   const pid = state.activeProjectId;
   if (!state.spaces[pid]) state.spaces[pid] = [];
+  const floors = collectSpaceFloors();
   if (state.editingSpace) {
     const s = state.spaces[pid].find(x => x.id === state.editingSpace);
     s.name = name;
     s.note = document.getElementById('space-note-input').value.trim();
+    s.floors = floors;
   } else {
     const id = 'sp_' + Date.now();
-    state.spaces[pid].push({ id, name, note: document.getElementById('space-note-input').value.trim() });
+    state.spaces[pid].push({ id, name, note: document.getElementById('space-note-input').value.trim(), floors });
     state.zones[id] = [];
   }
   saveUserData();
   renderSpaces();
   closeModal('modal-space');
-  toast('空間已儲存');
+  toast('房型已儲存');
 }
 
 function deleteSpace(id) {
@@ -1837,7 +1883,7 @@ function renderSpaces() {
   const el = document.getElementById('space-list');
   const spaces = state.spaces[state.activeProjectId] || [];
   if (!spaces.length) {
-    el.innerHTML = '<div class="empty-state"><div class="icon">🏠</div><h3>尚無空間</h3><p>點擊「新增空間」開始建立</p></div>';
+    el.innerHTML = '<div class="empty-state"><div class="icon">🏠</div><h3>尚無房型</h3><p>點擊「新增房型」開始建立</p></div>';
     return;
   }
   el.innerHTML = spaces.map(s => {
@@ -1849,7 +1895,8 @@ function renderSpaces() {
           <div style="display:flex;align-items:center;gap:10px;">
             <span class="chevron" id="chevron-${s.id}">▶</span>
             <div>
-              <div class="space-name">${esc(s.name)}</div>
+              <div class="space-name">${esc(s.name)}${spaceTotalCount(s) > 1 ? ` <span style="font-size:12px;color:var(--green);font-weight:600">×${spaceTotalCount(s)}間</span>` : ''}</div>
+              ${spaceFloorSummary(s) ? `<div style="font-size:12px;color:var(--text-3)">🏢 ${esc(spaceFloorSummary(s))}</div>` : ''}
               ${s.note ? `<div style="font-size:12px;color:var(--text-3)">${esc(s.note)}</div>` : ''}
             </div>
           </div>
@@ -2617,17 +2664,18 @@ function renderResults() {
   const p = state.projects.find(x => x.id === state.activeProjectId);
   const spaces = state.spaces[state.activeProjectId] || [];
 
-  // 彙總所有材料
+  // 彙總所有材料（curMult = 目前房型的總間數，用量自動乘）
+  let curMult = 1;
   const totals = {};
   const addTotal = (key, label, qty, unit) => {
     if (!totals[key]) totals[key] = { label, qty: 0, unit };
-    totals[key].qty += qty;
+    totals[key].qty += qty * curMult;
   };
   // 可裁切材料：先加總「原始用量」，最後才進位一次（短牆共用零頭）
   const pool = {};
   const addPool = (key, label, unit, kind, raw, div) => {
     if (!pool[key]) pool[key] = { label, unit, kind, raw: 0, div };
-    pool[key].raw += raw;
+    pool[key].raw += raw * curMult;
   };
   const finalizePool = () => { // 把各材料的原始用量進位，併入 totals
     Object.entries(pool).forEach(([key, p]) => {
@@ -2650,8 +2698,10 @@ function renderResults() {
   spaces.forEach(s => {
     const zones = (state.zones[s.id] || []).filter(z => z.result);
     if (!zones.length) return;
+    curMult = spaceTotalCount(s);
+    const summary = spaceFloorSummary(s);
     html += `<div class="card" style="margin-bottom:12px;">
-      <div class="card-header"><div class="card-title">📦 ${esc(s.name)}</div></div>`;
+      <div class="card-header"><div class="card-title">📦 ${esc(s.name)}${curMult>1?` <span style="font-size:12px;color:var(--green)">× ${curMult} 間</span>`:''}</div>${summary?`<div style="font-size:11px;color:var(--text-3)">${esc(summary)}・下方為單間用量，總表已 ×間數</div>`:''}</div>`;
 
     zones.forEach(z => {
       const r = z.result;
@@ -2944,14 +2994,15 @@ function printResults() {
   const trimNames = { L8:'L收邊 8尺', L10:'L收邊 10尺', '7word':'七字收邊 8尺' };
 
   const totals = {};
+  let curMult = 1;
   const addT = (key, label, qty, unit) => {
     if (!totals[key]) totals[key] = { label, qty: 0, unit };
-    totals[key].qty += qty;
+    totals[key].qty += qty * curMult;
   };
   const pool = {};
   const addP = (key, label, unit, kind, raw, div) => {
     if (!pool[key]) pool[key] = { label, unit, kind, raw: 0, div };
-    pool[key].raw += raw;
+    pool[key].raw += raw * curMult;
   };
   const finalizePool = () => {
     Object.entries(pool).forEach(([key, pp]) => {
@@ -2965,7 +3016,9 @@ function printResults() {
   spaces.forEach(s => {
     const zones = (state.zones[s.id] || []).filter(z => z.result);
     if (!zones.length) return;
-    body += `<h3 style="margin:16px 0 8px;font-size:14px;border-bottom:1px solid #ccc;padding-bottom:4px;">▌ ${s.name}</h3>`;
+    curMult = spaceTotalCount(s);
+    const sfx = curMult > 1 ? ` × ${curMult} 間${spaceFloorSummary(s) ? '（' + spaceFloorSummary(s) + '）' : ''}` : '';
+    body += `<h3 style="margin:16px 0 8px;font-size:14px;border-bottom:1px solid #ccc;padding-bottom:4px;">▌ ${s.name}${sfx}</h3>`;
     zones.forEach(z => {
       const r = z.result; const params = z.params;
       if (z.type === 'partition') {
