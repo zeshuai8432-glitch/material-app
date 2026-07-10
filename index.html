@@ -21,6 +21,10 @@
   .proj-sel{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);color:#fff;
     padding:7px 12px;border-radius:10px;font-size:14px;font-weight:600;max-width:52vw;appearance:none;-webkit-appearance:none}
   .proj-sel option{color:#000}
+  .syncpill{font-size:11px;font-weight:700;color:#cfe3f7;display:inline-flex;align-items:center;gap:4px;cursor:pointer;letter-spacing:.2px}
+  .syncpill.ok{color:#8CE8B8}
+  .syncpill.busy{color:#e2e8f0}
+  .syncpill.err{color:#FFC1C1}
   .wrap{padding:14px 12px 20px;max-width:760px;margin:0 auto}
   .page{display:none}.page.on{display:block;animation:fade .18s ease}
   @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
@@ -112,7 +116,10 @@
 <body>
 
 <div class="topbar">
-  <h1>🏗️ 現場材料</h1>
+  <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+    <h1>🏗️ 現場材料</h1>
+    <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
+  </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
 </div>
 
@@ -183,17 +190,6 @@
       <h2>📐 需求量</h2>
       <div class="muted" style="margin-bottom:8px">設定每個房間各種材料「總共要用多少」。這是總覽紅綠與「要補」的判斷基準。</div>
       <button class="btn ghost sm" onclick="openPlanSheet()">✏️ 編輯房間需求量</button>
-    </div>
-    <div class="card">
-      <h2>☁️ 雲端同步</h2>
-      <div class="muted" style="margin-bottom:8px">貼上你的 Google Apps Script 網址，多台手機／電腦就能共用同一份資料。設定教學問我。</div>
-      <input id="cloud-url" placeholder="https://script.google.com/macros/s/.../exec">
-      <div class="row" style="margin-top:8px">
-        <button class="btn ghost sm" onclick="saveCloudUrl()">儲存網址</button>
-        <button class="btn ghost sm" onclick="cloudPull(true)">⬇ 拉取</button>
-        <button class="btn ghost sm" onclick="cloudPush(true)">⬆ 上傳</button>
-      </div>
-      <div class="muted" id="cloud-status" style="margin-top:8px"></div>
     </div>
     <div class="card">
       <h2>💾 資料</h2>
@@ -282,41 +278,37 @@ function load(){
 const DEFAULT_CLOUD = 'https://script.google.com/macros/s/AKfycbz1WSPdgyDviRXbB22vGWRBA9d-P40F3qMsPKP0tl8F2IJYHI5O_2TlNIu2GclzgRVRIQ/exec';
 let CLOUD_URL = localStorage.getItem('fieldmat_cloud') || DEFAULT_CLOUD;
 let pushTimer = null, pulling = false;
-function setCloudStatus(s){ const el = document.getElementById('cloud-status'); if(el) el.textContent = s; }
+function setCloudStatus(s, kind){ const el = document.getElementById('syncPill'); if(!el) return; el.textContent = s; el.className = 'syncpill' + (kind?(' '+kind):''); }
 function schedulePush(){ if(!CLOUD_URL) return; clearTimeout(pushTimer); pushTimer = setTimeout(cloudPush, 1200); }
 function cloudPush(manual){
-  if(!CLOUD_URL){ if(manual)toast('⚠️ 尚未設定雲端網址'); return; }
-  setCloudStatus('⏳ 上傳中…');
+  if(!CLOUD_URL){ if(manual)toast('⚠️ 尚未設定雲端'); return; }
+  setCloudStatus('⏳ 上傳中…','busy');
   fetch(CLOUD_URL, {method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(D)})
-    .then(()=>{ setCloudStatus('✅ 已同步 '+timeStr()); if(manual)toast('✅ 已上傳雲端'); })
-    .catch(()=>{ setCloudStatus('❌ 上傳失敗'); if(manual)toast('❌ 上傳失敗'); });
+    .then(()=>{ setCloudStatus('✅ 已同步 '+timeStr(),'ok'); if(manual)toast('✅ 已上傳雲端'); })
+    .catch(()=>{ setCloudStatus('⚠️ 待同步（點我重試）','err'); if(manual)toast('❌ 上傳失敗'); });
 }
 function cloudPull(manual){
-  if(!CLOUD_URL){ if(manual)toast('⚠️ 尚未設定雲端網址'); return; }
+  if(!CLOUD_URL){ if(manual)toast('⚠️ 尚未設定雲端'); return; }
   if(pulling) return; pulling = true;
-  setCloudStatus('⏳ 讀取中…');
+  setCloudStatus('⏳ 讀取中…','busy');
   fetch(CLOUD_URL + '?_t=' + Date.now(), {credentials:'omit'}).then(r=>r.text()).then(txt=>{
     pulling = false;
-    if(!txt || txt.trim()==='' || txt.trim()==='{}'){ setCloudStatus('雲端尚無資料'); if(manual)toast('雲端還沒有資料，先上傳一次'); return; }
+    if(!txt || txt.trim()==='' || txt.trim()==='{}'){ setCloudStatus('☁️ 雲端尚無資料',''); if(manual)toast('雲端還沒有資料，改資料後會自動上傳'); return; }
     let cd; try{ cd = JSON.parse(txt); if(cd && typeof cd.data==='string') cd = JSON.parse(cd.data); }
-    catch(e){ setCloudStatus('❌ 解析失敗'); if(manual)toast('❌ 雲端資料解析失敗'); return; }
+    catch(e){ setCloudStatus('⚠️ 解析失敗','err'); if(manual)toast('❌ 雲端資料解析失敗'); return; }
     const cloudAt = cd.updatedAt || '', localAt = D.updatedAt || '';
-    if(manual || cloudAt > localAt){
+    if(cloudAt > localAt){
       D = Object.assign({projects:[],archived:[],rooms:[],cats:[],mats:[],items:[],deliveries:[]}, cd);
       normalize(D);
       if(!D.projects.includes(cur.project)) cur.project = D.projects[0] || null;
       saveLocalOnly(); fillProjSel(); renderBoard(); if(cur.page==='set')renderSettings();
-      setCloudStatus('✅ 已同步 '+timeStr()); if(manual)toast('✅ 已從雲端更新');
+      setCloudStatus('✅ 已同步 '+timeStr(),'ok'); if(manual)toast('✅ 已從雲端更新');
     } else {
-      setCloudStatus('✅ 已是最新 '+timeStr());
+      setCloudStatus('✅ 已同步 '+timeStr(),'ok');
     }
-  }).catch(e=>{ pulling=false; setCloudStatus('❌ 讀取失敗'); if(manual)toast('❌ 雲端讀取失敗'); });
+  }).catch(e=>{ pulling=false; setCloudStatus('⚠️ 離線（點我重試）','err'); if(manual)toast('❌ 雲端讀取失敗'); });
 }
-function saveCloudUrl(){
-  const v = (document.getElementById('cloud-url').value||'').trim();
-  CLOUD_URL = v; localStorage.setItem('fieldmat_cloud', v);
-  if(v){ toast('✅ 已儲存網址，正在拉取雲端'); cloudPull(true); } else { toast('已清除雲端網址'); setCloudStatus(''); }
-}
+function manualSync(){ cloudPush(true); }
 function timeStr(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 
 // ── helpers ──
@@ -569,9 +561,6 @@ function saveCount(){
 //  設定 SETTINGS
 // ════════════════════════════════════════════
 function renderSettings(){
-  // cloud
-  const cu = document.getElementById('cloud-url'); if(cu && document.activeElement!==cu) cu.value = CLOUD_URL;
-  if(!CLOUD_URL) setCloudStatus('尚未設定雲端');
   // projects
   const pe = document.getElementById('set-projects');
   pe.innerHTML = D.projects.length ? D.projects.map(p=>`<div class="listitem">
