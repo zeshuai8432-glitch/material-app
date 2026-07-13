@@ -117,7 +117,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v19</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v20</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -560,13 +560,19 @@ function fillRoomSel(id){
   sel.innerHTML = rooms.length ? rooms.map(r=>`<option value="${esc(r.name)}">${esc(r.floor&&r.floor!==r.name?(r.floor+' / '):'')}${esc(r.name)}</option>`).join('')
                                : '<option value="">（尚無房間）</option>';
 }
+function matSort(a,b){ // 同組內排序：先照類別（立柱→槽鐵…），再依名稱/規格自然數字排序
+  const co = catOrder(a.cat)-catOrder(b.cat); if(co) return co;
+  return String(matLabel(a)).localeCompare(String(matLabel(b)), 'zh-Hant', {numeric:true});
+}
 function fillMatSel(id){
   const sel = document.getElementById(id); if(!sel) return;
   if(!D.mats.length){ sel.innerHTML='<option value="">（尚無材料）</option>'; return; }
-  const byCat = {};
-  D.mats.forEach(m=>{ (byCat[m.cat]=byCat[m.cat]||[]).push(m); });
-  sel.innerHTML = Object.keys(byCat).sort((a,b)=>catOrder(a)-catOrder(b)).map(c=>
-    `<optgroup label="${esc(c)}">`+byCat[c].map(m=>`<option value="${m.id}">${esc(matLabel(m))}</option>`).join('')+`</optgroup>`).join('');
+  // 依「系統」分組（C41+U43=41系統），與送料紀錄一致；組內自然排序
+  const groups={}, meta={};
+  D.mats.forEach(m=>{ const g=deliverGroupKey(m); if(!groups[g.key]){ groups[g.key]=[]; meta[g.key]={label:g.label,sort:g.sort}; } groups[g.key].push(m); });
+  const order = Object.keys(groups).sort((a,b)=> meta[a].sort-meta[b].sort || meta[a].label.localeCompare(meta[b].label));
+  sel.innerHTML = order.map(k=>
+    `<optgroup label="${esc(meta[k].label)}">`+groups[k].slice().sort(matSort).map(m=>`<option value="${m.id}">${esc(matLabel(m))}</option>`).join('')+`</optgroup>`).join('');
 }
 function addDelivery(){
   const p = cur.project;
