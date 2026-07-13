@@ -71,6 +71,7 @@
   .mrow .tag{font-size:10px;font-weight:800;padding:1px 6px;border-radius:6px;display:inline-block;margin-top:2px}
   .ok{color:var(--green)}.ok-bg{background:var(--green-bg);color:var(--green)}
   .lack{color:var(--red)}.lack-bg{background:var(--red-bg);color:var(--red)}
+  .over{color:var(--amber)}.over-bg{background:var(--amber-bg);color:var(--amber)}
   .nums{font-size:11px;color:var(--text2);margin-top:2px}
   /* nav */
   .nav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:#fff;border-top:1px solid var(--line);
@@ -117,7 +118,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v21</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v22</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -502,16 +503,18 @@ function renderBoard(){
         const m = mat(it.matId); const c = m?m.cat:'其他';
         if(c!==lastCat){ html += `<div class="catrow">${esc(c)}</div>`; lastCat=c; }
         const lack = itemLack(it); const need = itemNeed(it); const rem = itemRemaining(it); const unit = m?m.unit:'';
-        const good = lack<=0; const tn = nameTone(m?m.name:'');
+        const total = round(num(it.demand)); // 總需求量（全做完要的量，不隨進度扣）
+        const over = (!itemManual(it) && lack<0) ? round(rem-need) : 0; // 溢料＝現場剩餘超過還需要
+        const tn = nameTone(m?m.name:'');
         html += `<div class="mrow" onclick="quickCount('${it.id}')" style="border-left:4px solid ${tn.c};padding-left:9px;background:${tn.b}">
           <div class="mi">
             <div class="mn" style="color:${tn.c}">${esc(m?m.name:'?')}</div>
             <div class="ms">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''}</div>
-            <div class="nums">剩 ${rem}${esc(unit)}　需 ${need}${esc(unit)}　送 ${num(it.delivered)}${esc(unit)}</div>
+            <div class="nums">總需 ${total}${esc(unit)}　送 ${num(it.delivered)}${esc(unit)}　剩 ${rem}${esc(unit)}</div>
           </div>
           <div class="val">
-            <div class="big ${good?'ok':'lack'}">${good? (rem>=need?'✅':'—') : ('缺'+lack)}</div>
-            <div class="tag ${good?'ok-bg':'lack-bg'}">${good?'夠':'要補'}</div>
+            <div class="big ${lack>0?'lack':(over>0?'over':'ok')}">${lack>0?('缺'+lack):(over>0?('溢'+over):'✅')}</div>
+            <div class="tag ${lack>0?'lack-bg':(over>0?'over-bg':'ok-bg')}">${lack>0?'要補':(over>0?'溢料':'剛好')}</div>
           </div>
         </div>`;
       });
