@@ -117,7 +117,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v16</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v17</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -217,8 +217,8 @@
 <!-- nav -->
 <div class="nav">
   <button class="on" id="nv-board" onclick="go('board')"><span class="ni">🏠</span>總覽</button>
-  <button id="nv-progress" onclick="go('progress')"><span class="ni">🔨</span>進度</button>
   <button id="nv-deliver" onclick="go('deliver')"><span class="ni">🚚</span>送料</button>
+  <button id="nv-progress" onclick="go('progress')"><span class="ni">🔨</span>進度</button>
   <button id="nv-count" onclick="go('count')"><span class="ni">📋</span>盤點</button>
   <button id="nv-set" onclick="go('set')"><span class="ni">⚙️</span>設定</button>
 </div>
@@ -630,17 +630,23 @@ function renderCount(){
     const m = mat(it.matId); const c=m?m.cat:'其他'; const unit=m?m.unit:'';
     if(c!==lastCat){ html+=`<div class="catrow" style="padding-left:14px">${esc(c)}</div>`; lastCat=c; }
     const ctn = nameTone(m?m.name:'');
+    // 已用（依進度）= 全做完的量 − 現況還需要；建議現場剩餘 = 送料 − 已用
+    const used = hasRecipe(p,room) ? Math.max(round(num(it.demand) - itemNeed(it)), 0) : 0;
+    const est = round(Math.max(num(it.delivered) - used, 0));
+    const notCounted = round(num(it.remaining))===round(num(it.delivered)); // 還沒盤點過（剩餘＝送料）
+    const defVal = (used>0 && notCounted) ? est : num(it.remaining);
     html += `<div class="card" style="padding:11px 13px;margin-bottom:8px;border-left:4px solid ${ctn.c}">
       <div style="font-weight:800;font-size:14px;color:${ctn.c}">${esc(m?m.name:'?')}</div>
-      <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 已送 ${num(it.delivered)}${esc(unit)}</div>
+      <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 已送 ${num(it.delivered)}${esc(unit)}${used>0?(' · 已用 '+used+esc(unit)):''}</div>
       <div class="row">
         <div><label>現場剩餘</label>
           <div class="stepper"><button type="button" onclick="stepQty('ct-rem-${it.id}',-1)">−</button>
-          <input type="number" id="ct-rem-${it.id}" inputmode="decimal" value="${num(it.remaining)}" style="flex:1;width:auto;text-align:left" onchange="liveCount('${it.id}')">
+          <input type="number" id="ct-rem-${it.id}" inputmode="decimal" value="${defVal}" style="flex:1;width:auto;text-align:left" onchange="liveCount('${it.id}')">
           <button type="button" onclick="stepQty('ct-rem-${it.id}',1)">＋</button></div></div>
         <div><label>需求量</label>
           <input type="number" id="ct-need-${it.id}" inputmode="decimal" value="${itemNeed(it)}" onchange="liveCount('${it.id}')"></div>
       </div>
+      ${used>0?`<div class="muted" style="margin-top:6px;font-size:12px">建議剩餘 = 送料 ${num(it.delivered)} − 已用 ${used} = <b>${est}</b>${defVal!==est?` <a onclick="document.getElementById('ct-rem-${it.id}').value=${est};liveCount('${it.id}')" style="color:var(--blue);cursor:pointer">帶入</a>`:''}</div>`:''}
       <div id="ct-res-${it.id}" style="text-align:right;margin-top:7px;font-weight:800">${countResHTML(it)}</div>
     </div>`;
   });
