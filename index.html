@@ -118,7 +118,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v28</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v29</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1063,8 +1063,12 @@ function exportRefillPDF(flSet, catSet){
 // ════════════════════════════════════════════
 //  跨樓層調撥建議（能內部調就內部調，叫料壓最少）
 // ════════════════════════════════════════════
-function itemSurplus(it){ // 這層這材料的溢料（現場剩餘超過還需要，手動指定要補的不算溢）
+function hasNeedBasis(it){ // 這層這材料有沒有「需求依據」（食譜/需求量/手動增減）
+  return hasRecipe(it.project, it.room) || num(it.demand)>0 || needAdj(it)!==0;
+}
+function itemSurplus(it){ // 這層這材料的溢料（現場剩餘超過整體還需要才算；手動要補、或需求未知者不算）
   if(itemManual(it)) return 0;
+  if(!hasNeedBasis(it)) return 0; // 需求沒填 → 不當溢料，免得把之後才要用的料調走
   return Math.max(round(itemRemaining(it) - itemNeed(it)), 0);
 }
 // 針對一個材料，算各樓層溢/缺，並用貪婪法配出「搬最少趟、叫最少料」的調撥
@@ -1110,7 +1114,7 @@ function openAllocSheet(){
   const recent = (D.transfers||[]).filter(t=>t.project===p).slice(-6).reverse()
     .map(t=>{ const m=mat(t.matId); return `<div class="listitem" style="padding:7px 10px"><div class="li-m"><div class="li-t" style="font-size:13px">${esc(m?m.name:'?')}</div><div class="li-s">${esc(t.from)} → ${esc(t.to)}　${t.qty}${esc(m?m.unit:'')}　${esc(t.date)}</div></div></div>`; }).join('');
   openSheet(`<h3>🔄 跨樓層調撥建議<span class="x" onclick="closeSheet()">✕</span></h3>
-    <div class="muted" style="margin-bottom:10px">能內部調就先調，只叫真正不夠的。搬完現場剩餘會自動更新。</div>
+    <div class="muted" style="margin-bottom:10px">只搬「超過該樓層<b>整體需求</b>」的量——每層自己之後要用的都先保留了，不會搬走再搬回。<br>👉 前提：先確認每層<b>總需求量</b>是對的（換料/追加記得改），它才算得準。</div>
     ${cards.length? cards.join('')+`<button class="btn" onclick="applyAllAlloc()" style="margin-top:2px">✅ 全部套用</button>` : '<div class="card"><div class="muted">目前沒有可跨樓層調撥的材料（沒有「某層多、另一層缺」的情況）。</div></div>'}
     ${recent?`<div style="margin-top:14px"><div style="font-size:13px;font-weight:800;margin-bottom:6px">最近調撥</div>${recent}</div>`:''}`);
 }
