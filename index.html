@@ -117,7 +117,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v18</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v19</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -670,7 +670,7 @@ function renderCount(){
           <input type="number" id="ct-need-${it.id}" inputmode="decimal" value="${itemNeed(it)}" onchange="liveCount('${it.id}')"></div>
       </div>
       ${used>0?`<div class="muted" style="margin-top:6px;font-size:12px">建議剩餘 = 送料 ${num(it.delivered)} − 已用 ${used} = <b>${est}</b>${defVal!==est?` <a onclick="document.getElementById('ct-rem-${it.id}').value=${est};liveCount('${it.id}')" style="color:var(--blue);cursor:pointer">帶入</a>`:''}</div>`:''}
-      <div id="ct-res-${it.id}" style="text-align:right;margin-top:7px;font-weight:800">${countResHTML(it)}</div>
+      <div id="ct-res-${it.id}" style="text-align:right;margin-top:7px;font-weight:800">${countResHTML(Object.assign({}, it, {remaining: defVal}))}</div>
     </div>`;
   });
   html += `<button class="btn" onclick="saveCount()">💾 儲存盤點</button>`;
