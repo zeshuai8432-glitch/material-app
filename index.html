@@ -117,7 +117,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v10</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v11</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -318,7 +318,11 @@ function projItems(p){ return D.items.filter(i=>i.project===p); }
 function projRooms(p){ return D.rooms.filter(r=>r.project===p); }
 function roomFloor(p, room){ const r = D.rooms.find(x=>x.project===p && x.name===room); return r ? (r.floor||room) : room; }
 function itemNeed(it){ return num(it.demand); } // 需求量
-function itemLack(it){ return round(itemNeed(it) - num(it.remaining)); } // >0 需補
+function itemManual(it){ return it.restock!=null && it.restock!==''; } // 有手動指定要補數量
+function itemLack(it){ // >0 需補：手動優先，否則用 需求−剩餘 算
+  if(itemManual(it)) return round(num(it.restock));
+  return round(itemNeed(it) - num(it.remaining));
+}
 function catOrder(c){ const i = D.cats.indexOf(c); return i<0?999:i; }
 
 // ════════════════════════════════════════════
@@ -425,6 +429,12 @@ function quickCount(itemId){
   const m = mat(it.matId); const unit = m?m.unit:'';
   openSheet(`<h3>${esc(matLabel(m))}<span class="x" onclick="closeSheet()">✕</span></h3>
     <div class="muted" style="margin-bottom:12px">${esc(it.room)}</div>
+    <div class="fg"><label>還缺 / 要補（${esc(unit)}）· 現場看到缺多少直接填</label>
+      <div class="stepper"><button type="button" onclick="stepQty('qc-restock',-1)">−</button>
+      <input type="number" id="qc-restock" inputmode="decimal" value="${itemManual(it)?num(it.restock):''}" placeholder="直接填缺幾${esc(unit)||'支'}" style="flex:1;width:auto;text-align:left">
+      <button type="button" onclick="stepQty('qc-restock',1)">＋</button></div>
+      <div class="muted" style="margin-top:4px">留空＝用下面「需求 − 現場剩餘」自動算</div></div>
+    <div class="divider"></div>
     <div class="fg"><label>現場剩餘（${esc(unit)}）</label>
       <div class="stepper"><button type="button" onclick="stepQty('qc-rem',-1)">−</button>
       <input type="number" id="qc-rem" inputmode="decimal" value="${num(it.remaining)}" style="flex:1;width:auto;text-align:left">
@@ -435,6 +445,8 @@ function quickCount(itemId){
 }
 function saveQuickCount(itemId){
   const it = D.items.find(i=>i.id===itemId); if(!it) return;
+  const rs = (document.getElementById('qc-restock').value||'').trim();
+  it.restock = rs==='' ? null : round(num(rs)); // 手動要補，留空＝自動算
   it.remaining = round(num(document.getElementById('qc-rem').value));
   it.demand = round(num(document.getElementById('qc-need').value));
   save(); closeSheet(); renderBoard(); toast('✅ 已更新');
