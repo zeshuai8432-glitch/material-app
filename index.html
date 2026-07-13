@@ -117,7 +117,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v12</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v13</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -972,6 +972,9 @@ function applyCalcImport(pl){
   if(!D.projects.includes(project)) D.projects.push(project);
   cur.project = project;
   if(!D.recipes) D.recipes = {}; if(!D.progress) D.progress = {};
+  // 記住舊的間數（floor→type→count），用來偵測新增的房間
+  const oldCount = {};
+  ((D.recipes && D.recipes[project]) || []).forEach(f=>{ (f.rooms||[]).forEach(room=>{ (oldCount[f.floor]=oldCount[f.floor]||{})[room.type]=num(room.count); }); });
   // 存牆用量食譜（供進度計算）
   D.recipes[project] = (pl.floors||[]).filter(fl=>fl.rooms && fl.rooms.length).map(fl=>({floor:fl.floor, rooms:fl.rooms}));
   D.progress[project] = D.progress[project] || {};
@@ -988,11 +991,16 @@ function applyCalcImport(pl){
       if(!it){ it = {id:uid(), project, room:floorName, matId:mt.id, demand:0, remaining:0, delivered:0}; D.items.push(it); }
       it.demand = round(num(m.qty)); // 全做完的量（無施工資料時的後備）
     });
-    // 初始化進度：預設「全部還沒做」＝間數；已存的進度保留
+    // 初始化進度：新牆＝全部還沒做；已存進度保留；若間數變多，新增的間數自動加進「還沒做」
     const fp = D.progress[project][floorName] = D.progress[project][floorName] || {};
     (fl.rooms||[]).forEach(room=>{
       const rp = fp[room.type] = fp[room.type] || {};
-      (room.walls||[]).forEach(wall=>{ if(rp[wall.name]==null) rp[wall.name] = room.count; });
+      const prev = oldCount[floorName] && oldCount[floorName][room.type];
+      const added = (prev!=null) ? Math.max(0, num(room.count) - prev) : 0;
+      (room.walls||[]).forEach(wall=>{
+        if(rp[wall.name]==null) rp[wall.name] = room.count;                                  // 新牆：全部還沒做
+        else if(added>0) rp[wall.name] = Math.min(num(rp[wall.name]) + added, num(room.count)); // 新增的房間當作還沒做
+      });
     });
   });
   save(); renderAll();
