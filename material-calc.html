@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v6</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v7</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v6</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v7</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1821,7 +1821,7 @@ function spaceTotalCount(s) {
 }
 function spaceFloorSummary(s) {
   if (!s || !Array.isArray(s.floors) || !s.floors.length) return '';
-  return s.floors.map(f => `${f.floor}×${f.count}`).join('・');
+  return s.floors.map(f => `${f.floor}（${f.count}間）`).join('・');
 }
 
 // 整層複製：把某樓層在所有房型的間數，套到一個新樓層
@@ -1920,7 +1920,27 @@ function renderSpaces() {
     el.innerHTML = '<div class="empty-state"><div class="icon">🏠</div><h3>尚無房型</h3><p>點擊「新增房型」開始建立</p></div>';
     return;
   }
-  el.innerHTML = spaces.map(s => {
+
+  // ── 樓層總覽（floor-first：先看到 12F → 標準房×12、EXS×1）──
+  const floorMap = {};
+  spaces.forEach(s => (s.floors || []).forEach(f => { if (f.floor) (floorMap[f.floor] = floorMap[f.floor] || []).push({ name: s.name, count: f.count }); }));
+  const floorNames = Object.keys(floorMap).sort((a, b) => String(a).localeCompare(String(b), 'zh-Hant', { numeric: true }));
+  let overview = '';
+  if (floorNames.length) {
+    overview = `<div style="margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text-2);margin-bottom:8px;">🏢 樓層總覽</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${floorNames.map(fl => `
+          <div style="border:1px solid var(--border,#e3e8ef);border-radius:10px;overflow:hidden;">
+            <div style="background:#f6f9fd;padding:9px 13px;font-weight:800;">🏢 ${esc(fl)}</div>
+            ${floorMap[fl].map(c => `<div style="display:flex;justify-content:space-between;padding:8px 13px;border-top:1px solid var(--border,#eef2f6);font-size:14px;"><span>${esc(c.name)}</span><span style="color:var(--green);font-weight:700;">×${c.count} 間</span></div>`).join('')}
+          </div>`).join('')}
+      </div>
+    </div>
+    <div style="font-size:13px;font-weight:700;color:var(--text-2);margin-bottom:8px;">📦 房型（編輯牆／材料・跨樓層共用）</div>`;
+  }
+
+  el.innerHTML = overview + spaces.map(s => {
     const zones = state.zones[s.id] || [];
     const zoneCount = zones.length;
     return `
