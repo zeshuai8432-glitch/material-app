@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v17</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v18</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v17</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v18</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -3017,14 +3017,16 @@ function renderResults() {
   const grand = makeAgg();
   spaces.forEach(s => { const m = spaceTotalCount(s); zonesOf(s).forEach(z => aggregateZone(z, m, grand)); });
   grand.finalize();
-  html += `<div class="result-section"><div class="result-header">📊 全案材料彙總</div>${totalsTableHTML(grand.totals)}</div>`;
+  html += `<details style="border:1px solid var(--border,#e3e8ef);border-radius:10px;margin-bottom:8px;background:var(--card,#fff)">
+    <summary style="cursor:pointer;font-weight:700;padding:11px 14px">📊 全案材料彙總 <span style="color:var(--text-3);font-weight:400;font-size:12px">・全部樓層加總（點開）</span></summary>
+    <div style="padding:0 14px 12px">${totalsTableHTML(grand.totals)}</div></details>`;
 
   // 2) 依樓層（母）→ 空間（子）
   const floorList = [];
   spaces.forEach(s => (s.floors || []).forEach(f => { if (f.floor && !floorList.includes(f.floor)) floorList.push(f.floor); }));
   floorList.sort((a, b) => String(a).localeCompare(String(b), 'zh-Hant', { numeric: true }));
   if (floorList.length) {
-    html += '<div class="result-header" style="margin-top:20px">🏢 依樓層</div>';
+    html += '<div class="result-header" style="margin-top:20px">🏢 依樓層（每層要用的量）</div>';
     floorList.forEach(fl => {
       const agg = makeAgg(); const comp = []; let count = 0;
       spaces.forEach(s => {
@@ -3035,7 +3037,7 @@ function renderResults() {
       });
       agg.finalize();
       const compStr = comp.map(c => `${esc(c.name)}×${c.count}`).join('・');
-      html += `<details style="border:1px solid var(--border,#e3e8ef);border-radius:10px;margin-bottom:8px;background:var(--card,#fff)">
+      html += `<details open style="border:1px solid var(--border,#e3e8ef);border-radius:10px;margin-bottom:8px;background:var(--card,#fff)">
         <summary style="cursor:pointer;font-weight:700;padding:11px 14px">🏢 ${esc(fl)} <span style="color:var(--text-3);font-weight:400;font-size:12px">・${count} 間（${compStr}）</span></summary>
         <div style="padding:0 14px 12px">${totalsTableHTML(agg.totals)}</div>
       </details>`;
