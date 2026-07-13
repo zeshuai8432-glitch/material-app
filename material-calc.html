@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v12</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v13</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v12</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v13</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1055,6 +1055,24 @@
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-space')">取消</button>
       <button class="btn btn-primary" onclick="saveSpace()">確認</button>
+    </div>
+  </div>
+</div>
+
+<!-- 編輯某樓層的房型組成 -->
+<div class="modal-overlay" id="modal-floor">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-floor-title">編輯樓層</span>
+      <button class="btn-icon" onclick="closeModal('modal-floor')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--text-3);margin-bottom:10px">調整這層樓各房型的間數；設 0 = 這層沒有此房型。要新增不同的房間，先到下面「新增空間」建好，再回來這裡設間數。</div>
+      <div id="floor-edit-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-floor')">取消</button>
+      <button class="btn btn-primary" onclick="saveFloorEdit()">確認</button>
     </div>
   </div>
 </div>
@@ -1841,6 +1859,38 @@ function spaceFloorSummary(s) {
   return s.floors.map(f => `${f.floor}（${f.count}間）`).join('・');
 }
 
+// 編輯某一樓層的房型組成（各房型在這層的間數）
+let editingFloorName = null;
+function openFloorEditModal(floorName) {
+  editingFloorName = floorName;
+  document.getElementById('modal-floor-title').textContent = '編輯 ' + floorName + ' 組成';
+  const spaces = state.spaces[state.activeProjectId] || [];
+  const el = document.getElementById('floor-edit-list');
+  el.innerHTML = spaces.length ? spaces.map(s => {
+    const fe = (s.floors || []).find(f => f.floor === floorName);
+    const cnt = fe ? fe.count : 0;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border,#eef2f6)">
+      <span style="flex:1;font-weight:600">${esc(s.name)}</span>
+      <input type="number" min="0" class="fe-count" data-sid="${s.id}" value="${cnt}" style="width:80px"> <span style="color:var(--text-3)">間</span>
+    </div>`;
+  }).join('') : '<div style="color:#999">此案場尚無房型，請先新增空間</div>';
+  openModal('modal-floor');
+}
+function saveFloorEdit() {
+  const floorName = editingFloorName; if (!floorName) return;
+  const spaces = state.spaces[state.activeProjectId] || [];
+  document.querySelectorAll('#floor-edit-list .fe-count').forEach(inp => {
+    const s = spaces.find(x => x.id === inp.dataset.sid); if (!s) return;
+    if (!Array.isArray(s.floors)) s.floors = [];
+    const c = parseInt(inp.value) || 0;
+    const idx = s.floors.findIndex(f => f.floor === floorName);
+    if (c > 0) { if (idx >= 0) s.floors[idx].count = c; else s.floors.push({ floor: floorName, count: c }); }
+    else if (idx >= 0) s.floors.splice(idx, 1);
+  });
+  saveUserData(); renderSpaces(); renderResults(); closeModal('modal-floor');
+  toast('已更新 ' + floorName + ' 組成');
+}
+
 // 整層複製：把某樓層在所有空間的間數，套到一個新樓層
 function copyFloor() {
   const pid = state.activeProjectId;
@@ -1949,7 +1999,10 @@ function renderSpaces() {
       <div style="display:flex;flex-direction:column;gap:8px;">
         ${floorNames.map(fl => `
           <div style="border:1px solid var(--border,#e3e8ef);border-radius:10px;overflow:hidden;">
-            <div style="background:#f6f9fd;padding:9px 13px;font-weight:800;">🏢 ${esc(fl)}</div>
+            <div style="background:#f6f9fd;padding:9px 13px;font-weight:800;display:flex;justify-content:space-between;align-items:center;">
+              <span>🏢 ${esc(fl)}</span>
+              <button class="btn btn-secondary btn-sm" onclick="openFloorEditModal('${String(fl).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">✏️ 編輯</button>
+            </div>
             ${floorMap[fl].map(c => `<div style="display:flex;justify-content:space-between;padding:8px 13px;border-top:1px solid var(--border,#eef2f6);font-size:14px;"><span>${esc(c.name)}</span><span style="color:var(--green);font-weight:700;">×${c.count} 間</span></div>`).join('')}
           </div>`).join('')}
       </div>
