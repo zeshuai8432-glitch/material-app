@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v16</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v17</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v16</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v17</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1194,7 +1194,8 @@
           <div class="field">
             <label>板材類型</label>
             <select id="p-board-type">
-              <option value="calcium">矽酸鈣板／水泥板</option>
+              <option value="calcium">矽酸鈣板</option>
+              <option value="cement">水泥板</option>
               <option value="gypsum">石膏板</option>
             </select>
           </div>
@@ -1336,7 +1337,8 @@
           <div class="field">
             <label>板材類型</label>
             <select id="c-board-type" onchange="updateCeilBoardThickness()">
-              <option value="calcium">矽酸鈣板／水泥板</option>
+              <option value="calcium">矽酸鈣板</option>
+              <option value="cement">水泥板</option>
               <option value="gypsum">石膏板</option>
             </select>
           </div>
@@ -1470,6 +1472,18 @@ const DEFAULT_MATERIALS = {
     { id: 'calcium-6-4x4', name: '矽酸鈣板 6mm 4x4尺', unit: '片', price: 0 },
     { id: 'calcium-9-4x4', name: '矽酸鈣板 9mm 4x4尺', unit: '片', price: 0 },
     { id: 'calcium-12-4x4', name: '矽酸鈣板 12mm 4x4尺', unit: '片', price: 0 },
+    { id: 'cement-6-4x6', name: '水泥板 6mm 4x6尺', unit: '片', price: 0 },
+    { id: 'cement-9-4x6', name: '水泥板 9mm 4x6尺', unit: '片', price: 0 },
+    { id: 'cement-12-4x6', name: '水泥板 12mm 4x6尺', unit: '片', price: 0 },
+    { id: 'cement-6-3x6', name: '水泥板 6mm 3x6尺', unit: '片', price: 0 },
+    { id: 'cement-9-3x6', name: '水泥板 9mm 3x6尺', unit: '片', price: 0 },
+    { id: 'cement-12-3x6', name: '水泥板 12mm 3x6尺', unit: '片', price: 0 },
+    { id: 'cement-6-4x8', name: '水泥板 6mm 4x8尺', unit: '片', price: 0 },
+    { id: 'cement-9-4x8', name: '水泥板 9mm 4x8尺', unit: '片', price: 0 },
+    { id: 'cement-12-4x8', name: '水泥板 12mm 4x8尺', unit: '片', price: 0 },
+    { id: 'cement-6-4x4', name: '水泥板 6mm 4x4尺', unit: '片', price: 0 },
+    { id: 'cement-9-4x4', name: '水泥板 9mm 4x4尺', unit: '片', price: 0 },
+    { id: 'cement-12-4x4', name: '水泥板 12mm 4x4尺', unit: '片', price: 0 },
     { id: 'gypsum-9-4x6', name: '石膏板 9mm 4x6尺', unit: '片', price: 0 },
     { id: 'gypsum-12-4x6', name: '石膏板 12mm 4x6尺', unit: '片', price: 0 },
     { id: 'gypsum-15-4x6', name: '石膏板 15mm 4x6尺', unit: '片', price: 0 },
@@ -1523,6 +1537,8 @@ const BOARD_SIZES = {
   '3x6': { w: 91, h: 183 },
   '4x4': { w: 122, h: 122 },
 };
+
+function boardTypeName(t) { return t === 'calcium' ? '矽酸鈣板' : t === 'cement' ? '水泥板' : '石膏板'; }
 
 // ════════════════════════════════════
 // LOGIN
@@ -1639,6 +1655,13 @@ function migrateMaterials() {
     }
     g.rollSize = (+g.rollW || 0) * (+g.rollL || 0);
   });
+  // 板材：舊資料把矽酸鈣板／水泥板混成同一類，補上水泥板選項（插在石膏板之前）
+  if (Array.isArray(state.materials.boards) && !state.materials.boards.some(b => String(b.id).startsWith('cement-'))) {
+    const cement = DEFAULT_MATERIALS.boards.filter(b => String(b.id).startsWith('cement-'));
+    const gi = state.materials.boards.findIndex(b => String(b.id).startsWith('gypsum-'));
+    if (gi < 0) state.materials.boards.push(...JSON.parse(JSON.stringify(cement)));
+    else state.materials.boards.splice(gi, 0, ...JSON.parse(JSON.stringify(cement)));
+  }
 }
 
 // 設定玻璃棉的捲寬／捲長，面積(rollSize)自動 = 寬 × 長
@@ -2781,7 +2804,7 @@ function guessFieldCat(label) {
   if (/骨架/.test(s)) return '骨架立柱';
   if (/槽鐵/.test(s)) return '槽鐵';
   if (/加強橫枝/.test(s)) return '加強橫枝';
-  if (/矽酸鈣|石膏|板材/.test(s)) return '板材';
+  if (/矽酸鈣|水泥板|石膏|板材/.test(s)) return '板材';
   if (/玻璃棉/.test(s)) return '玻璃棉';
   if (/岩棉/.test(s)) return '岩棉';
   if (/收邊|七字/.test(s)) return '收邊';
@@ -2861,7 +2884,7 @@ function aggregateZone(z, mult, agg) {
     AP(params.trackType + '_' + r.trackUnit, matName('tracks', params.trackType).replace(/ ?槽鐵$/, '') + ' 槽鐵 ' + r.trackUnit + 'cm', '支', 'stick', r.rawTrackCm, r.trackUnit);
     if (r.braces > 0) AP(params.braceType + '_' + params.braceLength, matName('braces', params.braceType) + ' 加強橫枝 ' + params.braceLength + 'cm', '支', 'stick', r.rawBraceCm, r.braceLen);
     const boardKey = params.boardType + '-' + params.boardThickness + '-' + params.boardSize;
-    AP(boardKey, (params.boardType === 'calcium' ? '矽酸鈣板' : '石膏板') + ' ' + params.boardThickness + 'mm ' + params.boardSize + '尺', '片', 'board', r.boardsRawNum);
+    AP(boardKey, boardTypeName(params.boardType) + ' ' + params.boardThickness + 'mm ' + params.boardSize + '尺', '片', 'board', r.boardsRawNum);
     if (r.fill) {
       if (r.fill.rawPieces != null) AP(params.fillSpec || params.fillType, r.fill.label, r.fill.unit, 'pack', r.fill.rawPieces, r.fill.perPack);
       else if (r.fill.rawM2 != null) AP(params.fillSpec || params.fillType, r.fill.label, r.fill.unit, 'roll', r.fill.rawM2, r.fill.rollArea);
@@ -2880,7 +2903,7 @@ function aggregateZone(z, mult, agg) {
     if (r.clipsTotal > 0) AT('clip4', '四齒夾', r.clipsTotal, '個');
     if (r.hooksTotal > 0) AT('hook', '吊勾具', r.hooksTotal, '個');
     const cBoardKey = params.boardType + '-' + params.boardThickness + '-' + params.boardSize;
-    AT(cBoardKey, (params.boardType === 'calcium' ? '矽酸鈣板' : '石膏板') + ' ' + params.boardThickness + 'mm ' + params.boardSize + '尺', r.boards, '片');
+    AT(cBoardKey, boardTypeName(params.boardType) + ' ' + params.boardThickness + 'mm ' + params.boardSize + '尺', r.boards, '片');
     AT('trim_' + params.trimType, trimNames[params.trimType] || params.trimType, r.trims, '支');
     if (fasciaR) {
       if (fasciaR.method === 'partition') {
@@ -2908,7 +2931,7 @@ function zoneDetailHTML(z) {
             <tr><td>${matName('studs', params.studType)} 骨架（下料 ${r.studStock}cm）</td><td class="qty">${r.studs} 支</td><td class="unit-cell">牆高 ${r.studLen}cm・需 ${r.studPosts} 根・${r.studPerStickText}</td></tr>
             <tr><td>${matName('tracks', params.trackType)} 槽鐵</td><td class="qty">${(r.rawTrackCm/r.trackUnit).toFixed(2)} 支</td><td class="unit-cell">單支 ${r.trackUnit}cm／原始 ${r.trackRaw}m（合併後看總表）</td></tr>
             ${r.braces > 0 ? `<tr><td>${matName('braces', params.braceType)} 加強橫枝 ${params.braceLength}cm</td><td class="qty">${(r.rawBraceCm/r.braceLen).toFixed(2)} 支</td><td class="unit-cell">${params.braceRows}排（原始用量）</td></tr>` : ''}
-            <tr><td>${params.boardType === 'calcium' ? '矽酸鈣板' : '石膏板'} ${params.boardThickness}mm ${params.boardSize}尺</td><td class="qty">${r.boardsRawNum.toFixed(2)} 片</td><td class="unit-cell">原始用量（總表才含5%損耗）</td></tr>
+            <tr><td>${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td class="qty">${r.boardsRawNum.toFixed(2)} 片</td><td class="unit-cell">原始用量（總表才含5%損耗）</td></tr>
             ${r.fill ? `<tr><td>${r.fill.label}</td><td class="qty">${(r.fill.rawPieces!=null ? r.fill.rawPieces/r.fill.perPack : r.fill.rawM2/r.fill.rollArea).toFixed(2)} ${r.fill.unit}</td><td class="unit-cell">原始用量（合併後看總表）</td></tr>` : ''}
           </tbody>
         </table>
@@ -2933,7 +2956,7 @@ function zoneDetailHTML(z) {
             ${r.hitNails > 0 ? `<tr><td>擊釘片</td><td class="qty">${r.hitNails} 個</td><td class="unit-cell">標準品螺桿需要</td></tr>` : ''}
             ${r.clipsTotal > 0 ? `<tr><td>四齒夾</td><td class="qty">${r.clipsTotal} 個</td><td class="unit-cell">N38與百葉結合</td></tr>` : ''}
             ${r.hooksTotal > 0 ? `<tr><td>吊勾具</td><td class="qty">${r.hooksTotal} 個</td><td class="unit-cell">N38系統專用</td></tr>` : ''}
-            <tr><td>${params.boardType === 'calcium' ? '矽酸鈣板' : '石膏板'} ${params.boardThickness}mm ${params.boardSize}尺</td><td class="qty">${r.boards} 片</td><td class="unit-cell">含5%損耗（淨算 ${r.boardsRaw} 片）</td></tr>
+            <tr><td>${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td class="qty">${r.boards} 片</td><td class="unit-cell">含5%損耗（淨算 ${r.boardsRaw} 片）</td></tr>
             <tr><td>${trimNames[params.trimType]||params.trimType}</td><td class="qty">${r.trims} 支</td><td class="unit-cell">周長 ${r.perimeter}m</td></tr>
             ${fasciaR && fasciaR.method==='partition' ? `
             <tr><td colspan="3" style="background:var(--surface2);font-weight:600;font-size:12px;">立板（骨架做法）</td></tr>
@@ -3324,7 +3347,7 @@ function printResults() {
           <tr style="background:#f0f0f0;"><th style="border:1px solid #ccc;padding:4px 8px;text-align:left;">材料</th><th style="border:1px solid #ccc;padding:4px 8px;">數量</th><th style="border:1px solid #ccc;padding:4px 8px;">備註</th></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${matName('studs', params.studType)} 骨架（下料${r.studStock}cm）</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.studs} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">牆高${r.studLen}cm・${r.studPosts}根・${r.studPerStickText}</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${matName('tracks', params.trackType)} 槽鐵</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${(r.rawTrackCm/r.trackUnit).toFixed(2)} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">單支${r.trackUnit}cm・原始 ${r.trackRaw}m</td></tr>
-          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${params.boardType==='calcium'?'矽酸鈣板':'石膏板'} ${params.boardThickness}mm ${params.boardSize}尺</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.boardsRawNum.toFixed(2)} 片</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.boardsRawNum.toFixed(2)} 片</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>
           ${r.fill ? `<tr><td style="border:1px solid #ccc;padding:4px 8px;">${r.fill.label}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${(r.fill.rawPieces!=null ? r.fill.rawPieces/r.fill.perPack : r.fill.rawM2/r.fill.rollArea).toFixed(2)} ${r.fill.unit}</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>` : ''}
         </table>
         ${r.totalPrice > 0 ? `<div style="text-align:right;font-size:11px;color:#2D7A4F;font-weight:600;margin-top:2px;">小計 $${r.totalPrice.toLocaleString()}</div>` : ''}</div>`;
@@ -3332,7 +3355,7 @@ function printResults() {
         addP(params.trackType + '_' + r.trackUnit, matName('tracks', params.trackType).replace(/ ?槽鐵$/, '')+' 槽鐵 '+r.trackUnit+'cm', '支', 'stick', r.rawTrackCm, r.trackUnit);
         if (r.braces > 0) addP(params.braceType+'_'+params.braceLength, matName('braces', params.braceType)+' 加強橫枝 '+params.braceLength+'cm', '支', 'stick', r.rawBraceCm, r.braceLen);
         const bk = `${params.boardType}-${params.boardThickness}-${params.boardSize}`;
-        addP(bk, `${params.boardType==='calcium'?'矽酸鈣板':'石膏板'} ${params.boardThickness}mm ${params.boardSize}尺`, '片', 'board', r.boardsRawNum);
+        addP(bk, `${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺`, '片', 'board', r.boardsRawNum);
         if (r.fill) {
           if (r.fill.rawPieces != null) addP(params.fillSpec||params.fillType, r.fill.label, r.fill.unit, 'pack', r.fill.rawPieces, r.fill.perPack);
           else if (r.fill.rawM2 != null) addP(params.fillSpec||params.fillType, r.fill.label, r.fill.unit, 'roll', r.fill.rawM2, r.fill.rollArea);
@@ -3351,7 +3374,7 @@ function printResults() {
           ${r.hitNails>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">擊釘片</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.hitNails} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
           ${r.clipsTotal>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">四齒夾</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.clipsTotal} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
           ${r.hooksTotal>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">吊勾具</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.hooksTotal} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
-          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${params.boardType==='calcium'?'矽酸鈣板':'石膏板'} ${params.boardThickness}mm ${params.boardSize}尺</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.boards} 片</td><td style="border:1px solid #ccc;padding:4px 8px;">含5%損耗</td></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.boards} 片</td><td style="border:1px solid #ccc;padding:4px 8px;">含5%損耗</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${trimNames[params.trimType]||params.trimType}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.trims} 支</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>
         </table>
         ${r.totalPrice>0?`<div style="text-align:right;font-size:11px;color:#2D7A4F;font-weight:600;margin-top:2px;">小計 $${r.totalPrice.toLocaleString()}</div>`:''}</div>`;
@@ -3363,7 +3386,7 @@ function printResults() {
         if (r.clipsTotal>0) addT('clip4','四齒夾',r.clipsTotal,'個');
         if (r.hooksTotal>0) addT('hook','吊勾具',r.hooksTotal,'個');
         const ck=`${params.boardType}-${params.boardThickness}-${params.boardSize}`;
-        addT(ck,`${params.boardType==='calcium'?'矽酸鈣板':'石膏板'} ${params.boardThickness}mm ${params.boardSize}尺`,r.boards,'片');
+        addT(ck,`${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺`,r.boards,'片');
         addT('trim_'+params.trimType,trimNames[params.trimType]||params.trimType,r.trims,'支');
       }
     });
