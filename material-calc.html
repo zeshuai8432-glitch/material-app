@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v15</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v16</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v15</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v16</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -3041,9 +3041,7 @@ function renderResults() {
 function renderMaterials() {
   const el = document.getElementById('materials-content');
   el.innerHTML = `
-    ${materialSection('C型骨架', 'studs', ['規格', '長度(cm)', '單價(元/支)'])}
-    ${materialSection('U槽鐵', 'tracks', ['規格', '長度(cm)', '單價(元/支)'])}
-    ${materialSection('加強橫枝', 'braces', ['規格', '長度(cm)', '單價(元/支)'])}
+    ${renderSystems()}
     ${materialSection('板材', 'boards', ['品名', '單價(元/片)'])}
     ${materialSection('岩棉', 'rockwool', ['規格', '幾片/包', '單價(元/包)'])}
     ${materialSection('玻璃棉', 'glasswool', ['規格', '捲寬(m)', '捲長(m)', '單價(元/捲)'])}
@@ -3060,6 +3058,78 @@ const MAT_GROUP_KEYS = ['studs','tracks','braces'];
 const MAT_TONES = ['#1d4ed8','#0f766e','#7c3aed','#b45309','#be123c','#047857','#0369a1','#c2410c','#9333ea','#0891b2','#65a30d','#db2777'];
 function matHash(s){ s=String(s||''); let h=0; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return h; }
 function matTone(name){ return MAT_TONES[matHash(name)%MAT_TONES.length]; }
+
+// 單一長條料的母子區塊（名稱 + 元/M + 長度標籤）
+function matBlock(key, i, tag){
+  const m = (state.materials[key]||[])[i]; if(!m) return '';
+  const tone = matTone(m.name || '');
+  const rate = +m.pricePerM || 0;
+  const lens = (m.lengths || []).slice().sort((a,b)=>a-b);
+  const chips = lens.map(L => {
+    const price = rate > 0 ? '＄' + Math.round(L/100*rate) : '—';
+    return `<span style="display:inline-flex;align-items:center;gap:5px;background:#f1f5f9;border-radius:16px;padding:4px 10px;font-size:13px">
+      <span onclick="editLengthOfMat('${key}',${i},${L})" style="cursor:pointer" title="點我修改長度"><b>${L}</b>cm ✏️ <span style="color:#2D7A4F;font-weight:600">${price}</span></span>
+      <span onclick="removeLengthFromMat('${key}',${i},${L})" style="cursor:pointer;color:#c00;font-weight:700">✕</span></span>`;
+  }).join('');
+  return `<div style="border-left:4px solid ${tone};padding:9px 12px;border-bottom:1px solid #eee">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      ${tag?`<span style="font-size:11px;font-weight:700;color:#666;background:#eef2f6;border-radius:6px;padding:1px 7px">${tag}</span>`:''}
+      <strong style="color:${tone};font-size:15px">${esc(m.name||'')}</strong>
+      <span style="font-size:13px;color:#555">單價 <input type="number" value="${rate}" onchange="state.materials['${key}'][${i}].pricePerM=+this.value;saveUserData();renderMaterials()" style="width:66px"> 元/M</span>
+      <span style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn btn-sm" onclick="renameMatGroup('${key}',${i})">改名</button>
+        <button class="btn btn-danger btn-sm" onclick="removeMaterial('${key}',${i})">刪</button>
+      </span>
+    </div>
+    <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:7px;align-items:center">
+      ${chips || '<span style="color:#999;font-size:12px">尚無長度</span>'}
+      <button class="btn btn-secondary btn-sm" onclick="addLengthToMat('${key}',${i})">＋ 長度</button>
+    </div>
+  </div>`;
+}
+
+// 骨架系統分組：C骨架 + 配對的 U槽鐵（號碼+2）+ 對應加強，收合式
+const sysOpen = new Set();
+function toggleSys(id){ if(sysOpen.has(id)) sysOpen.delete(id); else sysOpen.add(id); renderMaterials(); }
+function numOfName(nm){ const mm=String(nm||'').match(/(\d+)/); return mm?parseInt(mm[1]):null; }
+function renderSystems(){
+  const studs=state.materials.studs||[], tracks=state.materials.tracks||[], braces=state.materials.braces||[];
+  const usedT=new Set();
+  const groups=[];
+  studs.forEach((s,si)=>{
+    const n=numOfName(s.name);
+    const items=[{key:'studs',i:si,tag:'骨架'}];
+    let ti=-1;
+    if(n!=null) ti=tracks.findIndex((t,idx)=>!usedT.has(idx)&&numOfName(t.name)===n+2);
+    if(ti>=0){ items.push({key:'tracks',i:ti,tag:'槽鐵'}); usedT.add(ti); }
+    let bi=-1;
+    if(n!=null){ const tok=(n<=41)?'19':'38'; bi=braces.findIndex(bb=>String(bb.name).includes('N'+tok)); }
+    if(bi>=0) items.push({key:'braces',i:bi,tag:'加強'});
+    groups.push({ id:'sys_'+si, sys:(n!=null?n+'系統':(s.name||'其他')), items });
+  });
+  const usedB=new Set(); groups.forEach(g=>g.items.forEach(it=>{ if(it.key==='braces') usedB.add(it.i); }));
+  const leftT=tracks.map((t,i)=>i).filter(i=>!usedT.has(i));
+  const leftB=braces.map((t,i)=>i).filter(i=>!usedB.has(i));
+  const grpHtml = (id,title,sub,inner)=>{ const open=sysOpen.has(id);
+    return `<div style="border:1px solid #e3e8ef;border-radius:10px;margin:8px;overflow:hidden">
+      <div onclick="toggleSys('${id}')" style="cursor:pointer;background:#f6f9fd;padding:9px 12px;font-weight:800;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span>${open?'▾':'▸'} ${esc(title)}</span>
+        <span style="font-weight:400;font-size:12px;color:#999;text-align:right">${esc(sub)}</span>
+      </div>${open?`<div>${inner}</div>`:''}</div>`;
+  };
+  let html = `<div class="material-category">
+    <div class="card-header"><div><div class="card-title">🔩 骨架系統</div><div style="font-size:11px;color:#999;margin-top:2px">同系統的骨架＋槽鐵（＋對應加強）收在一起，可展開／收合。單價以「元/M」計。</div></div>
+    <button class="btn btn-secondary btn-sm" onclick="addCustomMaterial('studs')">＋ 新增骨架</button></div><div>`;
+  groups.forEach(g=>{
+    const sub=g.items.map(it=>esc((state.materials[it.key][it.i]||{}).name||'')).join('・');
+    html+=grpHtml(g.id, g.sys, sub, g.items.map(it=>matBlock(it.key,it.i,it.tag)).join(''));
+  });
+  if(leftT.length) html+=grpHtml('sys_leftT','其他槽鐵（未配對）', leftT.map(i=>esc(tracks[i].name)).join('・'), leftT.map(i=>matBlock('tracks',i,'槽鐵')).join(''));
+  if(leftB.length) html+=grpHtml('sys_leftB','其他加強（未配對）', leftB.map(i=>esc(braces[i].name)).join('・'), leftB.map(i=>matBlock('braces',i,'加強')).join(''));
+  html+=`<div style="text-align:right;padding:2px 8px 8px"><button class="btn btn-secondary btn-sm" onclick="addCustomMaterial('tracks')">＋ 新增槽鐵</button> <button class="btn btn-secondary btn-sm" onclick="addCustomMaterial('braces')">＋ 新增加強</button></div>`;
+  html+=`</div></div>`;
+  return html;
+}
 function renameMatGroup(key, idx){
   const m = (state.materials[key]||[])[idx]; if(!m) return;
   const nv = prompt('修改材料名稱', m.name); if(nv===null) return;
