@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v14</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v15</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v14</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v15</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2858,7 +2858,7 @@ function aggregateZone(z, mult, agg) {
   const AP = (k, l, u, kind, raw, div) => agg.addPool(k, l, u, kind, raw * mult, div);
   if (z.type === 'partition') {
     AT(params.studType + '_' + r.studStock, matName('studs', params.studType) + ' 骨架（下料 ' + r.studStock + 'cm）', r.studs, '支');
-    AP(params.trackType, matName('tracks', params.trackType) + ' 槽鐵', '支', 'stick', r.rawTrackCm, r.trackUnit);
+    AP(params.trackType + '_' + r.trackUnit, matName('tracks', params.trackType).replace(/ ?槽鐵$/, '') + ' 槽鐵 ' + r.trackUnit + 'cm', '支', 'stick', r.rawTrackCm, r.trackUnit);
     if (r.braces > 0) AP(params.braceType + '_' + params.braceLength, matName('braces', params.braceType) + ' 加強橫枝 ' + params.braceLength + 'cm', '支', 'stick', r.rawBraceCm, r.braceLen);
     const boardKey = params.boardType + '-' + params.boardThickness + '-' + params.boardSize;
     AP(boardKey, (params.boardType === 'calcium' ? '矽酸鈣板' : '石膏板') + ' ' + params.boardThickness + 'mm ' + params.boardSize + '尺', '片', 'board', r.boardsRawNum);
@@ -3259,7 +3259,7 @@ function printResults() {
         </table>
         ${r.totalPrice > 0 ? `<div style="text-align:right;font-size:11px;color:#2D7A4F;font-weight:600;margin-top:2px;">小計 $${r.totalPrice.toLocaleString()}</div>` : ''}</div>`;
         addT(params.studType+'_'+r.studStock, matName('studs', params.studType)+' 骨架（下料 '+r.studStock+'cm）', r.studs, '支');
-        addP(params.trackType, matName('tracks', params.trackType)+' 槽鐵', '支', 'stick', r.rawTrackCm, r.trackUnit);
+        addP(params.trackType + '_' + r.trackUnit, matName('tracks', params.trackType).replace(/ ?槽鐵$/, '')+' 槽鐵 '+r.trackUnit+'cm', '支', 'stick', r.rawTrackCm, r.trackUnit);
         if (r.braces > 0) addP(params.braceType+'_'+params.braceLength, matName('braces', params.braceType)+' 加強橫枝 '+params.braceLength+'cm', '支', 'stick', r.rawBraceCm, r.braceLen);
         const bk = `${params.boardType}-${params.boardThickness}-${params.boardSize}`;
         addP(bk, `${params.boardType==='calcium'?'矽酸鈣板':'石膏板'} ${params.boardThickness}mm ${params.boardSize}尺`, '片', 'board', r.boardsRawNum);
