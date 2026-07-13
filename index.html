@@ -117,7 +117,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v17</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v18</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -586,23 +586,46 @@ function addDelivery(){
   document.getElementById('dv-qty').value='';
   save(); renderDeliverLog(); toast('✅ 已送料 '+qty+'，現場剩餘 +'+qty);
 }
+// 送料紀錄依「系統」分組（C41+U43=41系統），其餘照類別
+const delivClosed = new Set();
+function toggleDelivGroup(k){ if(delivClosed.has(k))delivClosed.delete(k); else delivClosed.add(k); renderDeliverLog(); }
+function deliverGroupKey(m){
+  if(!m) return { key:'cat_其他', label:'其他', sort:9999 };
+  const num = (String(m.name).match(/(\d+)/)||[])[1];
+  if(m.cat==='骨架立柱' && num) return { key:'sys'+num, label:num+'系統', sort:+num };
+  if(m.cat==='槽鐵' && num) return { key:'sys'+(+num-2), label:(+num-2)+'系統', sort:+num-2 };
+  return { key:'cat_'+m.cat, label:m.cat, sort:5000+catOrder(m.cat) };
+}
+function delivRow(d){
+  const m = mat(d.matId);
+  const tone = nameTone(m?m.name:'');
+  return `<div class="listitem" style="align-items:stretch;gap:10px;border-left:4px solid ${tone.c}">
+    <div class="li-m" style="min-width:0">
+      <div class="li-t" style="color:${tone.c};word-break:break-all">${esc(m?m.name:'?')}</div>
+      <div class="li-s" style="margin-top:3px"><span class="pill">🏢 ${esc(d.room)}</span> <span style="color:var(--text2)">${esc(d.date)}</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;justify-content:space-between;flex-shrink:0;gap:6px">
+      <div style="font-weight:900;color:var(--blue);white-space:nowrap;font-size:15px">＋${d.qty}${esc(m?m.unit:'')}</div>
+      <button class="btn mini gray" onclick="delDelivery('${d.id}')">刪</button>
+    </div>
+  </div>`;
+}
 function renderDeliverLog(){
   const p = cur.project;
-  const logs = D.deliveries.filter(d=>d.project===p).slice(-30).reverse();
+  const logs = D.deliveries.filter(d=>d.project===p);
   const el = document.getElementById('dv-log');
   if(!logs.length){ el.innerHTML='<div class="muted">尚無送料紀錄</div>'; return; }
-  el.innerHTML = logs.map(d=>{
-    const m = mat(d.matId);
-    const tone = nameTone(m?m.name:'');
-    return `<div class="listitem" style="align-items:stretch;gap:10px;border-left:4px solid ${tone.c}">
-      <div class="li-m" style="min-width:0">
-        <div class="li-t" style="color:${tone.c};word-break:break-all">${esc(m?m.name:'?')}</div>
-        <div class="li-s" style="margin-top:3px"><span class="pill">🏢 ${esc(d.room)}</span> <span style="color:var(--text2)">${esc(d.date)}</span></div>
+  const groups={}, order=[];
+  logs.forEach(d=>{ const g=deliverGroupKey(mat(d.matId)); if(!groups[g.key]){ groups[g.key]={label:g.label,sort:g.sort,rows:[]}; order.push(g.key); } groups[g.key].rows.push(d); });
+  order.sort((a,b)=> groups[a].sort-groups[b].sort || groups[a].label.localeCompare(groups[b].label));
+  el.innerHTML = order.map(k=>{
+    const g=groups[k]; const open=!delivClosed.has(k);
+    const rows = g.rows.slice().reverse().map(delivRow).join('');
+    return `<div class="grp">
+      <div class="grp-h ${open?'open':''}" onclick="toggleDelivGroup('${k}')">
+        <span class="arrow">▶</span><span class="nm">${esc(g.label)}</span><span class="sub" style="color:var(--text2)">${g.rows.length} 筆</span>
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;justify-content:space-between;flex-shrink:0;gap:6px">
-        <div style="font-weight:900;color:var(--blue);white-space:nowrap;font-size:15px">＋${d.qty}${esc(m?m.unit:'')}</div>
-        <button class="btn mini gray" onclick="delDelivery('${d.id}')">刪</button>
-      </div>
+      <div class="grp-b ${open?'open':''}">${rows}</div>
     </div>`;
   }).join('');
 }
