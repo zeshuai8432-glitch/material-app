@@ -117,7 +117,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v11</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v12</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -159,6 +159,16 @@
       <div class="fg"><label>房間</label><select id="ct-room" onchange="renderCount()"></select></div>
     </div>
     <div id="ct-list"></div>
+  </div>
+
+  <!-- ═══ 進度 ═══ -->
+  <div class="page" id="pg-progress">
+    <div class="card">
+      <h2>🔨 施工進度</h2>
+      <div class="hint">選樓層，填每道牆「還沒做幾間」。系統用它算「這層還需要多少料」，再對比現場剩餘 → 缺料。每層獨立，不會互相借料。</div>
+      <div class="fg"><label>樓層</label><select id="pr-floor" onchange="renderProgress()"></select></div>
+    </div>
+    <div id="pr-list"></div>
   </div>
 
   <!-- ═══ 設定 ═══ -->
@@ -207,6 +217,7 @@
 <!-- nav -->
 <div class="nav">
   <button class="on" id="nv-board" onclick="go('board')"><span class="ni">🏠</span>總覽</button>
+  <button id="nv-progress" onclick="go('progress')"><span class="ni">🔨</span>進度</button>
   <button id="nv-deliver" onclick="go('deliver')"><span class="ni">🚚</span>送料</button>
   <button id="nv-count" onclick="go('count')"><span class="ni">📋</span>盤點</button>
   <button id="nv-set" onclick="go('set')"><span class="ni">⚙️</span>設定</button>
@@ -236,8 +247,10 @@ let D = {
   rooms: [],         // [{project, floor, name}]  floor=樓層, name=房間
   cats: [],          // [分類名]
   mats: [],          // [{id, cat, name, spec, thick, unit}]
-  items: [],         // [{id, project, room, matId, demand, remaining, delivered}]
+  items: [],         // [{id, project, room, matId, demand, remaining, delivered, restock}]
   deliveries: [],    // [{id, date, project, room, matId, qty}]
+  recipes: {},       // { [project]: [{floor, rooms:[{type,count,walls:[{name,mats:[{label,unit,cat,kind,raw,div}]}]}]}] }
+  progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board' };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -257,10 +270,13 @@ function hashStr(s){ let h=0; s=String(s||''); for(let i=0;i<s.length;i++){ h=(h
 function nameTone(name){ return NAME_TONES[hashStr(name) % NAME_TONES.length]; }
 
 // ── persistence ──
-function saveLocalOnly(){ try{ localStorage.setItem('fieldmat_v1', JSON.stringify(D)); }catch(e){} }
+let _needCache = {};
+function clearNeedCache(){ _needCache = {}; }
+function saveLocalOnly(){ clearNeedCache(); try{ localStorage.setItem('fieldmat_v1', JSON.stringify(D)); }catch(e){} }
 function save(){ D.updatedAt = new Date().toISOString(); saveLocalOnly(); schedulePush(); }
 function normalize(x){
   ['projects','archived','rooms','cats','mats','items','deliveries'].forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; });
+  ['recipes','progress'].forEach(k=>{ if(!x[k] || typeof x[k]!=='object' || Array.isArray(x[k])) x[k]={}; });
   if(!x.cats.length) x.cats = DEFAULT_CATS.slice();
   x.items.forEach(it=>{ if(it.demand==null){ it.demand = it.stillNeed!=null ? num(it.stillNeed) : num(it.plan||0); } delete it.plan; delete it.stillNeed; });
   return x;
@@ -317,7 +333,41 @@ function matLabel(m){ if(!m) return '(材料已刪)'; return m.name + (m.spec?('
 function projItems(p){ return D.items.filter(i=>i.project===p); }
 function projRooms(p){ return D.rooms.filter(r=>r.project===p); }
 function roomFloor(p, room){ const r = D.rooms.find(x=>x.project===p && x.name===room); return r ? (r.floor||room) : room; }
-function itemNeed(it){ return num(it.demand); } // 需求量
+// ── 依施工進度算「這層還需要多少料」 ──
+function hasRecipe(project, floor){ return !!(D.recipes && D.recipes[project] && D.recipes[project].find(f=>f.floor===floor)); }
+function labelMatIdMap(){ const m={}; D.mats.forEach(x=>{ if(!(x.name in m)) m[x.name]=x.id; }); return m; }
+function floorNeedsMap(project, floor){ // {matId: 還需要數量}
+  const key = project+'||'+floor;
+  if(_needCache[key]) return _needCache[key];
+  const map = {};
+  const rec = (D.recipes && D.recipes[project] || []).find(f=>f.floor===floor);
+  if(rec){
+    const lm = labelMatIdMap();
+    const prog = (D.progress && D.progress[project] && D.progress[project][floor]) || {};
+    const totals={}, pool={};
+    (rec.rooms||[]).forEach(room=>{
+      const rp = prog[room.type] || {};
+      (room.walls||[]).forEach(wall=>{
+        let undone = rp[wall.name]!=null ? num(rp[wall.name]) : num(room.count);
+        undone = Math.max(0, Math.min(undone, num(room.count)));
+        if(undone<=0) return;
+        (wall.mats||[]).forEach(r=>{
+          const mid = lm[r.label]; if(!mid) return;
+          if(r.kind==='total'){ totals[mid]=(totals[mid]||0)+r.raw*undone; }
+          else { const pk=mid+'|'+r.kind+'|'+r.div; pool[pk]=pool[pk]||{mid,kind:r.kind,div:r.div,raw:0}; pool[pk].raw+=r.raw*undone; }
+        });
+      });
+    });
+    Object.entries(totals).forEach(([mid,q])=>{ map[mid]=round((map[mid]||0)+q); });
+    Object.values(pool).forEach(pp=>{ const q = pp.kind==='board'?Math.ceil(pp.raw*1.05):Math.ceil(pp.raw/pp.div); map[pp.mid]=round((map[pp.mid]||0)+q); });
+  }
+  _needCache[key]=map;
+  return map;
+}
+function itemNeed(it){ // 需求量：有施工資料就依進度算，否則用存的
+  if(hasRecipe(it.project, it.room)){ return round(floorNeedsMap(it.project, it.room)[it.matId] || 0); }
+  return num(it.demand);
+} // 需求量
 function itemManual(it){ return it.restock!=null && it.restock!==''; } // 有手動指定要補數量
 function itemLack(it){ // >0 需補：手動優先，否則用 需求−剩餘 算
   if(itemManual(it)) return round(num(it.restock));
@@ -338,6 +388,7 @@ function go(pg){
   if(pg==='board') renderBoard();
   if(pg==='deliver') renderDeliver();
   if(pg==='count') renderCountPage();
+  if(pg==='progress') renderProgressPage();
   if(pg==='set') renderSettings();
 }
 function onProjChange(p){ cur.project = p; renderAll(); }
@@ -348,7 +399,7 @@ function fillProjSel(){
                                 : '<option value="">（尚無案場）</option>';
   if(active.length && !active.includes(cur.project)) cur.project = active[0];
 }
-function renderAll(){ fillProjSel(); renderBoard(); if(cur.page==='deliver')renderDeliver(); if(cur.page==='count')renderCountPage(); if(cur.page==='set')renderSettings(); save(); }
+function renderAll(){ fillProjSel(); renderBoard(); if(cur.page==='deliver')renderDeliver(); if(cur.page==='count')renderCountPage(); if(cur.page==='progress')renderProgressPage(); if(cur.page==='set')renderSettings(); save(); }
 
 // ════════════════════════════════════════════
 //  現場總覽 DASHBOARD
@@ -567,6 +618,60 @@ function saveCount(){
     if(n) it.demand = round(num(n.value));
   });
   save(); toast('✅ 盤點已儲存'); renderCount();
+}
+
+// ════════════════════════════════════════════
+//  施工進度 PROGRESS（每道牆還沒做幾間）
+// ════════════════════════════════════════════
+function renderProgressPage(){
+  const sel = document.getElementById('pr-floor');
+  const rec = (D.recipes && D.recipes[cur.project]) || [];
+  const floors = rec.map(f=>f.floor).sort((a,b)=>cmpFloor(a,b));
+  sel.innerHTML = floors.length ? floors.map(f=>`<option>${esc(f)}</option>`).join('') : '<option value="">（尚無匯入的施工資料）</option>';
+  renderProgress();
+}
+function renderProgress(){
+  const el = document.getElementById('pr-list');
+  const project = cur.project; const floor = document.getElementById('pr-floor').value;
+  const rec = (D.recipes && D.recipes[project] || []).find(f=>f.floor===floor);
+  if(!rec){ el.innerHTML = emptyBox('🔨','尚無施工資料','從「材料計算」按匯出後，這裡才會有各樓層、各房型的牆'); return; }
+  const prog = (D.progress[project] && D.progress[project][floor]) || {};
+  let html = `<div class="hint">填「還沒做幾間」= 這道牆還有幾間房沒做。全做完就填 0。改完按下面儲存。</div>`;
+  rec.rooms.forEach((room, ri)=>{
+    html += `<div class="card"><h2 style="margin-bottom:6px">${esc(room.type)} <span class="muted" style="font-weight:400">· 共 ${room.count} 間</span></h2>`;
+    room.walls.forEach((wall, wi)=>{
+      const rp = prog[room.type] || {};
+      const undone = rp[wall.name]!=null ? rp[wall.name] : room.count;
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+        <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${esc(wall.name)}</div><div class="muted">還沒做幾間（共 ${room.count}）</div></div>
+        <div class="stepper"><button type="button" onclick="stepProg('prg-${ri}-${wi}',-1)">−</button>
+        <input type="number" id="prg-${ri}-${wi}" inputmode="numeric" value="${undone}" data-max="${room.count}" style="flex:0 0 64px;width:64px;text-align:center">
+        <button type="button" onclick="stepProg('prg-${ri}-${wi}',1)">＋</button></div>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+  html += `<button class="btn" onclick="saveProgress()">💾 儲存進度</button>`;
+  el.innerHTML = html;
+}
+function stepProg(id, d){
+  const el = document.getElementById(id); if(!el) return;
+  const mx = num(el.dataset.max);
+  el.value = Math.max(0, Math.min(Math.round(num(el.value)+d), mx||999999));
+}
+function saveProgress(){
+  const project = cur.project; const floor = document.getElementById('pr-floor').value;
+  const rec = (D.recipes[project]||[]).find(f=>f.floor===floor); if(!rec) return;
+  D.progress[project] = D.progress[project] || {};
+  const fp = D.progress[project][floor] = D.progress[project][floor] || {};
+  rec.rooms.forEach((room, ri)=>{
+    fp[room.type] = fp[room.type] || {};
+    room.walls.forEach((wall, wi)=>{
+      const inp = document.getElementById('prg-'+ri+'-'+wi);
+      if(inp){ let v = parseInt(inp.value); if(isNaN(v)) v = room.count; v = Math.max(0, Math.min(v, room.count)); fp[room.type][wall.name] = v; }
+    });
+  });
+  save(); toast('✅ 進度已儲存'); renderProgress(); renderBoard();
 }
 
 // ════════════════════════════════════════════
@@ -866,6 +971,10 @@ function applyCalcImport(pl){
   const project = pl.project;
   if(!D.projects.includes(project)) D.projects.push(project);
   cur.project = project;
+  if(!D.recipes) D.recipes = {}; if(!D.progress) D.progress = {};
+  // 存牆用量食譜（供進度計算）
+  D.recipes[project] = (pl.floors||[]).filter(fl=>fl.rooms && fl.rooms.length).map(fl=>({floor:fl.floor, rooms:fl.rooms}));
+  D.progress[project] = D.progress[project] || {};
   (pl.floors||[]).forEach(fl=>{
     const floorName = fl.floor;
     const rm = D.rooms.find(r=>r.project===project && r.name===floorName);
@@ -877,7 +986,13 @@ function applyCalcImport(pl){
       if(!mt){ mt = {id:uid(), cat, name:m.name, spec:'', thick:'', unit:m.unit||'支'}; D.mats.push(mt); }
       let it = D.items.find(i=>i.project===project && i.room===floorName && i.matId===mt.id);
       if(!it){ it = {id:uid(), project, room:floorName, matId:mt.id, demand:0, remaining:0, delivered:0}; D.items.push(it); }
-      it.demand = round(num(m.qty));
+      it.demand = round(num(m.qty)); // 全做完的量（無施工資料時的後備）
+    });
+    // 初始化進度：預設「全部還沒做」＝間數；已存的進度保留
+    const fp = D.progress[project][floorName] = D.progress[project][floorName] || {};
+    (fl.rooms||[]).forEach(room=>{
+      const rp = fp[room.type] = fp[room.type] || {};
+      (room.walls||[]).forEach(wall=>{ if(rp[wall.name]==null) rp[wall.name] = room.count; });
     });
   });
   save(); renderAll();
