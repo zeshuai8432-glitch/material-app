@@ -118,7 +118,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v24</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v25</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -546,9 +546,11 @@ function quickCount(itemId){
       <div class="stepper"><button type="button" onclick="stepQty('qc-rem',-1)">−</button>
       <input type="number" id="qc-rem" inputmode="decimal" value="${num(it.remaining)}" style="flex:1;width:auto;text-align:left">
       <button type="button" onclick="stepQty('qc-rem',1)">＋</button></div></div>
-    <div class="fg"><label>總需求量（${esc(unit)}）· 這房間總共要用多少 · 換料/追加改這裡</label>
-      <input type="text" id="qc-need" inputmode="text" value="${itemTotal(it)}">
-      <div class="muted" style="margin-top:4px">可直接填總數，或輸入 <b>+36</b> / <b>-12</b> 加減${needAdj(it)?`　·　目前已手動調整 ${needAdj(it)>0?'+':''}${needAdj(it)}${esc(unit)}（原計算 ${round(num(it.demand))}）`:''}</div></div>
+    <div class="fg"><label>總需求量（${esc(unit)}）· 這房間總共要用多少</label>
+      <input type="number" id="qc-need" inputmode="decimal" value="${itemTotal(it)}">
+      ${needAdj(it)?`<div class="muted" style="margin-top:4px">已手動調整 ${needAdj(it)>0?'+':''}${needAdj(it)}${esc(unit)}（原計算 ${round(num(it.demand))}）</div>`:''}</div>
+    <div class="fg"><label>換料／追加加減（${esc(unit)}）· 填了就在上面總數上加減</label>
+      <input type="text" id="qc-needdelta" inputmode="text" placeholder="例：36 追加、-12 減少" style="text-align:left"></div>
     <button class="btn" onclick="saveQuickCount('${it.id}')">儲存</button>`);
 }
 function saveQuickCount(itemId){
@@ -556,10 +558,11 @@ function saveQuickCount(itemId){
   const rs = (document.getElementById('qc-restock').value||'').trim();
   it.restock = rs==='' ? null : round(num(rs)); // 手動要補，留空＝自動算
   it.remaining = round(num(document.getElementById('qc-rem').value));
-  // 總需求量改成手動增減（存成與原計算的差），這樣換料/追加不會被重新匯出蓋掉
-  // 支援輸入「+36 / -12」直接在目前總數上加減
-  const raw = (document.getElementById('qc-need').value||'').trim();
-  const newTotal = /^[+\-]/.test(raw) ? round(itemTotal(it) + num(raw)) : round(num(raw));
+  // 總需求量改成手動增減（存成與原計算的差），這樣換料/追加不會被重新匯出蓋掉。
+  // 「加減」欄有填就在目前總數上加減；否則用「總需求量」欄當絕對值。
+  const deltaRaw = (document.getElementById('qc-needdelta').value||'').trim();
+  const newTotal = deltaRaw!=='' ? round(itemTotal(it) + num(deltaRaw))
+                                 : round(num(document.getElementById('qc-need').value));
   const adj = round(newTotal - round(num(it.demand)));
   it.needAdj = adj===0 ? null : adj;
   save(); closeSheet(); renderBoard(); toast('✅ 已更新');
