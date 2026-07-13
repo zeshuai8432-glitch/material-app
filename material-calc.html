@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v8</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v9</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v8</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v9</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -967,10 +967,10 @@
         <div style="display:flex;gap:12px;margin-bottom:16px;align-items:flex-start;flex-wrap:wrap;">
           <div style="flex:1;">
             <h2 style="font-size:16px;font-weight:700;margin-bottom:4px;" id="calc-project-title">—</h2>
-            <p style="font-size:13px;color:var(--text-2);" id="calc-project-sub">選擇房型或新增房型</p>
+            <p style="font-size:13px;color:var(--text-2);" id="calc-project-sub">選擇空間或新增空間</p>
           </div>
           <button class="btn btn-secondary" onclick="copyFloor()">🔁 複製樓層</button>
-          <button class="btn btn-primary" onclick="openSpaceModal()">＋ 新增房型</button>
+          <button class="btn btn-primary" onclick="openSpaceModal()">＋ 新增空間</button>
         </div>
 
         <div id="space-list" class="space-list"></div>
@@ -1038,14 +1038,14 @@
     </div>
     <div class="modal-body">
       <div class="field">
-        <label>房型名稱</label>
+        <label>空間名稱</label>
         <input type="text" id="space-name-input" placeholder="例：標準房、套房、走廊">
       </div>
       <div class="field">
-        <label>樓層配置（同房型各樓層間數）</label>
+        <label>樓層配置（重複空間設各樓層間數；公設／單一空間留空即可）</label>
         <div id="space-floors-list"></div>
         <button class="btn btn-secondary btn-sm" onclick="addSpaceFloorRow()">＋ 樓層</button>
-        <div style="font-size:11px;color:var(--text-3);margin-top:6px">例：3F × 20、5F × 15。材料用量會自動 × 總間數。留空＝當作 1 間。</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:6px">客房：3F × 20、5F × 15，用量自動 × 總間數。公設／單一空間：填 1F × 1，或直接留空（當作 1 間）。</div>
       </div>
       <div class="field">
         <label>備註</label>
@@ -1788,7 +1788,7 @@ function renderCalcTab() {
 // ════════════════════════════════════
 // SPACES
 // ════════════════════════════════════
-// 一個房型的樓層配置：[{floor, count}]
+// 一個空間的樓層配置：[{floor, count}]
 function spaceFloorRowHTML(floor, count) {
   return `<div class="sfrow" style="display:flex;gap:6px;margin-bottom:5px;align-items:center">
     <input type="text" class="sf-floor" placeholder="樓層 3F" value="${esc(floor||'')}" style="flex:1">
@@ -1814,7 +1814,7 @@ function collectSpaceFloors() {
   });
   return out;
 }
-// 房型總間數（未設定樓層 = 1 間）
+// 空間總間數（未設定樓層 = 1 間）
 function spaceTotalCount(s) {
   if (s && Array.isArray(s.floors) && s.floors.length) return s.floors.reduce((a, f) => a + (parseInt(f.count) || 0), 0) || 1;
   return 1;
@@ -1824,14 +1824,14 @@ function spaceFloorSummary(s) {
   return s.floors.map(f => `${f.floor}（${f.count}間）`).join('・');
 }
 
-// 整層複製：把某樓層在所有房型的間數，套到一個新樓層
+// 整層複製：把某樓層在所有空間的間數，套到一個新樓層
 function copyFloor() {
   const pid = state.activeProjectId;
   if (!pid) { toast('請先選案場', 'error'); return; }
   const spaces = state.spaces[pid] || [];
   const floors = [];
   spaces.forEach(s => (s.floors || []).forEach(f => { if (f.floor && !floors.includes(f.floor)) floors.push(f.floor); }));
-  if (!floors.length) { toast('尚無樓層可複製（先在房型裡設定樓層配置）', 'error'); return; }
+  if (!floors.length) { toast('尚無樓層可複製（先在空間裡設定樓層配置）', 'error'); return; }
   const src = prompt('要複製哪一個樓層？\n現有樓層：' + floors.join('、'), floors[0]);
   if (src === null) return;
   const source = src.trim();
@@ -1850,16 +1850,16 @@ function copyFloor() {
     else s.floors.push({ floor: target, count: srcEntry.count });
     affected++;
   });
-  if (!affected) { toast('沒有房型使用「' + source + '」', 'error'); return; }
+  if (!affected) { toast('沒有空間使用「' + source + '」', 'error'); return; }
   saveUserData();
   renderSpaces();
   renderResults();
-  toast('已把「' + source + '」複製成「' + target + '」（' + affected + ' 個房型）');
+  toast('已把「' + source + '」複製成「' + target + '」（' + affected + ' 個空間）');
 }
 
 function openSpaceModal(id) {
   state.editingSpace = id || null;
-  document.getElementById('modal-space-title').textContent = id ? '編輯房型' : '新增房型';
+  document.getElementById('modal-space-title').textContent = id ? '編輯空間' : '新增空間';
   if (id) {
     const spaces = state.spaces[state.activeProjectId] || [];
     const s = spaces.find(x => x.id === id);
@@ -1893,7 +1893,7 @@ function saveSpace() {
   saveUserData();
   renderSpaces();
   closeModal('modal-space');
-  toast('房型已儲存');
+  toast('空間已儲存');
 }
 
 function deleteSpace(id) {
@@ -1917,7 +1917,7 @@ function renderSpaces() {
   const el = document.getElementById('space-list');
   const spaces = state.spaces[state.activeProjectId] || [];
   if (!spaces.length) {
-    el.innerHTML = '<div class="empty-state"><div class="icon">🏠</div><h3>尚無房型</h3><p>點擊「新增房型」開始建立</p></div>';
+    el.innerHTML = '<div class="empty-state"><div class="icon">🏠</div><h3>尚無空間</h3><p>點擊「新增空間」開始建立</p></div>';
     return;
   }
 
@@ -1937,7 +1937,7 @@ function renderSpaces() {
           </div>`).join('')}
       </div>
     </div>
-    <div style="font-size:13px;font-weight:700;color:var(--text-2);margin-bottom:8px;">📦 房型（編輯牆／材料・跨樓層共用）</div>`;
+    <div style="font-size:13px;font-weight:700;color:var(--text-2);margin-bottom:8px;">📦 空間（編輯牆／材料・重複空間跨樓層共用）</div>`;
   }
 
   el.innerHTML = overview + spaces.map(s => {
@@ -2732,7 +2732,7 @@ function exportToFieldApp() {
   recalcActiveProject();
   const floorList = [];
   spaces.forEach(s => (s.floors || []).forEach(f => { if (f.floor && !floorList.includes(f.floor)) floorList.push(f.floor); }));
-  if (!floorList.length) { toast('尚無樓層配置，無法匯出（請在房型裡設定樓層間數）', 'error'); return; }
+  if (!floorList.length) { toast('尚無樓層配置，無法匯出（請在空間裡設定樓層間數）', 'error'); return; }
   floorList.sort((a, b) => String(a).localeCompare(String(b), 'zh-Hant', { numeric: true }));
   const floors = floorList.map(fl => {
     const agg = makeAgg();
@@ -2906,13 +2906,13 @@ function renderResults() {
     return;
   }
 
-  // 1) 全案彙總（× 各房型間數）
+  // 1) 全案彙總（× 各空間間數）
   const grand = makeAgg();
   spaces.forEach(s => { const m = spaceTotalCount(s); zonesOf(s).forEach(z => aggregateZone(z, m, grand)); });
   grand.finalize();
   html += `<div class="result-section"><div class="result-header">📊 全案材料彙總</div>${totalsTableHTML(grand.totals)}</div>`;
 
-  // 2) 依樓層（母）→ 房型（子）
+  // 2) 依樓層（母）→ 空間（子）
   const floorList = [];
   spaces.forEach(s => (s.floors || []).forEach(f => { if (f.floor && !floorList.includes(f.floor)) floorList.push(f.floor); }));
   floorList.sort((a, b) => String(a).localeCompare(String(b), 'zh-Hant', { numeric: true }));
@@ -2935,8 +2935,8 @@ function renderResults() {
     });
   }
 
-  // 3) 房型單間明細（預設收合）
-  html += '<div class="result-header" style="margin-top:20px">📦 房型單間明細</div>';
+  // 3) 空間單間明細（預設收合）
+  html += '<div class="result-header" style="margin-top:20px">📦 空間單間明細</div>';
   spaces.forEach(s => {
     const zones = zonesOf(s); if (!zones.length) return;
     const cnt = spaceTotalCount(s);
