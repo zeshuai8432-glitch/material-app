@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v9</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v10</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v9</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v10</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2962,7 +2962,7 @@ function renderMaterials() {
     ${materialSection('加強橫枝', 'braces', ['規格', '長度(cm)', '單價(元/支)'])}
     ${materialSection('板材', 'boards', ['品名', '單價(元/片)'])}
     ${materialSection('岩棉', 'rockwool', ['規格', '幾片/包', '單價(元/包)'])}
-    ${materialSection('玻璃棉', 'glasswool', ['規格', '單價(元/捲)'])}
+    ${materialSection('玻璃棉', 'glasswool', ['規格', '每捲㎡', '單價(元/捲)'])}
     ${materialSection('收邊料', 'trims', ['規格', '長度(cm)', '單價(元/支)'])}
     ${materialSection('螺桿', 'rods', ['規格', '長度(cm)', '單價(元/支)'])}
     ${materialSection('天花主架', 'mainFrames', ['規格', '長度(cm)', '單價(元/支)'])}
@@ -3076,6 +3076,7 @@ function materialSection(title, key, headers) {
     } else if (key === 'glasswool') {
       rows += `<tr>
         <td>${esc(item.name)}</td>
+        <td><input type="number" step="0.1" value="${item.rollSize}" onchange="state.materials['${key}'][${i}].rollSize=+this.value;saveUserData()" style="width:80px;"></td>
         <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
         <td></td>
       </tr>`;
