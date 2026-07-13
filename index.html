@@ -118,7 +118,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v22</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v23</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -248,7 +248,7 @@ let D = {
   rooms: [],         // [{project, floor, name}]  floor=樓層, name=房間
   cats: [],          // [分類名]
   mats: [],          // [{id, cat, name, spec, thick, unit}]
-  items: [],         // [{id, project, room, matId, demand, remaining, delivered, restock}]
+  items: [],         // [{id, project, room, matId, demand, remaining, delivered, restock, needAdj}]
   deliveries: [],    // [{id, date, project, room, matId, qty}]
   recipes: {},       // { [project]: [{floor, rooms:[{type,count,walls:[{name,mats:[{label,unit,cat,kind,raw,div}]}]}]}] }
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
@@ -406,13 +406,16 @@ function floorNeedsMap(project, floor){ // {matId: 還需要數量}
   _needCache[key]=map;
   return map;
 }
-function itemNeed(it){ // 需求量：有施工資料就依進度算，否則用存的
+function baseNeed(it){ // 還需要（未計手動增減）：有施工資料就依進度算，否則用存的
   if(hasRecipe(it.project, it.room)){ return round(floorNeedsMap(it.project, it.room)[it.matId] || 0); }
   return num(it.demand);
-} // 需求量
+}
+function needAdj(it){ return num(it.needAdj); } // 手動需求增減（換料/追加，可負）
+function itemNeed(it){ return round(baseNeed(it) + needAdj(it)); } // 需求量（含手動增減）
+function itemTotal(it){ return round(num(it.demand) + needAdj(it)); } // 總需求量（含手動增減）
 function itemManual(it){ return it.restock!=null && it.restock!==''; } // 有手動指定要補數量
-function itemUsed(it){ // 依進度推「已用」量（全做完的量 − 現況還需要）
-  return hasRecipe(it.project, it.room) ? Math.max(round(num(it.demand) - itemNeed(it)), 0) : 0;
+function itemUsed(it){ // 依進度推「已用」量（全做完的量 − 依進度還需要），不受手動增減影響
+  return hasRecipe(it.project, it.room) ? Math.max(round(num(it.demand) - baseNeed(it)), 0) : 0;
 }
 function itemRemaining(it){ // 有效現場剩餘：有進度但還沒盤點過 → 用「送料 − 已用」估；否則用已存的
   const used = itemUsed(it);
@@ -503,7 +506,7 @@ function renderBoard(){
         const m = mat(it.matId); const c = m?m.cat:'其他';
         if(c!==lastCat){ html += `<div class="catrow">${esc(c)}</div>`; lastCat=c; }
         const lack = itemLack(it); const need = itemNeed(it); const rem = itemRemaining(it); const unit = m?m.unit:'';
-        const total = round(num(it.demand)); // 總需求量（全做完要的量，不隨進度扣）
+        const total = itemTotal(it); // 總需求量（全做完要的量，含手動增減，不隨進度扣）
         const over = (!itemManual(it) && lack<0) ? round(rem-need) : 0; // 溢料＝現場剩餘超過還需要
         const tn = nameTone(m?m.name:'');
         html += `<div class="mrow" onclick="quickCount('${it.id}')" style="border-left:4px solid ${tn.c};padding-left:9px;background:${tn.b}">
@@ -543,8 +546,9 @@ function quickCount(itemId){
       <div class="stepper"><button type="button" onclick="stepQty('qc-rem',-1)">−</button>
       <input type="number" id="qc-rem" inputmode="decimal" value="${num(it.remaining)}" style="flex:1;width:auto;text-align:left">
       <button type="button" onclick="stepQty('qc-rem',1)">＋</button></div></div>
-    <div class="fg"><label>需求量（${esc(unit)}）· 這房間總共要用多少</label>
-      <input type="number" id="qc-need" inputmode="decimal" value="${itemNeed(it)}"></div>
+    <div class="fg"><label>總需求量（${esc(unit)}）· 這房間總共要用多少 · 換料/追加改這裡</label>
+      <input type="number" id="qc-need" inputmode="decimal" value="${itemTotal(it)}">
+      ${needAdj(it)?`<div class="muted" style="margin-top:4px">已手動調整 ${needAdj(it)>0?'+':''}${needAdj(it)}${esc(unit)}（原計算 ${round(num(it.demand))}）</div>`:''}</div>
     <button class="btn" onclick="saveQuickCount('${it.id}')">儲存</button>`);
 }
 function saveQuickCount(itemId){
@@ -552,7 +556,10 @@ function saveQuickCount(itemId){
   const rs = (document.getElementById('qc-restock').value||'').trim();
   it.restock = rs==='' ? null : round(num(rs)); // 手動要補，留空＝自動算
   it.remaining = round(num(document.getElementById('qc-rem').value));
-  it.demand = round(num(document.getElementById('qc-need').value));
+  // 總需求量改成手動增減（存成與原計算的差），這樣換料/追加不會被重新匯出蓋掉
+  const newTotal = round(num(document.getElementById('qc-need').value));
+  const adj = round(newTotal - round(num(it.demand)));
+  it.needAdj = adj===0 ? null : adj;
   save(); closeSheet(); renderBoard(); toast('✅ 已更新');
 }
 
@@ -719,7 +726,8 @@ function saveCount(){
   D.items.filter(i=>i.project===p && i.room===room).forEach(it=>{
     const r=document.getElementById('ct-rem-'+it.id), n=document.getElementById('ct-need-'+it.id);
     if(r) it.remaining = round(num(r.value));
-    if(n) it.demand = round(num(n.value));
+    // 需求量編輯存成手動增減（相對依進度的還需要），不動原計算基準、也不會被重新匯出蓋掉
+    if(n){ const adj = round(num(n.value) - baseNeed(it)); it.needAdj = adj===0 ? null : adj; }
   });
   save(); toast('✅ 盤點已儲存'); renderCount();
 }
