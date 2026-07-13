@@ -118,7 +118,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v25</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v26</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -209,7 +209,8 @@
         <button class="btn gray sm" onclick="document.getElementById('imp-file').click()">還原備份</button>
       </div>
       <input type="file" id="imp-file" accept="application/json" style="display:none" onchange="importBackup(this.files[0])">
-      <div class="muted" style="margin-top:8px">v1 尚無雲端同步，請定期匯出備份。</div>
+      <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="restorePreImport()">↩︎ 還原「匯入前」狀態</button>
+      <div class="muted" style="margin-top:8px">每次從計算程式匯入前會自動備份一份，對不上時可用上面按鈕還原。</div>
     </div>
   </div>
 
@@ -1066,9 +1067,20 @@ function importBackup(file){
   if(!file) return;
   const r = new FileReader();
   r.onload = e => { try{ const p=JSON.parse(e.target.result); if(!confirm('還原備份會覆蓋目前資料，確定？'))return;
-    D = Object.assign({projects:[],archived:[],rooms:[],cats:[],mats:[],items:[],deliveries:[]}, p);
+    D = normalize(Object.assign({projects:[],archived:[],rooms:[],cats:[],mats:[],items:[],deliveries:[]}, p));
     cur.project = D.projects[0]||null; save(); renderAll(); toast('✅ 已還原備份'); }catch(err){ toast('❌ 檔案格式錯誤'); } };
   r.readAsText(file);
+}
+function preImportInfo(){ // 有匯入前備份就回傳時間，否則 null
+  try{ const bk=JSON.parse(localStorage.getItem('fieldmat_preimport')||'null'); return bk&&bk.data?bk.at:null; }catch(e){ return null; }
+}
+function restorePreImport(){
+  let bk; try{ bk = JSON.parse(localStorage.getItem('fieldmat_preimport')||'null'); }catch(e){}
+  if(!bk || !bk.data){ toast('沒有可還原的匯入前備份'); return; }
+  if(!confirm('還原到「最後一次匯入之前」的狀態？\n匯入後的所有變更都會被捨棄。')) return;
+  D = normalize(bk.data);
+  cur.project = D.projects.includes(cur.project) ? cur.project : (D.projects[0]||null);
+  clearNeedCache(); save(); renderAll(); toast('✅ 已還原到匯入前');
 }
 
 // ── shared ui ──
@@ -1096,6 +1108,8 @@ function checkPendingImport(){
     <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="dismissCalcImport()">稍後再說</button>`);
 }
 function applyCalcImport(pl){
+  // 匯入前先備份整份資料，萬一名稱有變動導致對不上，可一鍵還原
+  try{ localStorage.setItem('fieldmat_preimport', JSON.stringify({at:new Date().toISOString(), data:JSON.parse(JSON.stringify(D))})); }catch(e){}
   const project = pl.project;
   if(!D.projects.includes(project)) D.projects.push(project);
   cur.project = project;
