@@ -118,7 +118,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v26</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v27</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -481,7 +481,7 @@ function renderBoard(){
       <div style="font-size:13px;color:var(--text2);font-weight:700">現場狀態</div>
       <div style="font-size:15px;font-weight:800;margin-top:2px">${lackRooms.size? `<span class="lack">${lackRooms.size} 個房間要補料</span>` : '<span class="ok">全部房間庫存充足 ✅</span>'}</div>
     </div>
-    <button class="btn sm" style="flex:0 0 auto" onclick="exportRefillPDF()">📄 補料單</button>
+    <button class="btn sm" style="flex:0 0 auto" onclick="openRefillSheet()">📄 補料單</button>
   </div>`;
 
   Object.keys(floors).sort(cmpFloor).forEach(fl=>{
@@ -1006,13 +1006,43 @@ function savePlan(){
 // ════════════════════════════════════════════
 //  補料單 PDF
 // ════════════════════════════════════════════
-function exportRefillPDF(){
+function openRefillSheet(){
   const p = cur.project;
   const items = projItems(p).filter(it=>itemLack(it)>0);
   if(!items.length){ toast('✅ 目前沒有要補的料'); return; }
+  const flSet = new Set(), catSet = new Set();
+  items.forEach(it=>{ flSet.add(roomFloor(p,it.room)); catSet.add(mat(it.matId)?.cat||'其他'); });
+  const floors = [...flSet].sort(cmpFloor);
+  const cats = [...catSet].sort((a,b)=>catOrder(a)-catOrder(b));
+  const chk = (cls,val)=>`<label style="display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border:1.5px solid var(--line);border-radius:9px;font-size:13px;font-weight:700;color:var(--text)"><input type="checkbox" class="${cls}" value="${esc(val)}" checked style="width:auto;margin:0"> ${esc(val)}</label>`;
+  openSheet(`<h3>匯出補料單<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="muted" style="margin-bottom:12px">不同廠商可分開出：選樓層＋材料類別</div>
+    <div class="fg"><label>樓層</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${floors.map(f=>chk('rf-fl',f)).join('')}</div>
+      <div style="margin-top:6px;font-size:12px"><a onclick="rfToggle('rf-fl',1)" style="color:var(--blue);cursor:pointer">全選</a> · <a onclick="rfToggle('rf-fl',0)" style="color:var(--blue);cursor:pointer">全不選</a></div></div>
+    <div class="fg"><label>材料類別（依廠商）</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${cats.map(c=>chk('rf-cat',c)).join('')}</div>
+      <div style="margin-top:6px;font-size:12px"><a onclick="rfToggle('rf-cat',1)" style="color:var(--blue);cursor:pointer">全選</a> · <a onclick="rfToggle('rf-cat',0)" style="color:var(--blue);cursor:pointer">全不選</a></div></div>
+    <button class="btn" onclick="doRefillPDF()">📄 匯出 PDF</button>`);
+}
+function rfToggle(cls,on){ document.querySelectorAll('.'+cls).forEach(x=>x.checked=!!on); }
+function doRefillPDF(){
+  const fls = new Set([...document.querySelectorAll('.rf-fl:checked')].map(x=>x.value));
+  const cts = new Set([...document.querySelectorAll('.rf-cat:checked')].map(x=>x.value));
+  if(!fls.size || !cts.size){ toast('⚠️ 樓層和類別各至少選一個'); return; }
+  closeSheet();
+  exportRefillPDF(fls, cts);
+}
+function exportRefillPDF(flSet, catSet){
+  const p = cur.project;
+  let items = projItems(p).filter(it=>itemLack(it)>0);
+  if(flSet) items = items.filter(it=> flSet.has(roomFloor(p,it.room)));
+  if(catSet) items = items.filter(it=> catSet.has(mat(it.matId)?.cat||'其他'));
+  if(!items.length){ toast('✅ 選取範圍內沒有要補的料'); return; }
   const floors = {};
   items.forEach(it=>{ const fl=roomFloor(p,it.room); ((floors[fl]=floors[fl]||{})[it.room]=(floors[fl][it.room]||[])).push(it); });
-  let body = `<h1>補料需求單</h1><div class="meta">案場：${esc(p)}　日期：${todayStr()}</div>`;
+  const catNote = (catSet && catSet.size) ? '　類別：'+[...catSet].join('、') : '';
+  let body = `<h1>補料需求單</h1><div class="meta">案場：${esc(p)}　日期：${todayStr()}${esc(catNote)}</div>`;
   Object.keys(floors).sort(cmpFloor).forEach(fl=>{
     const rooms = floors[fl]; const roomNames = Object.keys(rooms).sort(cmpFloor);
     const multi = roomNames.length>1 || roomNames[0]!==fl;
