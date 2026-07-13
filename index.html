@@ -117,7 +117,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v9</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v10</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -833,10 +833,60 @@ function closeSheet(){ document.getElementById('ov').classList.remove('show'); }
 let toastT;
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),1900); }
 
+// ── 從材料計算匯入（同網域共用暫存）──
+let _pendingImport = null, _dismissedImport = null;
+function checkPendingImport(){
+  if(document.getElementById('ov').classList.contains('show')) return; // 有其他彈窗時先不打擾
+  let raw; try{ raw = localStorage.getItem('fieldmat_pending_import'); }catch(e){ return; }
+  if(!raw) return;
+  let pl; try{ pl = JSON.parse(raw); }catch(e){ localStorage.removeItem('fieldmat_pending_import'); return; }
+  if(!pl || pl.source!=='material-calc' || !Array.isArray(pl.floors)){ localStorage.removeItem('fieldmat_pending_import'); return; }
+  if(_dismissedImport === pl.exportedAt) return;
+  const matCount = pl.floors.reduce((a,f)=>a+((f.materials&&f.materials.length)||0),0);
+  _pendingImport = pl;
+  openSheet(`<h3>📥 匯入計算結果<span class="x" onclick="dismissCalcImport()">✕</span></h3>
+    <div class="hint">偵測到來自「材料計算」的資料。匯入會帶入各樓層的需求量，既有的送到／現場剩餘不受影響。</div>
+    <div class="listitem"><div class="li-m"><div class="li-t">${esc(pl.project)}</div><div class="li-s">${pl.floors.length} 個樓層 · ${matCount} 項材料</div></div></div>
+    <button class="btn" style="margin-top:10px" onclick="confirmCalcImport()">✅ 匯入「${esc(pl.project)}」</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="dismissCalcImport()">稍後再說</button>`);
+}
+function applyCalcImport(pl){
+  const project = pl.project;
+  if(!D.projects.includes(project)) D.projects.push(project);
+  cur.project = project;
+  (pl.floors||[]).forEach(fl=>{
+    const floorName = fl.floor;
+    const rm = D.rooms.find(r=>r.project===project && r.name===floorName);
+    if(rm) rm.floor = floorName; else D.rooms.push({project, floor:floorName, name:floorName});
+    (fl.materials||[]).forEach(m=>{
+      const cat = m.cat || '其他';
+      if(!D.cats.includes(cat)) D.cats.push(cat);
+      let mt = D.mats.find(x=>x.name===m.name);
+      if(!mt){ mt = {id:uid(), cat, name:m.name, spec:'', thick:'', unit:m.unit||'支'}; D.mats.push(mt); }
+      let it = D.items.find(i=>i.project===project && i.room===floorName && i.matId===mt.id);
+      if(!it){ it = {id:uid(), project, room:floorName, matId:mt.id, demand:0, remaining:0, delivered:0}; D.items.push(it); }
+      it.demand = round(num(m.qty));
+    });
+  });
+  save(); renderAll();
+}
+function confirmCalcImport(){
+  if(!_pendingImport) return;
+  applyCalcImport(_pendingImport);
+  try{ localStorage.removeItem('fieldmat_pending_import'); }catch(e){}
+  _dismissedImport = _pendingImport.exportedAt; _pendingImport = null;
+  closeSheet(); go('board'); toast('✅ 已匯入需求量');
+}
+function dismissCalcImport(){
+  if(_pendingImport) _dismissedImport = _pendingImport.exportedAt;
+  _pendingImport = null; closeSheet();
+}
+
 // ── boot ──
 load(); fillProjSel(); go('board');
 if(CLOUD_URL){ cloudPull(); }
-document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && CLOUD_URL) cloudPull(); });
+checkPendingImport();
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ if(CLOUD_URL) cloudPull(); checkPendingImport(); } });
 
 // ── service worker ──
 if('serviceWorker' in navigator){

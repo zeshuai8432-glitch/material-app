@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v5</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v6</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v5</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v6</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2685,6 +2685,54 @@ function recalcActiveProject(){
   spaces.forEach(s => (state.zones[s.id] || []).forEach(recalcZone));
 }
 // 建立一個彙總器（totals + 可裁切材料 pool）
+// 把算料的材料標籤對應到「材料管理」的分類
+function guessFieldCat(label) {
+  const s = String(label);
+  if (/骨架/.test(s)) return '骨架立柱';
+  if (/槽鐵/.test(s)) return '槽鐵';
+  if (/加強橫枝/.test(s)) return '加強橫枝';
+  if (/矽酸鈣|石膏|板材/.test(s)) return '板材';
+  if (/玻璃棉/.test(s)) return '玻璃棉';
+  if (/岩棉/.test(s)) return '岩棉';
+  if (/收邊|七字/.test(s)) return '收邊';
+  if (/螺桿/.test(s)) return '螺桿';
+  if (/主架|蜈蚣/.test(s)) return '主架';
+  if (/百葉|副架/.test(s)) return '副架';
+  if (/螺母|擊釘|四齒夾|吊勾/.test(s)) return '五金';
+  return '其他';
+}
+
+// 匯出「各樓層需求量」給材料管理（同網域共用暫存）
+function exportToFieldApp() {
+  const pid = state.activeProjectId;
+  if (!pid) { toast('請先選案場', 'error'); return; }
+  const proj = state.projects.find(x => x.id === pid);
+  const spaces = state.spaces[pid] || [];
+  const zonesOf = s => (state.zones[s.id] || []).filter(z => z.result);
+  recalcActiveProject();
+  const floorList = [];
+  spaces.forEach(s => (s.floors || []).forEach(f => { if (f.floor && !floorList.includes(f.floor)) floorList.push(f.floor); }));
+  if (!floorList.length) { toast('尚無樓層配置，無法匯出（請在房型裡設定樓層間數）', 'error'); return; }
+  floorList.sort((a, b) => String(a).localeCompare(String(b), 'zh-Hant', { numeric: true }));
+  const floors = floorList.map(fl => {
+    const agg = makeAgg();
+    spaces.forEach(s => {
+      const fe = (s.floors || []).find(f => f.floor === fl); if (!fe) return;
+      const c = parseInt(fe.count) || 0; if (c <= 0 || !zonesOf(s).length) return;
+      zonesOf(s).forEach(z => aggregateZone(z, c, agg));
+    });
+    agg.finalize();
+    const materials = Object.values(agg.totals).map(t => ({ name: t.label, unit: t.unit, qty: t.qty, cat: guessFieldCat(t.label) }));
+    return { floor: fl, materials };
+  }).filter(f => f.materials.length);
+  if (!floors.length) { toast('沒有可匯出的用量', 'error'); return; }
+  const payload = { source: 'material-calc', exportedAt: new Date().toISOString(), project: proj.name, floors };
+  try { localStorage.setItem('fieldmat_pending_import', JSON.stringify(payload)); }
+  catch (e) { toast('匯出失敗：' + e.message, 'error'); return; }
+  const matCount = floors.reduce((a, f) => a + f.materials.length, 0);
+  toast('✅ 已匯出「' + proj.name + '」' + floors.length + ' 層 / ' + matCount + ' 項，打開材料管理即可匯入');
+}
+
 function makeAgg() {
   const totals = {}, pool = {};
   const addTotal = (key, label, qty, unit) => { if (!totals[key]) totals[key] = { label, qty: 0, unit }; totals[key].qty += qty; };
@@ -2827,7 +2875,10 @@ function renderResults() {
   let html = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
       <h2 style="font-size:16px;font-weight:700;">${esc(p.name)} — 用量彙總</h2>
-      <button class="btn btn-secondary" onclick="printResults()">🖨️ 列印報表</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="exportToFieldApp()">📤 匯出給材料管理</button>
+        <button class="btn btn-secondary" onclick="printResults()">🖨️ 列印報表</button>
+      </div>
     </div>`;
 
   if (!hasAny) {
