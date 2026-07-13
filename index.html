@@ -118,7 +118,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v27</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v28</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -277,7 +277,7 @@ function clearNeedCache(){ _needCache = {}; }
 function saveLocalOnly(){ clearNeedCache(); try{ localStorage.setItem('fieldmat_v1', JSON.stringify(D)); }catch(e){} }
 function save(){ D.updatedAt = new Date().toISOString(); saveLocalOnly(); schedulePush(); }
 function normalize(x){
-  ['projects','archived','rooms','cats','mats','items','deliveries'].forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; });
+  ['projects','archived','rooms','cats','mats','items','deliveries','transfers'].forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; });
   ['recipes','progress'].forEach(k=>{ if(!x[k] || typeof x[k]!=='object' || Array.isArray(x[k])) x[k]={}; });
   if(!x.cats.length) x.cats = DEFAULT_CATS.slice();
   x.items.forEach(it=>{ if(it.demand==null){ it.demand = it.stillNeed!=null ? num(it.stillNeed) : num(it.plan||0); } delete it.plan; delete it.stillNeed; });
@@ -481,7 +481,10 @@ function renderBoard(){
       <div style="font-size:13px;color:var(--text2);font-weight:700">現場狀態</div>
       <div style="font-size:15px;font-weight:800;margin-top:2px">${lackRooms.size? `<span class="lack">${lackRooms.size} 個房間要補料</span>` : '<span class="ok">全部房間庫存充足 ✅</span>'}</div>
     </div>
-    <button class="btn sm" style="flex:0 0 auto" onclick="openRefillSheet()">📄 補料單</button>
+    <div style="display:flex;flex-direction:column;gap:6px;flex:0 0 auto">
+      <button class="btn sm" onclick="openAllocSheet()">🔄 調撥建議</button>
+      <button class="btn sm gray" onclick="openRefillSheet()">📄 補料單</button>
+    </div>
   </div>`;
 
   Object.keys(floors).sort(cmpFloor).forEach(fl=>{
@@ -1055,6 +1058,86 @@ function exportRefillPDF(flSet, catSet){
     body += `<table><thead><tr><th>分類</th><th>材料</th><th>規格</th><th>厚度</th>${multi?'<th>房間</th>':''}<th>現場剩餘</th><th>需求量</th><th>要補</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
   });
   printHTML('補料單 '+p, body);
+}
+
+// ════════════════════════════════════════════
+//  跨樓層調撥建議（能內部調就內部調，叫料壓最少）
+// ════════════════════════════════════════════
+function itemSurplus(it){ // 這層這材料的溢料（現場剩餘超過還需要，手動指定要補的不算溢）
+  if(itemManual(it)) return 0;
+  return Math.max(round(itemRemaining(it) - itemNeed(it)), 0);
+}
+// 針對一個材料，算各樓層溢/缺，並用貪婪法配出「搬最少趟、叫最少料」的調撥
+function matAlloc(p, matId){
+  const its = D.items.filter(i=>i.project===p && i.matId===matId);
+  const sur = [], sho = [];
+  its.forEach(it=>{ const s=itemSurplus(it), l=Math.max(itemLack(it),0);
+    if(s>0) sur.push({floor:it.room, amt:s});
+    if(l>0) sho.push({floor:it.room, amt:l}); });
+  const S = sur.map(x=>({...x})).sort((a,b)=>b.amt-a.amt);
+  const H = sho.map(x=>({...x})).sort((a,b)=>b.amt-a.amt);
+  const plan=[]; let si=0, di=0;
+  while(si<S.length && di<H.length){
+    if(S[si].amt<=0){ si++; continue; }
+    if(H[di].amt<=0){ di++; continue; }
+    const q=Math.min(S[si].amt, H[di].amt);
+    plan.push({from:S[si].floor, to:H[di].floor, qty:q});
+    S[si].amt-=q; H[di].amt-=q;
+  }
+  const order = H.reduce((a,x)=>a+Math.max(x.amt,0),0);      // 調完還要叫
+  const leftover = S.reduce((a,x)=>a+Math.max(x.amt,0),0);   // 調完還剩溢
+  return { sur, sho, plan, order, leftover, totalSur:sur.reduce((a,x)=>a+x.amt,0), totalSho:sho.reduce((a,x)=>a+x.amt,0) };
+}
+function openAllocSheet(){
+  const p = cur.project;
+  const matIds = [...new Set(D.items.filter(i=>i.project===p).map(i=>i.matId))];
+  const cards = [];
+  matIds.forEach(mid=>{
+    const a = matAlloc(p, mid);
+    if(!a.plan.length) return; // 只列「有得調」的材料
+    const m = mat(mid); const u=m?m.unit:''; const tn=nameTone(m?m.name:'');
+    const line = arr => arr.map(x=>`${esc(x.floor)} ${x.amt}${esc(u)}`).join('　');
+    const planRows = a.plan.map(t=>`<div style="font-weight:700">${esc(t.from)} → ${esc(t.to)}　<span style="color:var(--blue)">搬 ${t.qty}${esc(u)}</span></div>`).join('');
+    cards.push(`<div class="card" style="padding:12px;border-left:4px solid ${tn.c}">
+      <div style="font-weight:800;color:${tn.c};margin-bottom:4px">${esc(m?m.name:'?')}</div>
+      <div class="muted" style="margin-bottom:2px">溢：${line(a.sur)||'—'}</div>
+      <div class="muted" style="margin-bottom:8px">缺：${line(a.sho)||'—'}</div>
+      <div style="background:var(--bg);border-radius:9px;padding:8px 10px;margin-bottom:8px">${planRows}
+        <div style="margin-top:6px;font-size:13px;font-weight:800">調完 → ${a.order>0?`<span class="lack">還要叫 ${a.order}${esc(u)}</span>`:`<span class="ok">不用叫${a.leftover>0?`（還溢 ${a.leftover}${esc(u)}）`:''}</span>`}</div></div>
+      <button class="btn sm" onclick="applyMatAlloc('${mid}')">✅ 套用此調撥</button>
+    </div>`);
+  });
+  const recent = (D.transfers||[]).filter(t=>t.project===p).slice(-6).reverse()
+    .map(t=>{ const m=mat(t.matId); return `<div class="listitem" style="padding:7px 10px"><div class="li-m"><div class="li-t" style="font-size:13px">${esc(m?m.name:'?')}</div><div class="li-s">${esc(t.from)} → ${esc(t.to)}　${t.qty}${esc(m?m.unit:'')}　${esc(t.date)}</div></div></div>`; }).join('');
+  openSheet(`<h3>🔄 跨樓層調撥建議<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="muted" style="margin-bottom:10px">能內部調就先調，只叫真正不夠的。搬完現場剩餘會自動更新。</div>
+    ${cards.length? cards.join('')+`<button class="btn" onclick="applyAllAlloc()" style="margin-top:2px">✅ 全部套用</button>` : '<div class="card"><div class="muted">目前沒有可跨樓層調撥的材料（沒有「某層多、另一層缺」的情況）。</div></div>'}
+    ${recent?`<div style="margin-top:14px"><div style="font-size:13px;font-weight:800;margin-bottom:6px">最近調撥</div>${recent}</div>`:''}`);
+}
+function doAlloc(p, mid){ // 實際套用一個材料的調撥（重算以防過期），回傳搬了幾筆
+  const a = matAlloc(p, mid); if(!a.plan.length) return 0;
+  const m = mat(mid);
+  a.plan.forEach(t=>{
+    const src = D.items.find(i=>i.project===p && i.room===t.from && i.matId===mid);
+    let dst = D.items.find(i=>i.project===p && i.room===t.to && i.matId===mid);
+    if(!dst){ dst = {id:uid(), project:p, room:t.to, matId:mid, demand:0, remaining:0, delivered:0}; D.items.push(dst); }
+    if(src) src.remaining = round(Math.max(itemRemaining(src) - t.qty, 0));
+    dst.remaining = round(itemRemaining(dst) + t.qty);
+    D.transfers.push({id:uid(), date:todayStr(), project:p, matId:mid, from:t.from, to:t.to, qty:round(t.qty)});
+  });
+  return a.plan.length;
+}
+function applyMatAlloc(mid){
+  const n = doAlloc(cur.project, mid);
+  save(); renderAll(); openAllocSheet();
+  toast(n? `✅ 已調撥 ${n} 筆`:'沒有可調撥的');
+}
+function applyAllAlloc(){
+  const p = cur.project;
+  const matIds = [...new Set(D.items.filter(i=>i.project===p).map(i=>i.matId))];
+  let n=0; matIds.forEach(mid=>{ n += doAlloc(p, mid); });
+  save(); renderAll(); closeSheet();
+  toast(n? `✅ 已套用全部調撥（${n} 筆）`:'沒有可調撥的');
 }
 function printHTML(title, inner){
   const html = `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>
