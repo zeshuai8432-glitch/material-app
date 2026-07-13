@@ -112,13 +112,20 @@
   #printbar .t{flex:1;font-weight:800;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #printbar button{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.32);color:#fff;padding:8px 13px;border-radius:10px;font-weight:800;font-size:14px;white-space:nowrap}
   #printframe{flex:1;border:0;width:100%;background:#eef1f5}
+  /* 列印時只印預覽內容，絕不印整個 app（避免變成全部樓層/材料） */
+  @media print{
+    body > *{ display:none !important; }
+    #printov{ display:block !important; position:static !important; }
+    #printbar{ display:none !important; }
+    #printframe{ display:block; width:100%; height:auto; min-height:100vh; border:0; }
+  }
 </style>
 </head>
 <body>
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v30</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v31</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1207,15 +1214,22 @@ function printHTML(title, inner){
     .foot{margin-top:22px;font-size:11px;color:#999;border-top:1px solid #e5e7eb;padding-top:8px}
     @media print{body{padding:6px}}
   </style></head><body>${inner}<div class="foot">現場材料管理系統・${todayStr()}</div></body></html>`;
+  _lastPrintHTML = html;
   document.getElementById('printtitle').textContent = title;
   document.getElementById('printframe').srcdoc = html;
   document.getElementById('printov').classList.add('show');
 }
+let _lastPrintHTML = '';
 function closePrint(){ document.getElementById('printov').classList.remove('show'); document.getElementById('printframe').srcdoc=''; }
 function doPrint(){
   const f = document.getElementById('printframe');
-  try{ f.contentWindow.focus(); f.contentWindow.print(); }
-  catch(e){ try{ window.print(); }catch(_){ toast('請用瀏覽器選單列印'); } }
+  // 只印預覽的 iframe 內容（分頁最準）；失敗才開新視窗印同一份，絕不 window.print() 整個 app
+  try{ f.contentWindow.focus(); f.contentWindow.print(); return; }catch(e){}
+  try{
+    const w = window.open('', '_blank');
+    if(w){ w.document.open(); w.document.write(_lastPrintHTML); w.document.close(); w.focus(); setTimeout(()=>{ try{ w.print(); }catch(_){}}, 300); }
+    else toast('請允許彈出視窗，或用瀏覽器選單列印');
+  }catch(_){ toast('請用瀏覽器選單列印'); }
 }
 
 // ════════════════════════════════════════════
