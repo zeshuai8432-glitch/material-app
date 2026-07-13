@@ -114,10 +114,11 @@
   #printframe{flex:1;border:0;width:100%;background:#eef1f5}
   /* 列印時只印預覽內容，絕不印整個 app（避免變成全部樓層/材料） */
   @media print{
+    html,body{ height:auto !important; }
     body > *{ display:none !important; }
-    #printov{ display:block !important; position:static !important; }
+    #printov{ display:block !important; position:static !important; height:auto !important; }
     #printbar{ display:none !important; }
-    #printframe{ display:block; width:100%; height:auto; min-height:100vh; border:0; }
+    #printframe{ display:block; width:100%; height:auto; border:0; }
   }
 </style>
 </head>
@@ -125,7 +126,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v31</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v32</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1223,13 +1224,17 @@ let _lastPrintHTML = '';
 function closePrint(){ document.getElementById('printov').classList.remove('show'); document.getElementById('printframe').srcdoc=''; }
 function doPrint(){
   const f = document.getElementById('printframe');
+  // 把 iframe 高度設成「內容實際高度」，避免多印一張空白頁（有些裝置會印到父頁）
+  try{ const h = f.contentDocument.body.scrollHeight; if(h) f.style.height = (h+16)+'px'; }catch(e){}
+  const restore = ()=>{ f.style.height=''; };
   // 只印預覽的 iframe 內容（分頁最準）；失敗才開新視窗印同一份，絕不 window.print() 整個 app
-  try{ f.contentWindow.focus(); f.contentWindow.print(); return; }catch(e){}
+  try{ f.contentWindow.focus(); f.contentWindow.print(); setTimeout(restore,1500); return; }catch(e){}
   try{
     const w = window.open('', '_blank');
     if(w){ w.document.open(); w.document.write(_lastPrintHTML); w.document.close(); w.focus(); setTimeout(()=>{ try{ w.print(); }catch(_){}}, 300); }
     else toast('請允許彈出視窗，或用瀏覽器選單列印');
   }catch(_){ toast('請用瀏覽器選單列印'); }
+  setTimeout(restore,1500);
 }
 
 // ════════════════════════════════════════════
