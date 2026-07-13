@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v7</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v8</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v7</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v8</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2994,6 +2994,14 @@ function removeLengthFromMat(key, idx, len){
   const m = (state.materials[key]||[])[idx]; if(!m) return;
   m.lengths = (m.lengths||[]).filter(x=>x!==len); saveUserData(); renderMaterials();
 }
+function editLengthOfMat(key, idx, oldLen){
+  const m = (state.materials[key]||[])[idx]; if(!m) return;
+  const v = prompt('修改長度（cm）', oldLen); if(v===null) return;
+  const len = parseInt(v)||0; if(len<=0) return;
+  m.lengths = (m.lengths||[]).filter(x=>x!==oldLen);
+  if(!m.lengths.includes(len)) m.lengths.push(len);
+  m.lengths.sort((a,b)=>a-b); saveUserData(); renderMaterials();
+}
 function matSectionWrap(title, key, headers, rows, showAdd) {
   const addBtn = showAdd ? `<button class="btn btn-secondary btn-sm" onclick="addCustomMaterial('${key}')">＋ 新增材料</button>` : '';
   return `
@@ -3023,7 +3031,7 @@ function materialSection(title, key, headers) {
       const chips = lens.map(L => {
         const price = rate > 0 ? '＄' + Math.round(L/100*rate) : '—';
         return `<span style="display:inline-flex;align-items:center;gap:5px;background:#f1f5f9;border-radius:16px;padding:4px 10px;font-size:13px">
-          <b>${L}</b>cm <span style="color:#2D7A4F;font-weight:600">${price}</span>
+          <span onclick="editLengthOfMat('${key}',${i},${L})" style="cursor:pointer" title="點我修改長度"><b>${L}</b>cm ✏️ <span style="color:#2D7A4F;font-weight:600">${price}</span></span>
           <span onclick="removeLengthFromMat('${key}',${i},${L})" style="cursor:pointer;color:#c00;font-weight:700">✕</span></span>`;
       }).join('');
       blocks += `<div style="border-left:4px solid ${tone};padding:9px 12px;border-bottom:1px solid #eee">
