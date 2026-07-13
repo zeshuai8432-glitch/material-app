@@ -118,7 +118,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v29</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v30</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1115,8 +1115,55 @@ function openAllocSheet(){
     .map(t=>{ const m=mat(t.matId); return `<div class="listitem" style="padding:7px 10px"><div class="li-m"><div class="li-t" style="font-size:13px">${esc(m?m.name:'?')}</div><div class="li-s">${esc(t.from)} → ${esc(t.to)}　${t.qty}${esc(m?m.unit:'')}　${esc(t.date)}</div></div></div>`; }).join('');
   openSheet(`<h3>🔄 跨樓層調撥建議<span class="x" onclick="closeSheet()">✕</span></h3>
     <div class="muted" style="margin-bottom:10px">只搬「超過該樓層<b>整體需求</b>」的量——每層自己之後要用的都先保留了，不會搬走再搬回。<br>👉 前提：先確認每層<b>總需求量</b>是對的（換料/追加記得改），它才算得準。</div>
-    ${cards.length? cards.join('')+`<button class="btn" onclick="applyAllAlloc()" style="margin-top:2px">✅ 全部套用</button>` : '<div class="card"><div class="muted">目前沒有可跨樓層調撥的材料（沒有「某層多、另一層缺」的情況）。</div></div>'}
+    <button class="btn gray sm" onclick="openManualTransfer()" style="margin-bottom:12px">✋ 手動調撥（緊急，先搬再說）</button>
+    ${cards.length? cards.join('')+`<button class="btn" onclick="applyAllAlloc()" style="margin-top:2px">✅ 全部套用</button>` : '<div class="card"><div class="muted">目前沒有可自動調撥的材料（沒有「某層多、另一層缺」的情況）。要把還沒用到的先搬去別層，用上面的「手動調撥」。</div></div>'}
     ${recent?`<div style="margin-top:14px"><div style="font-size:13px;font-weight:800;margin-bottom:6px">最近調撥</div>${recent}</div>`:''}`);
+}
+// 手動調撥（緊急）：不管大方向，直接把某層的料搬去另一層
+function openManualTransfer(){
+  const p = cur.project;
+  const mats = [...new Set(D.items.filter(i=>i.project===p).map(i=>i.matId))].map(id=>mat(id)).filter(Boolean)
+    .sort((a,b)=>catOrder(a.cat)-catOrder(b.cat) || matLabel(a).localeCompare(matLabel(b),'zh-Hant'));
+  const rooms = projRooms(p);
+  if(!mats.length || rooms.length<2){ toast('需要至少兩個樓層和一項材料'); return; }
+  const matOpts = mats.map(m=>`<option value="${m.id}">${esc(matLabel(m))}</option>`).join('');
+  const roomOpts = (sel)=>rooms.map((r,i)=>`<option value="${esc(r.name)}" ${i===sel?'selected':''}>${esc(r.name)}</option>`).join('');
+  openSheet(`<h3>✋ 手動調撥<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="muted" style="margin-bottom:12px">緊急先搬（例如 14F 還沒用到的先給 12F）。搬完兩邊現場剩餘會更新、留紀錄；來源層之後會顯示缺，記得補回。</div>
+    <div class="fg"><label>材料</label><select id="mt-mat" onchange="mtHint()">${matOpts}</select></div>
+    <div class="fg"><label>從（哪層搬出）</label><select id="mt-from" onchange="mtHint()">${roomOpts(0)}</select></div>
+    <div class="fg"><label>到（搬去哪層）</label><select id="mt-to">${roomOpts(1)}</select></div>
+    <div class="fg"><label>數量</label><input id="mt-qty" type="number" inputmode="decimal" placeholder="幾支/片/捲" oninput="mtHint()"></div>
+    <div id="mt-hint" class="muted" style="margin-bottom:8px"></div>
+    <button class="btn" onclick="doManualTransfer()">✅ 確認調撥</button>`);
+  mtHint();
+}
+function mtHint(){
+  const p=cur.project;
+  const matId=document.getElementById('mt-mat').value, from=document.getElementById('mt-from').value;
+  const src=D.items.find(i=>i.project===p && i.room===from && i.matId===matId);
+  const m=mat(matId); const u=m?m.unit:'';
+  const avail = src? itemRemaining(src):0;
+  const q = num(document.getElementById('mt-qty').value);
+  const el=document.getElementById('mt-hint'); if(!el) return;
+  el.innerHTML = `來源 ${esc(from)} 現場剩餘 <b>${avail}${esc(u)}</b>` + (q>avail? ` <span class="lack">· 超過現場剩餘，${esc(from)}會變缺 ${q-avail}${esc(u)}</span>`:'');
+}
+function doManualTransfer(){
+  const p=cur.project;
+  const matId=document.getElementById('mt-mat').value;
+  const from=document.getElementById('mt-from').value, to=document.getElementById('mt-to').value;
+  const qty=round(num(document.getElementById('mt-qty').value));
+  if(!matId||!from||!to){ toast('⚠️ 請選材料和樓層'); return; }
+  if(from===to){ toast('⚠️ 來源和目的樓層不能一樣'); return; }
+  if(qty<=0){ toast('⚠️ 數量要大於 0'); return; }
+  const src=D.items.find(i=>i.project===p && i.room===from && i.matId===matId);
+  let dst=D.items.find(i=>i.project===p && i.room===to && i.matId===matId);
+  if(!dst){ dst={id:uid(), project:p, room:to, matId, demand:0, remaining:0, delivered:0}; D.items.push(dst); }
+  if(src) src.remaining = round(Math.max(itemRemaining(src)-qty,0));
+  dst.remaining = round(itemRemaining(dst)+qty);
+  D.transfers.push({id:uid(), date:todayStr(), project:p, matId, from, to, qty, manual:true});
+  save(); renderAll(); closeSheet();
+  const m=mat(matId); toast(`✅ 已調撥 ${esc(m?m.name:'')} ${qty}${esc(m?m.unit:'')}：${from} → ${to}`);
 }
 function doAlloc(p, mid){ // 實際套用一個材料的調撥（重算以防過期），回傳搬了幾筆
   const a = matAlloc(p, mid); if(!a.plan.length) return 0;
