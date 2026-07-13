@@ -117,7 +117,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v13</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v14</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -279,6 +279,20 @@ function normalize(x){
   ['recipes','progress'].forEach(k=>{ if(!x[k] || typeof x[k]!=='object' || Array.isArray(x[k])) x[k]={}; });
   if(!x.cats.length) x.cats = DEFAULT_CATS.slice();
   x.items.forEach(it=>{ if(it.demand==null){ it.demand = it.stillNeed!=null ? num(it.stillNeed) : num(it.plan||0); } delete it.plan; delete it.stillNeed; });
+  // 舊「每道牆」進度 → 分階段（取各牆最大未完成數，保守估）
+  const SK = ['frame','board1','fill','board2'];
+  Object.values(x.progress||{}).forEach(projObj=>{
+    Object.values(projObj||{}).forEach(floorObj=>{
+      Object.keys(floorObj||{}).forEach(type=>{
+        const rp = floorObj[type]; if(!rp || typeof rp!=='object') return;
+        const keys = Object.keys(rp);
+        if(keys.length && keys.some(k=>!SK.includes(k))){
+          const mx = Math.max(...keys.map(k=>num(rp[k])));
+          floorObj[type] = { frame:mx, board1:mx, fill:mx, board2:mx };
+        }
+      });
+    });
+  });
   return x;
 }
 function load(){
@@ -333,7 +347,34 @@ function matLabel(m){ if(!m) return '(材料已刪)'; return m.name + (m.spec?('
 function projItems(p){ return D.items.filter(i=>i.project===p); }
 function projRooms(p){ return D.rooms.filter(r=>r.project===p); }
 function roomFloor(p, room){ const r = D.rooms.find(x=>x.project===p && x.name===room); return r ? (r.floor||room) : room; }
-// ── 依施工進度算「這層還需要多少料」 ──
+// ── 依施工進度（分階段）算「這層還需要多少料」 ──
+// 階段：骨架結構 → 封第一面（雙面牆）→ 塞棉 → 封版。機電配管不耗我們的料，不列。
+const STAGES = [
+  {key:'frame',  label:'🔩 骨架結構',        hint:'立骨架／組裝骨架（骨架、槽鐵、加強、主副架、螺桿、五金）'},
+  {key:'board1', label:'🧱 封第一面',        hint:'雙面牆先封的那一面（用掉一半板材）'},
+  {key:'fill',   label:'🧊 塞棉',            hint:'岩棉／玻璃棉'},
+  {key:'board2', label:'🧱 封版（完成面）',  hint:'封板收尾（其餘板材、收邊）'},
+];
+const STAGE_KEYS = STAGES.map(s=>s.key);
+function stageOfCat(c){
+  if(c==='岩棉'||c==='玻璃棉') return 'fill';
+  if(c==='板材'||c==='收邊'||c==='其他') return 'board2';
+  return 'frame';
+}
+// 這個房型實際有哪些階段（沒有雙面牆就不顯示「封第一面」、沒棉就不顯示塞棉）
+function roomStages(room){
+  let hasFrame=false, hasFill=false, hasBoard=false, hasDouble=false;
+  (room.walls||[]).forEach(w=>{
+    (w.mats||[]).forEach(r=>{
+      const st = stageOfCat(r.cat);
+      if(st==='frame') hasFrame=true;
+      if(st==='fill') hasFill=true;
+      if(st==='board2') hasBoard=true;
+      if(st==='board2' && r.cat==='板材' && w.sides==='double') hasDouble=true;
+    });
+  });
+  return STAGES.filter(s=> (s.key==='frame'&&hasFrame)||(s.key==='board1'&&hasDouble)||(s.key==='fill'&&hasFill)||(s.key==='board2'&&hasBoard));
+}
 function hasRecipe(project, floor){ return !!(D.recipes && D.recipes[project] && D.recipes[project].find(f=>f.floor===floor)); }
 function labelMatIdMap(){ const m={}; D.mats.forEach(x=>{ if(!(x.name in m)) m[x.name]=x.id; }); return m; }
 function floorNeedsMap(project, floor){ // {matId: 還需要數量}
@@ -347,14 +388,19 @@ function floorNeedsMap(project, floor){ // {matId: 還需要數量}
     const totals={}, pool={};
     (rec.rooms||[]).forEach(room=>{
       const rp = prog[room.type] || {};
+      const cnt = num(room.count);
+      const undoneOf = k => { const v = rp[k]!=null ? num(rp[k]) : cnt; return Math.max(0, Math.min(v, cnt)); };
       (room.walls||[]).forEach(wall=>{
-        let undone = rp[wall.name]!=null ? num(rp[wall.name]) : num(room.count);
-        undone = Math.max(0, Math.min(undone, num(room.count)));
-        if(undone<=0) return;
         (wall.mats||[]).forEach(r=>{
           const mid = lm[r.label]; if(!mid) return;
-          if(r.kind==='total'){ totals[mid]=(totals[mid]||0)+r.raw*undone; }
-          else { const pk=mid+'|'+r.kind+'|'+r.div; pool[pk]=pool[pk]||{mid,kind:r.kind,div:r.div,raw:0}; pool[pk].raw+=r.raw*undone; }
+          const st = stageOfCat(r.cat);
+          // 雙面牆的板材：一半算封第一面、一半算封版
+          const eff = (st==='board2' && r.cat==='板材' && wall.sides==='double')
+            ? (undoneOf('board1') + undoneOf('board2')) / 2
+            : undoneOf(st);
+          if(eff<=0) return;
+          if(r.kind==='total'){ totals[mid]=(totals[mid]||0)+r.raw*eff; }
+          else { const pk=mid+'|'+r.kind+'|'+r.div; pool[pk]=pool[pk]||{mid,kind:r.kind,div:r.div,raw:0}; pool[pk].raw+=r.raw*eff; }
         });
       });
     });
@@ -621,7 +667,7 @@ function saveCount(){
 }
 
 // ════════════════════════════════════════════
-//  施工進度 PROGRESS（每道牆還沒做幾間）
+//  施工進度 PROGRESS（分階段：每階段還沒做幾間）
 // ════════════════════════════════════════════
 function renderProgressPage(){
   const sel = document.getElementById('pr-floor');
@@ -634,19 +680,21 @@ function renderProgress(){
   const el = document.getElementById('pr-list');
   const project = cur.project; const floor = document.getElementById('pr-floor').value;
   const rec = (D.recipes && D.recipes[project] || []).find(f=>f.floor===floor);
-  if(!rec){ el.innerHTML = emptyBox('🔨','尚無施工資料','從「材料計算」按匯出後，這裡才會有各樓層、各房型的牆'); return; }
+  if(!rec){ el.innerHTML = emptyBox('🔨','尚無施工資料','從「材料計算」按匯出後，這裡才會有各樓層、各房型的施工階段'); return; }
   const prog = (D.progress[project] && D.progress[project][floor]) || {};
-  let html = `<div class="hint">填「還沒做幾間」= 這道牆還有幾間房沒做。全做完就填 0。改完按下面儲存。</div>`;
+  let html = `<div class="hint">每個階段填「還沒做幾間」：骨架立好就把骨架階段減下去、板還沒封就留著。全做完填 0。改完按下面儲存。</div>`;
   rec.rooms.forEach((room, ri)=>{
+    const rp = prog[room.type] || {};
+    const stages = roomStages(room);
     html += `<div class="card"><h2 style="margin-bottom:6px">${esc(room.type)} <span class="muted" style="font-weight:400">· 共 ${room.count} 間</span></h2>`;
-    room.walls.forEach((wall, wi)=>{
-      const rp = prog[room.type] || {};
-      const undone = rp[wall.name]!=null ? rp[wall.name] : room.count;
-      html += `<div style="display:flex;align-items:center;gap:10px;padding:6px 0">
-        <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${esc(wall.name)}</div><div class="muted">還沒做幾間（共 ${room.count}）</div></div>
-        <div class="stepper"><button type="button" onclick="stepProg('prg-${ri}-${wi}',-1)">−</button>
-        <input type="number" id="prg-${ri}-${wi}" inputmode="numeric" value="${undone}" data-max="${room.count}" style="flex:0 0 64px;width:64px;text-align:center">
-        <button type="button" onclick="stepProg('prg-${ri}-${wi}',1)">＋</button></div>
+    if(!stages.length){ html += '<div class="muted">此房型無材料階段</div></div>'; return; }
+    stages.forEach(st=>{
+      const undone = rp[st.key]!=null ? Math.max(0, Math.min(num(rp[st.key]), num(room.count))) : room.count;
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)">
+        <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${st.label}</div><div class="muted" style="font-size:11px">${st.hint} · 還沒做幾間（共 ${room.count}）</div></div>
+        <div class="stepper"><button type="button" onclick="stepProg('prg-${ri}-${st.key}',-1)">−</button>
+        <input type="number" id="prg-${ri}-${st.key}" inputmode="numeric" value="${undone}" data-max="${room.count}" style="flex:0 0 64px;width:64px;text-align:center">
+        <button type="button" onclick="stepProg('prg-${ri}-${st.key}',1)">＋</button></div>
       </div>`;
     });
     html += `</div>`;
@@ -666,9 +714,9 @@ function saveProgress(){
   const fp = D.progress[project][floor] = D.progress[project][floor] || {};
   rec.rooms.forEach((room, ri)=>{
     fp[room.type] = fp[room.type] || {};
-    room.walls.forEach((wall, wi)=>{
-      const inp = document.getElementById('prg-'+ri+'-'+wi);
-      if(inp){ let v = parseInt(inp.value); if(isNaN(v)) v = room.count; v = Math.max(0, Math.min(v, room.count)); fp[room.type][wall.name] = v; }
+    roomStages(room).forEach(st=>{
+      const inp = document.getElementById('prg-'+ri+'-'+st.key);
+      if(inp){ let v = parseInt(inp.value); if(isNaN(v)) v = room.count; v = Math.max(0, Math.min(v, room.count)); fp[room.type][st.key] = v; }
     });
   });
   save(); toast('✅ 進度已儲存'); renderProgress(); renderBoard();
@@ -991,15 +1039,15 @@ function applyCalcImport(pl){
       if(!it){ it = {id:uid(), project, room:floorName, matId:mt.id, demand:0, remaining:0, delivered:0}; D.items.push(it); }
       it.demand = round(num(m.qty)); // 全做完的量（無施工資料時的後備）
     });
-    // 初始化進度：新牆＝全部還沒做；已存進度保留；若間數變多，新增的間數自動加進「還沒做」
+    // 初始化進度（分階段）：新階段＝全部還沒做；已存進度保留；若間數變多，新增的間數自動加進「還沒做」
     const fp = D.progress[project][floorName] = D.progress[project][floorName] || {};
     (fl.rooms||[]).forEach(room=>{
       const rp = fp[room.type] = fp[room.type] || {};
       const prev = oldCount[floorName] && oldCount[floorName][room.type];
       const added = (prev!=null) ? Math.max(0, num(room.count) - prev) : 0;
-      (room.walls||[]).forEach(wall=>{
-        if(rp[wall.name]==null) rp[wall.name] = room.count;                                  // 新牆：全部還沒做
-        else if(added>0) rp[wall.name] = Math.min(num(rp[wall.name]) + added, num(room.count)); // 新增的房間當作還沒做
+      STAGE_KEYS.forEach(k=>{
+        if(rp[k]==null) rp[k] = room.count;                                    // 新階段：全部還沒做
+        else if(added>0) rp[k] = Math.min(num(rp[k]) + added, num(room.count)); // 新增的房間當作還沒做
       });
     });
   });
