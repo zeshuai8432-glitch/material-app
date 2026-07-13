@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v11</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v12</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v11</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v12</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2740,6 +2740,18 @@ function guessFieldCat(label) {
 }
 
 // 匯出「各樓層需求量」給材料管理（同網域共用暫存）
+// 擷取「一個區塊（牆）＝一間份」的材料原始用量，供現場程式做「還沒做幾間」計算
+function zoneMatRecords(z) {
+  const recs = [];
+  const cap = {
+    addTotal: (key, label, qty, unit) => recs.push({ key, label, unit, cat: guessFieldCat(label), kind: 'total', raw: qty, div: 1 }),
+    addPool: (key, label, unit, kind, raw, div) => recs.push({ key, label, unit, cat: guessFieldCat(label), kind, raw, div }),
+    finalize: () => {}
+  };
+  aggregateZone(z, 1, cap);
+  return recs;
+}
+
 function exportToFieldApp() {
   const pid = state.activeProjectId;
   if (!pid) { toast('請先選案場', 'error'); return; }
@@ -2753,14 +2765,16 @@ function exportToFieldApp() {
   floorList.sort((a, b) => String(a).localeCompare(String(b), 'zh-Hant', { numeric: true }));
   const floors = floorList.map(fl => {
     const agg = makeAgg();
+    const rooms = [];
     spaces.forEach(s => {
       const fe = (s.floors || []).find(f => f.floor === fl); if (!fe) return;
       const c = parseInt(fe.count) || 0; if (c <= 0 || !zonesOf(s).length) return;
       zonesOf(s).forEach(z => aggregateZone(z, c, agg));
+      rooms.push({ type: s.name, count: c, walls: zonesOf(s).map(z => ({ name: z.name, mats: zoneMatRecords(z) })) });
     });
     agg.finalize();
     const materials = Object.values(agg.totals).map(t => ({ name: t.label, unit: t.unit, qty: t.qty, cat: guessFieldCat(t.label) }));
-    return { floor: fl, materials };
+    return { floor: fl, materials, rooms };
   }).filter(f => f.materials.length);
   if (!floors.length) { toast('沒有可匯出的用量', 'error'); return; }
   const payload = { source: 'material-calc', exportedAt: new Date().toISOString(), project: proj.name, floors };
