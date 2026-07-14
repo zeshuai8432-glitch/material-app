@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v28</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v29</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v28</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v29</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2722,16 +2722,25 @@ function calcCeiling(p) {
   const mainMat = p.mainMatId ? (state.materials.mainFrames || []).find(x => x.id === p.mainMatId) : null;
   const mainLen = mainMat ? mainMat.length : (p.mainLenCustom ? p.mainLenCustom : parseInt(p.mainLen));
 
-  // 每排主架需幾支（搭接30cm）
+  // 每排主架需幾支（N38 搭接30cm；蜈蚣腳對接不搭接）
+  const overlap = (p.sys === 'centipede') ? 0 : 30;
   let mainPerRow;
   if (p.sys === 'centipede') {
     mainPerRow = Math.ceil(mainSpan / mainLen);
   } else {
-    // N38 搭接30cm，有效長度 = mainLen - 30，第一支全長
-    const overlap = 30;
     mainPerRow = mainSpan <= mainLen ? 1 : 1 + Math.ceil((mainSpan - mainLen) / (mainLen - overlap));
   }
-  const mainTotal = mainRows * mainPerRow;
+  // 每排「最後一段」的裁切長度：整支整支接、最後一段裁切
+  let lastLen;
+  if (mainPerRow <= 1) lastLen = mainSpan;
+  else lastLen = (mainSpan - (mainLen + (mainPerRow - 2) * (mainLen - overlap))) + overlap;
+  lastLen = Math.max(1, Math.min(mainLen, lastLen));
+  // 整支的部分照算；最後一段可用「裁下來的剩料」續接（不同排共用一支裁多段），
+  // 但剩料不足以當一整支（不會碎料湊整跨）
+  const mainFullSticks = mainRows * Math.max(0, mainPerRow - 1);
+  const lastPerStick = Math.max(1, Math.floor(mainLen / lastLen));  // 一支能裁出幾段最後段
+  const mainLastSticks = Math.ceil(mainRows / lastPerStick);        // 裁最後段用掉的支數
+  const mainTotal = mainFullSticks + mainLastSticks;
 
   // 螺桿與吊點（每排主架：兩端各離牆30、中間均分≤90）
   const hangPoints_per_row = Math.max(1, Math.ceil((mainSpan - 60) / 90) + 1);
@@ -2753,9 +2762,9 @@ function calcCeiling(p) {
   // 擊釘片：標準品才需要，數量 = 吊點數
   const hitNails = rodResult.needHitNail ? hangPointsTotal : 0;
   // 四齒夾：N38才需要（百葉與N38的結合點）
-  // 副架（百葉）從牆出30.5cm，間距30.5cm，副架沿垂直於主架方向排
+  // 副架（百葉）第一支離牆30.5、固定間距30.5，排到最後一支離牆≤30.5（不排到牆外）
   const subSpan = p.mainDir === 'length' ? W : L;
-  const subCount = 1 + Math.ceil((subSpan - 30.5) / 30.5);
+  const subCount = Math.max(1, Math.ceil((subSpan - 30.5) / 30.5));
   // 每支副架長度：有指定資料庫品項就用它的長度
   const subMat = p.subMatId ? (state.materials.subFrames || []).find(x => x.id === p.subMatId) : null;
   const subLen = subMat ? subMat.length : (p.subLenCustom ? p.subLenCustom : parseInt(p.subLen));
@@ -2817,7 +2826,7 @@ function calcCeiling(p) {
   return {
     area: (area/10000).toFixed(2),
     perimeter: (perimeter/100).toFixed(2),
-    mainRows, mainPerRow, mainTotal, mainLen, mainFrameId, mainFrameName,
+    mainRows, mainPerRow, mainTotal, mainLen, mainFrameId, mainFrameName, mainFullSticks, mainLastSticks, lastMainLen: lastLen,
     hangPointsTotal, rodResult, nuts, hitNails,
     subCount, subPerRow, subTotal, subLen, subFrameId, subFrameName,
     clipsTotal, hooksTotal,
@@ -3162,7 +3171,7 @@ function zoneDetailHTML(z) {
         <table class="result-table">
           <thead><tr><th>材料</th><th>數量</th><th>備註</th></tr></thead>
           <tbody>
-            <tr><td>${sysLabel} 主架（${r.mainLen}cm）</td><td class="qty">${r.mainTotal} 支</td><td class="unit-cell">${r.mainRows}排 × ${r.mainPerRow}支/排</td></tr>
+            <tr><td>${sysLabel} 主架（${r.mainLen}cm）</td><td class="qty">${r.mainTotal} 支</td><td class="unit-cell">${r.mainRows}排・整支${r.mainFullSticks}＋裁接${r.mainLastSticks}（末段${Math.round(r.lastMainLen)}cm，剩料續接）</td></tr>
             <tr><td>大百葉 副架（${r.subLen}cm）</td><td class="qty">${r.subTotal} 支</td><td class="unit-cell">${r.subCount}條 × ${r.subPerRow}支/條</td></tr>
             <tr><td>${rodLabel}${params.rodType==='standard'?' 3M':' 訂做'+params.rodCustomLen+'cm'}</td><td class="qty">${r.rodResult.rods} 支</td><td class="unit-cell">${params.rodType==='standard'?r.rodResult.hangPoints+'個吊點，每根可截'+r.rodResult.pointsPerRod+'個':r.rodResult.hangPoints+' 個吊點'}</td></tr>
             <tr><td>螺母</td><td class="qty">${r.nuts} 個</td><td class="unit-cell">每吊點2個</td></tr>
@@ -3632,7 +3641,7 @@ function printResults() {
         body += `<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;margin-bottom:4px;">⬜ ${z.name}（${params.cLength}×${params.cWidth}cm，${r.area}m²，${sysLabel}）</div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
           <tr style="background:#f0f0f0;"><th style="border:1px solid #ccc;padding:4px 8px;text-align:left;">材料</th><th style="border:1px solid #ccc;padding:4px 8px;">數量</th><th style="border:1px solid #ccc;padding:4px 8px;">備註</th></tr>
-          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${sysLabel} 主架</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.mainTotal} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.mainRows}排×${r.mainPerRow}支</td></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${sysLabel} 主架</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.mainTotal} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.mainRows}排・整支${r.mainFullSticks}+裁接${r.mainLastSticks}</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">大百葉 副架</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.subTotal} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.subCount}條×${r.subPerRow}支</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${rodLabel}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.rodResult.rods} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.hangPointsTotal}個吊點</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">螺母</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.nuts} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>
