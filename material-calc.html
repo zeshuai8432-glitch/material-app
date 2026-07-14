@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v21</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v22</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v21</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v22</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1119,6 +1119,13 @@
               <span class="unit-label">cm</span>
             </div>
           </div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>轉角數（L/ㄇ 型；牆寬填總長）</label>
+            <input type="number" id="p-corners" placeholder="0" min="0" value="0">
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end;font-size:12px;color:var(--text-3);">每個轉角自動 +2 支角柱；槽鐵/板材照總長算</div>
         </div>
 
         <hr class="divider">
@@ -2104,6 +2111,7 @@ function openZoneModal(zoneId, spaceId) {
   populateStudSelects();
   refreshPartitionLengths();
   document.getElementById('p-reinf-list').innerHTML = '';
+  document.getElementById('p-corners').value = 0;
 
   if (zoneId) {
     const zone = (state.zones[spaceId] || []).find(z => z.id === zoneId);
@@ -2113,6 +2121,7 @@ function openZoneModal(zoneId, spaceId) {
       if (zone.type === 'partition') {
         document.getElementById('p-width').value = zone.params.width;
         document.getElementById('p-height').value = zone.params.height;
+        document.getElementById('p-corners').value = zone.params.corners || 0;
         document.getElementById('p-stud-spacing').value = zone.params.studSpacing;
         document.getElementById('p-stud-type').value = zone.params.studType;
         document.getElementById('p-track-type').value = zone.params.trackType;
@@ -2267,6 +2276,7 @@ function saveZone() {
     if (!width || !height) { toast('請輸入牆寬和牆高','error'); return; }
     zoneData.params = {
       width, height,
+      corners: parseInt(document.getElementById('p-corners').value) || 0,
       studSpacing: parseFloat(document.getElementById('p-stud-spacing').value),
       studType: document.getElementById('p-stud-type').value,
       studStock: parseInt((document.getElementById('p-stud-stock')||{}).value) || 300,
@@ -2752,7 +2762,9 @@ function calcPartition(p) {
 
   // C型骨架：兩端各一支，中間每 spacing 間距一支（studPosts = 需要幾根立柱）
   // 公式：floor((W - 1) / spacing) + 1（含兩端頭尾各一）
-  const studPosts = Math.floor((W - 1) / spacing) + 2;
+  const corners = parseInt(p.corners) || 0;
+  const cornerPosts = corners * 2; // 每個轉角 +2 支角柱（兩面各一支）
+  const studPosts = Math.floor((W - 1) / spacing) + 2 + cornerPosts;
   // 下料：一支下料長度可裁幾根（牆高 H）；不夠長則一根要接幾支
   const studStock = p.studStock || 300;
   const perStick = Math.floor(studStock / H);           // 一支下料可裁幾根立柱
@@ -2878,7 +2890,7 @@ function calcPartition(p) {
     }
   });
 
-  return { studs, studPosts, studLen: H, studStock, studPerStickText, tracks, trackRaw, trackUnit, rawTrackCm: W * 2, boards, boardsRaw: boardsRaw.toFixed(2), boardsRawNum: boardsRaw, fill, braces, bracePerRow, braceLen, rawBraceCm, reinf, totalPrice: totalPrice || 0, priceDetail };
+  return { studs, studPosts, corners, cornerPosts, studLen: H, studStock, studPerStickText, tracks, trackRaw, trackUnit, rawTrackCm: W * 2, boards, boardsRaw: boardsRaw.toFixed(2), boardsRawNum: boardsRaw, fill, braces, bracePerRow, braceLen, rawBraceCm, reinf, totalPrice: totalPrice || 0, priceDetail };
 }
 
 // ════════════════════════════════════
@@ -3027,7 +3039,7 @@ function zoneDetailHTML(z) {
         <table class="result-table">
           <thead><tr><th>材料</th><th>數量</th><th>備註</th></tr></thead>
           <tbody>
-            <tr><td>${matName('studs', params.studType)} 骨架（下料 ${r.studStock}cm）</td><td class="qty">${r.studs} 支</td><td class="unit-cell">牆高 ${r.studLen}cm・需 ${r.studPosts} 根・${r.studPerStickText}</td></tr>
+            <tr><td>${matName('studs', params.studType)} 骨架（下料 ${r.studStock}cm）</td><td class="qty">${r.studs} 支</td><td class="unit-cell">牆高 ${r.studLen}cm・需 ${r.studPosts} 根${r.cornerPosts? '（含轉角+'+r.cornerPosts+'）':''}・${r.studPerStickText}</td></tr>
             <tr><td>${matName('tracks', params.trackType)} 槽鐵</td><td class="qty">${(r.rawTrackCm/r.trackUnit).toFixed(2)} 支</td><td class="unit-cell">單支 ${r.trackUnit}cm／原始 ${r.trackRaw}m（合併後看總表）</td></tr>
             ${r.braces > 0 ? `<tr><td>${matName('braces', params.braceType)} 加強橫枝 ${params.braceLength}cm</td><td class="qty">${(r.rawBraceCm/r.braceLen).toFixed(2)} 支</td><td class="unit-cell">${params.braceRows}排（原始用量）</td></tr>` : ''}
             <tr><td>${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td class="qty">${r.boardsRawNum.toFixed(2)} 片</td><td class="unit-cell">原始用量（總表才含5%損耗）</td></tr>
@@ -3470,7 +3482,7 @@ function printResults() {
         body += `<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;margin-bottom:4px;">🧱 ${z.name}（${params.width}×${params.height}cm）</div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
           <tr style="background:#f0f0f0;"><th style="border:1px solid #ccc;padding:4px 8px;text-align:left;">材料</th><th style="border:1px solid #ccc;padding:4px 8px;">數量</th><th style="border:1px solid #ccc;padding:4px 8px;">備註</th></tr>
-          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${matName('studs', params.studType)} 骨架（下料${r.studStock}cm）</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.studs} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">牆高${r.studLen}cm・${r.studPosts}根・${r.studPerStickText}</td></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${matName('studs', params.studType)} 骨架（下料${r.studStock}cm）</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.studs} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">牆高${r.studLen}cm・${r.studPosts}根${r.cornerPosts? '（含轉角+'+r.cornerPosts+'）':''}・${r.studPerStickText}</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${matName('tracks', params.trackType)} 槽鐵</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${(r.rawTrackCm/r.trackUnit).toFixed(2)} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">單支${r.trackUnit}cm・原始 ${r.trackRaw}m</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.boardsRawNum.toFixed(2)} 片</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>
           ${r.fill ? `<tr><td style="border:1px solid #ccc;padding:4px 8px;">${r.fill.label}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${(r.fill.rawPieces!=null ? r.fill.rawPieces/r.fill.perPack : r.fill.rawM2/r.fill.rollArea).toFixed(2)} ${r.fill.unit}</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>` : ''}
