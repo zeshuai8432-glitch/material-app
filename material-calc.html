@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v26</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v27</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v26</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v27</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1290,9 +1290,9 @@
             </div>
           </div>
         </div>
-        <div class="form-grid form-grid-2">
+        <div class="form-grid form-grid-2" id="c-main-len-row">
           <div class="field">
-            <label>主架長度規格</label>
+            <label>主架長度規格（未指定材料時才用）</label>
             <select id="c-main-length" onchange="document.getElementById('c-main-custom-field').style.display=this.value==='custom'?'':'none'">
               <option value="243">8尺（243cm）</option>
               <option value="305">10尺（305cm）</option>
@@ -1308,7 +1308,7 @@
         <div class="form-grid form-grid-2">
           <div class="field">
             <label>主架材料（可直接指定資料庫品項）</label>
-            <select id="c-main-mat"><option value="">自動（依系統／長度）</option></select>
+            <select id="c-main-mat" onchange="document.getElementById('c-main-len-row').style.display=this.value?'none':''"><option value="">自動（依系統／長度）</option></select>
           </div>
           <div class="field" style="display:flex;align-items:flex-end;font-size:12px;color:var(--text-3);">選了品項就用它的長度＆單價；不選＝照上面系統/長度自動抓</div>
         </div>
@@ -1343,9 +1343,9 @@
         </div>
         <hr class="divider">
         <div class="section-title">副架（大百葉）設定</div>
-        <div class="form-grid form-grid-2">
+        <div class="form-grid form-grid-2" id="c-sub-len-row">
           <div class="field">
-            <label>副架長度規格</label>
+            <label>副架長度規格（未指定材料時才用）</label>
             <select id="c-sub-length" onchange="document.getElementById('c-sub-custom-field').style.display=this.value==='custom'?'':'none'">
               <option value="243">8尺（243cm）</option>
               <option value="365">12尺（365cm）</option>
@@ -1360,7 +1360,7 @@
         <div class="form-grid form-grid-2">
           <div class="field">
             <label>副架材料（可直接指定資料庫品項）</label>
-            <select id="c-sub-mat"><option value="">自動（依長度）</option></select>
+            <select id="c-sub-mat" onchange="document.getElementById('c-sub-len-row').style.display=this.value?'none':''"><option value="">自動（依長度）</option></select>
           </div>
           <div class="field" style="display:flex;align-items:flex-end;font-size:12px;color:var(--text-3);">選了品項就用它的長度＆單價</div>
         </div>
@@ -2133,6 +2133,8 @@ function openZoneModal(zoneId, spaceId) {
   populateFrameSelects();
   document.getElementById('c-main-mat').value = '';
   document.getElementById('c-sub-mat').value = '';
+  document.getElementById('c-main-len-row').style.display = '';
+  document.getElementById('c-sub-len-row').style.display = '';
   refreshPartitionLengths();
   document.getElementById('p-reinf-list').innerHTML = '';
   document.getElementById('p-corners').value = 0;
@@ -2185,6 +2187,7 @@ function openZoneModal(zoneId, spaceId) {
           document.getElementById('c-main-custom-len').value = cp.mainLenCustom || '';
         }
         document.getElementById('c-main-mat').value = cp.mainMatId || '';
+        document.getElementById('c-main-len-row').style.display = cp.mainMatId ? 'none' : '';
         setRodType(cp.rodType);
         document.getElementById('c-rod-spec').value = cp.rodSpec;
         document.getElementById('c-rod-point-len').value = cp.rodPointLen || '';
@@ -2195,6 +2198,7 @@ function openZoneModal(zoneId, spaceId) {
           document.getElementById('c-sub-custom-len').value = cp.subLenCustom || '';
         }
         document.getElementById('c-sub-mat').value = cp.subMatId || '';
+        document.getElementById('c-sub-len-row').style.display = cp.subMatId ? 'none' : '';
         document.getElementById('c-board-type').value = cp.boardType;
         updateCeilBoardThickness();
         document.getElementById('c-board-thickness').value = cp.boardThickness;
