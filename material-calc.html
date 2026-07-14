@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v23</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v24</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v23</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v24</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -3230,8 +3230,8 @@ function renderMaterials() {
     ${materialSection('玻璃棉', 'glasswool', ['規格', '捲寬(m)', '捲長(m)', '單價(元/捲)'])}
     ${materialSection('收邊料', 'trims', ['規格', '長度(cm)', '單價(元/支)'])}
     ${materialSection('螺桿', 'rods', ['規格', '長度(cm)', '單價(元/支)'])}
-    ${materialSection('天花主架', 'mainFrames', ['規格', '長度(cm)', '單價(元/支)'])}
-    ${materialSection('大百葉副架', 'subFrames', ['規格', '長度(cm)', '單價(元/支)'])}
+    ${framesSection('天花主架', 'mainFrames')}
+    ${framesSection('大百葉副架', 'subFrames')}
     ${materialSection('天花五金', 'hardware', ['品名', '單價(元/個)'])}
   `;
 }
@@ -3457,6 +3457,31 @@ function addReinfPlate() {
   const name = prompt('補強鋼板尺寸名稱（例：補強鋼板 3x6尺）', '補強鋼板 ');
   if (!name || !name.trim()) return;
   state.materials.reinfPlates.push({ id: 'rp_' + Date.now(), name: name.trim(), unit: '片', price: 0 });
+  saveUserData();
+  renderMaterials();
+}
+// 天花主架/副架：規格＋長度＋單價，可新增/編輯/刪除
+function framesSection(title, key) {
+  const items = state.materials[key] || [];
+  const rows = items.map((item, i) => `<tr>
+    <td><input value="${esc(item.name)}" onchange="state.materials['${key}'][${i}].name=this.value;saveUserData();renderMaterials()" style="width:170px"></td>
+    <td><input type="number" value="${item.length != null ? item.length : ''}" onchange="state.materials['${key}'][${i}].length=+this.value;saveUserData()" style="width:70px"></td>
+    <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px"></td>
+    <td><button class="btn btn-danger btn-sm" onclick="removeMaterial('${key}',${i})">刪</button></td>
+  </tr>`).join('');
+  return `<div class="material-category">
+    <div class="card-header"><div><div class="card-title">${title}</div><div style="font-size:11px;color:#999;margin-top:2px">規格/長度/單價可自訂新增</div></div>
+      <button class="btn btn-secondary btn-sm" onclick="addFrame('${key}')">＋ 新增</button></div>
+    <table class="material-table"><thead><tr><th>規格／品名</th><th>長度(cm)</th><th>單價(元/支)</th><th></th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="4" style="color:#999;padding:10px">尚無</td></tr>'}</tbody></table>
+  </div>`;
+}
+function addFrame(key) {
+  const name = prompt('新增規格名稱（例：N38主架 10尺）');
+  if (!name || !name.trim()) return;
+  const lv = prompt('長度（cm）', '243');
+  const len = parseInt(lv) || 0;
+  state.materials[key].push({ id: (key === 'mainFrames' ? 'mf' : 'sf') + '_' + Date.now(), name: name.trim(), length: len, unit: '支', price: 0 });
   saveUserData();
   renderMaterials();
 }
