@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v22</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v23</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v22</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v23</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1095,9 +1095,16 @@
         </div>
       </div>
 
-      <div class="field">
-        <label>區塊名稱</label>
-        <input type="text" id="zone-name-input" placeholder="例：北側牆面、主臥天花">
+      <div class="form-grid form-grid-2">
+        <div class="field">
+          <label>區塊名稱</label>
+          <input type="text" id="zone-name-input" placeholder="例：北側牆面、主臥天花">
+        </div>
+        <div class="field">
+          <label>子區域（選填，如 衛浴／主空間）</label>
+          <input type="text" id="zone-group-input" list="zone-group-list" placeholder="不填＝未分區">
+          <datalist id="zone-group-list"></datalist>
+        </div>
       </div>
 
       <!-- ── 隔間系統 ── -->
@@ -2112,11 +2119,16 @@ function openZoneModal(zoneId, spaceId) {
   refreshPartitionLengths();
   document.getElementById('p-reinf-list').innerHTML = '';
   document.getElementById('p-corners').value = 0;
+  document.getElementById('zone-group-input').value = '';
+  // 子區域建議清單：這個房型已用過的子區域
+  const usedGroups = [...new Set((state.zones[spaceId] || []).map(z => z.group).filter(Boolean))];
+  document.getElementById('zone-group-list').innerHTML = usedGroups.map(g => `<option value="${esc(g)}">`).join('');
 
   if (zoneId) {
     const zone = (state.zones[spaceId] || []).find(z => z.id === zoneId);
     if (zone) {
       document.getElementById('zone-name-input').value = zone.name;
+      document.getElementById('zone-group-input').value = zone.group || '';
       setZoneType(zone.type);
       if (zone.type === 'partition') {
         document.getElementById('p-width').value = zone.params.width;
@@ -2268,7 +2280,8 @@ function saveZone() {
   const spaceId = state.editingZoneSpace;
   if (!state.zones[spaceId]) state.zones[spaceId] = [];
 
-  let zoneData = { id: state.editingZone || 'zone_' + Date.now(), name, type: state.zoneType, params: {}, result: null };
+  const group = document.getElementById('zone-group-input').value.trim();
+  let zoneData = { id: state.editingZone || 'zone_' + Date.now(), name, group, type: state.zoneType, params: {}, result: null };
 
   if (state.zoneType === 'partition') {
     const width = parseFloat(document.getElementById('p-width').value) || 0;
@@ -2395,6 +2408,25 @@ function copyZonesTo(sourceId) {
   renderResults();
   toast(`已把 ${srcZones.length} 個隔間複製到「${target.name}」，去改細部差異即可`);
 }
+// 把一個「子區域」（例如衛浴）整組複製到另一個房型，重用模組
+function copyGroupTo(sourceId, group) {
+  const spaces = state.spaces[state.activeProjectId] || [];
+  const src = spaces.find(s => s.id === sourceId);
+  const srcZones = (state.zones[sourceId] || []).filter(z => (z.group || '') === group);
+  if (!srcZones.length) { toast('這個子區域沒有區塊', 'error'); return; }
+  const others = spaces.filter(s => s.id !== sourceId);
+  const listStr = others.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
+  const ans = prompt(`把子區域「${group}」（${srcZones.length} 個區塊）複製到哪裡？\n\n${listStr ? listStr + '\n\n' : ''}輸入編號＝現有房型；直接輸入新名稱＝新建房型`, '');
+  if (ans == null) return;
+  const s = ans.trim(); if (!s) return;
+  let target; const n = parseInt(s, 10);
+  if (String(n) === s && others[n - 1]) target = others[n - 1];
+  else { target = { id: 'space_' + Date.now(), name: s, floors: JSON.parse(JSON.stringify(src.floors || [])), note: '' }; spaces.push(target); state.zones[target.id] = []; }
+  const tz = state.zones[target.id] = state.zones[target.id] || [];
+  srcZones.forEach(z => { const c = JSON.parse(JSON.stringify(z)); c.id = 'zone_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); tz.push(c); });
+  recalcActiveProject(); saveUserData(); renderSpaces(); renderResults();
+  toast(`已把子區域「${group}」複製到「${target.name}」`);
+}
 function duplicateZone(spaceId, zoneId) {
   const zones = state.zones[spaceId] || [];
   const z = zones.find(x => x.id === zoneId);
@@ -2420,7 +2452,7 @@ function renderZonesHTML(spaceId) {
   if (!zones.length) {
     return '<div style="text-align:center;padding:20px;color:var(--text-3);font-size:13px;">尚無計算區塊，點擊「新增區塊」開始計算</div>';
   }
-  return `<div class="zone-list">${zones.map(z => {
+  const zoneCardHTML = z => {
     const typeLabel = z.type === 'partition' ? '隔間系統' : '天花板系統';
     const typeBadge = z.type === 'partition' ? 'badge-partition' : 'badge-ceiling';
     const r = z.result;
@@ -2473,7 +2505,20 @@ function renderZonesHTML(spaceId) {
           </div>
         </div>
       </div>`;
-  }).join('')}</div>`;
+  };
+  // 依「子區域」分組；全部未分區時就平鋪不加標題
+  const groups = {}; const order = [];
+  zones.forEach(z => { const g = z.group || ''; if (!(g in groups)) { groups[g] = []; order.push(g); } groups[g].push(z); });
+  if (order.length === 1 && order[0] === '') return `<div class="zone-list">${zones.map(zoneCardHTML).join('')}</div>`;
+  return order.map(g => {
+    const gEsc = String(g).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const header = `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;padding:6px 4px;border-bottom:1px dashed var(--border,#e3e8ef)">
+      <strong style="font-size:13px;color:var(--text-2)">▸ ${esc(g || '未分區')}</strong>
+      <span style="font-size:11px;color:var(--text-3)">${groups[g].length} 區塊</span>
+      ${g ? `<button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="copyGroupTo('${spaceId}','${gEsc}')">📋 複製此子區域到…</button>` : ''}
+    </div>`;
+    return header + `<div class="zone-list">${groups[g].map(zoneCardHTML).join('')}</div>`;
+  }).join('');
 }
 
 // ════════════════════════════════════
