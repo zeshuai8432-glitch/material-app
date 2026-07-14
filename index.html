@@ -126,7 +126,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v38</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v39</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1105,8 +1105,10 @@ function floorCuts(p, floor){
     if(!S.length || !H.length) return;
     H.sort((a,b)=>a.len-b.len).forEach(short=>{
       let need = short.amt;
-      // 同型號 1 支=1 支互補：先用同長度、再用較長(裁)、最後才用較短(現場接/補)
-      S.filter(s=>s.matId!==short.matId).sort((a,b)=>{
+      // 立柱是單支切到牆高，短的補不了長的（只能長裁短）；槽鐵/加強/主架是水平會接，短的可以頂
+      const spanning = (mat(short.matId)?.cat) !== '骨架立柱';
+      // 同型號互補：先用同長度、再用較長(裁)、spanning 才允許較短(現場接/補)
+      S.filter(s=> s.matId!==short.matId && (spanning || s.len>=short.len)).sort((a,b)=>{
         const aOk=a.len>=short.len, bOk=b.len>=short.len;
         if(aOk!==bOk) return aOk?-1:1;   // 長度夠的優先
         return aOk ? a.len-b.len : b.len-a.len; // 都夠：短的先少浪費；都不夠：最接近的先
