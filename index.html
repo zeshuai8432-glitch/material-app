@@ -126,7 +126,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v34</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v35</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1173,10 +1173,14 @@ function openAllocSheet(){
     .map(t=>{ const m=mat(t.matId); return `<div class="listitem" style="padding:7px 10px"><div class="li-m"><div class="li-t" style="font-size:13px">${esc(m?m.name:'?')}</div><div class="li-s">${esc(t.from)} → ${esc(t.to)}　${t.qty}${esc(m?m.unit:'')}　${esc(t.date)}</div></div></div>`; }).join('');
   // 同層「長料裁短料」建議（優先做，最省）
   const cuts = projectCuts(p);
-  const cutRows = cuts.map(c=>`<div style="font-size:13px;margin-bottom:2px">🏢 ${esc(c.floor)}：<b>${esc(mat(c.fromMatId)?.name||'')}</b> 裁 <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(mat(c.toMatId)?.name||'')}</b></div>`).join('');
+  const cutRows = cuts.map(c=>{
+    const fromIt = D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.fromMatId);
+    const reserve = fromIt ? itemNeed(fromIt) : 0;
+    return `<div style="font-size:13px;margin-bottom:3px">🏢 ${esc(c.floor)}：<b>${esc(mat(c.fromMatId)?.name||'')}</b> 裁 <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(mat(c.toMatId)?.name||'')}</b><span style="color:var(--text2)">（這長料自己還要 ${reserve} 支已先留著，只裁多的）</span></div>`;
+  }).join('');
   const cutsCard = cuts.length ? `<div class="card" style="padding:12px;border-left:4px solid var(--amber)">
     <div style="font-weight:800;margin-bottom:4px">✂️ 同層長料裁短料（先做這個最省）</div>
-    <div class="muted" style="margin-bottom:8px">同一種料，長的多、短的缺 → 裁長補短，免叫料、免跨樓層搬。</div>
+    <div class="muted" style="margin-bottom:8px">只裁「長料整體用完還多出來」的——長料自己之後要用的都先保留了，不會裁到不夠用。</div>
     ${cutRows}
     <button class="btn sm" style="margin-top:8px" onclick="applyAllCuts()">✂️ 全部套用裁切</button>
   </div>` : '';
