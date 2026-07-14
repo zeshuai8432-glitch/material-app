@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v19</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v20</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v19</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v20</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1228,17 +1228,9 @@
         </div>
 
         <hr class="divider">
-        <div class="section-title">補強鋼板（選填，只有需要的牆才填）</div>
-        <div class="form-grid form-grid-2">
-          <div class="field">
-            <label>鋼板尺寸</label>
-            <select id="p-reinf-type"><option value="">無</option></select>
-          </div>
-          <div class="field">
-            <label>片數（這道牆）</label>
-            <input type="number" id="p-reinf-qty" inputmode="decimal" value="0" min="0">
-          </div>
-        </div>
+        <div class="section-title">補強鋼板（選填，只有需要的牆才填；可加多種尺寸）</div>
+        <div id="p-reinf-list"></div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="addReinfRow()">＋ 加一種鋼板</button>
 
         <hr class="divider">
         <div class="section-title">填塞物設定</div>
@@ -2110,9 +2102,7 @@ function openZoneModal(zoneId, spaceId) {
   // 動態帶入骨架/槽鐵選單（隔間）
   populateStudSelects();
   refreshPartitionLengths();
-  populateReinfSelect();
-  document.getElementById('p-reinf-type').value = '';
-  document.getElementById('p-reinf-qty').value = 0;
+  document.getElementById('p-reinf-list').innerHTML = '';
 
   if (zoneId) {
     const zone = (state.zones[spaceId] || []).find(z => z.id === zoneId);
@@ -2138,8 +2128,11 @@ function openZoneModal(zoneId, spaceId) {
         document.getElementById('p-fill-type').value = zone.params.fillType;
         updateFillFields();
         if (zone.params.fillSpec) document.getElementById('p-fill-spec').value = zone.params.fillSpec;
-        document.getElementById('p-reinf-type').value = zone.params.reinfType || '';
-        document.getElementById('p-reinf-qty').value = zone.params.reinfQty || 0;
+        // 補強鋼板：新格式 reinfList[]，相容舊的單筆 reinfType/reinfQty
+        const rlist = Array.isArray(zone.params.reinfList) ? zone.params.reinfList
+                    : (zone.params.reinfType && zone.params.reinfQty>0 ? [{type:zone.params.reinfType, qty:zone.params.reinfQty}] : []);
+        document.getElementById('p-reinf-list').innerHTML = '';
+        rlist.forEach(row => addReinfRow(row.type, row.qty));
       }
       if (zone.type === 'ceiling') {
         const cp = zone.params;
@@ -2287,8 +2280,7 @@ function saveZone() {
       sides: state.sides,
       fillType: document.getElementById('p-fill-type').value,
       fillSpec: document.getElementById('p-fill-spec').value,
-      reinfType: document.getElementById('p-reinf-type').value,
-      reinfQty: parseFloat(document.getElementById('p-reinf-qty').value) || 0,
+      reinfList: collectReinfList(),
     };
     zoneData.result = calcPartition(zoneData.params);
   }
@@ -2460,10 +2452,32 @@ function populateStudSelects() {
   if (cFasciaStud) cFasciaStud.innerHTML = studs.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
   if (cFasciaTrack) cFasciaTrack.innerHTML = tracks.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
 }
-function populateReinfSelect() {
-  const sel = document.getElementById('p-reinf-type'); if (!sel) return;
+function reinfOptions(sel) {
   const plates = state.materials.reinfPlates || [];
-  sel.innerHTML = '<option value="">無</option>' + plates.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  return plates.map(p => `<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.name)}</option>`).join('');
+}
+function addReinfRow(type, qty) {
+  const wrap = document.getElementById('p-reinf-list'); if (!wrap) return;
+  const div = document.createElement('div');
+  div.className = 'reinf-row form-grid form-grid-2';
+  div.style.marginBottom = '6px';
+  div.innerHTML = `
+    <div class="field"><select class="reinf-type">${reinfOptions(type)}</select></div>
+    <div class="field" style="display:flex;gap:6px;align-items:center">
+      <input class="reinf-qty" type="number" inputmode="decimal" min="0" placeholder="片數" value="${qty!=null?qty:''}" style="flex:1">
+      <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.reinf-row').remove()">✕</button>
+    </div>`;
+  wrap.appendChild(div);
+}
+function collectReinfList() {
+  const rows = document.querySelectorAll('#p-reinf-list .reinf-row');
+  const list = [];
+  rows.forEach(r => {
+    const type = r.querySelector('.reinf-type').value;
+    const qty = parseFloat(r.querySelector('.reinf-qty').value) || 0;
+    if (type && qty > 0) list.push({ type, qty });
+  });
+  return list;
 }
 
 // 依所選材料的長度清單填入「下料長度」下拉；preset 可帶入已存值以選取
@@ -2813,19 +2827,21 @@ function calcPartition(p) {
     }
   }
 
-  // 補強鋼板（手動填片數，只有需要的牆才有）
-  let reinf = null;
-  if (p.reinfType && (p.reinfQty || 0) > 0) {
-    const rpMat = (state.materials.reinfPlates || []).find(x => x.id === p.reinfType);
-    if (rpMat) {
-      reinf = { type: p.reinfType, name: rpMat.name, qty: p.reinfQty, unit: rpMat.unit || '片' };
-      if (rpMat.price > 0) {
-        const cost = p.reinfQty * rpMat.price;
-        totalPrice += cost;
-        priceDetail.push({ name: rpMat.name, qty: p.reinfQty, unit: rpMat.unit || '片', unitPrice: rpMat.price, cost });
-      }
+  // 補強鋼板（手動填片數，可多種尺寸；相容舊的單筆格式）
+  const reinf = [];
+  const reinfList = Array.isArray(p.reinfList) ? p.reinfList
+                  : (p.reinfType && (p.reinfQty||0) > 0 ? [{ type: p.reinfType, qty: p.reinfQty }] : []);
+  reinfList.forEach(row => {
+    if (!row.type || !(row.qty > 0)) return;
+    const rpMat = (state.materials.reinfPlates || []).find(x => x.id === row.type);
+    if (!rpMat) return;
+    reinf.push({ type: row.type, name: rpMat.name, qty: row.qty, unit: rpMat.unit || '片' });
+    if (rpMat.price > 0) {
+      const cost = row.qty * rpMat.price;
+      totalPrice += cost;
+      priceDetail.push({ name: rpMat.name, qty: row.qty, unit: rpMat.unit || '片', unitPrice: rpMat.price, cost });
     }
-  }
+  });
 
   return { studs, studPosts, studLen: H, studStock, studPerStickText, tracks, trackRaw, trackUnit, rawTrackCm: W * 2, boards, boardsRaw: boardsRaw.toFixed(2), boardsRawNum: boardsRaw, fill, braces, bracePerRow, braceLen, rawBraceCm, reinf, totalPrice: totalPrice || 0, priceDetail };
 }
@@ -2936,7 +2952,7 @@ function aggregateZone(z, mult, agg) {
       if (r.fill.rawPieces != null) AP(params.fillSpec || params.fillType, r.fill.label, r.fill.unit, 'pack', r.fill.rawPieces, r.fill.perPack);
       else if (r.fill.rawM2 != null) AP(params.fillSpec || params.fillType, r.fill.label, r.fill.unit, 'roll', r.fill.rawM2, r.fill.rollArea);
     }
-    if (r.reinf) AT('reinf_' + r.reinf.type, r.reinf.name, r.reinf.qty, r.reinf.unit);
+    (r.reinf || []).forEach(rp => AT('reinf_' + rp.type, rp.name, rp.qty, rp.unit));
   }
   if (z.type === 'ceiling') {
     const sysLabel = params.sys === 'centipede' ? '蜈蚣腳' : 'N38';
@@ -2981,7 +2997,7 @@ function zoneDetailHTML(z) {
             ${r.braces > 0 ? `<tr><td>${matName('braces', params.braceType)} 加強橫枝 ${params.braceLength}cm</td><td class="qty">${(r.rawBraceCm/r.braceLen).toFixed(2)} 支</td><td class="unit-cell">${params.braceRows}排（原始用量）</td></tr>` : ''}
             <tr><td>${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td class="qty">${r.boardsRawNum.toFixed(2)} 片</td><td class="unit-cell">原始用量（總表才含5%損耗）</td></tr>
             ${r.fill ? `<tr><td>${r.fill.label}</td><td class="qty">${(r.fill.rawPieces!=null ? r.fill.rawPieces/r.fill.perPack : r.fill.rawM2/r.fill.rollArea).toFixed(2)} ${r.fill.unit}</td><td class="unit-cell">原始用量（合併後看總表）</td></tr>` : ''}
-            ${r.reinf ? `<tr><td>${esc(r.reinf.name)}</td><td class="qty">${r.reinf.qty} ${esc(r.reinf.unit)}</td><td class="unit-cell">補強鋼板（手動）</td></tr>` : ''}
+            ${(r.reinf||[]).map(rp=>`<tr><td>${esc(rp.name)}</td><td class="qty">${rp.qty} ${esc(rp.unit)}</td><td class="unit-cell">補強鋼板（手動）</td></tr>`).join('')}
           </tbody>
         </table>
         ${r.totalPrice > 0 ? `<div style="text-align:right;margin-top:6px;font-size:13px;color:var(--green);font-weight:600;">小計：$${r.totalPrice.toLocaleString()}</div>` : ''}
@@ -3423,7 +3439,7 @@ function printResults() {
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${matName('tracks', params.trackType)} 槽鐵</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${(r.rawTrackCm/r.trackUnit).toFixed(2)} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">單支${r.trackUnit}cm・原始 ${r.trackRaw}m</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.boardsRawNum.toFixed(2)} 片</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>
           ${r.fill ? `<tr><td style="border:1px solid #ccc;padding:4px 8px;">${r.fill.label}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${(r.fill.rawPieces!=null ? r.fill.rawPieces/r.fill.perPack : r.fill.rawM2/r.fill.rollArea).toFixed(2)} ${r.fill.unit}</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>` : ''}
-          ${r.reinf ? `<tr><td style="border:1px solid #ccc;padding:4px 8px;">${esc(r.reinf.name)}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.reinf.qty} ${esc(r.reinf.unit)}</td><td style="border:1px solid #ccc;padding:4px 8px;">補強鋼板</td></tr>` : ''}
+          ${(r.reinf||[]).map(rp=>`<tr><td style="border:1px solid #ccc;padding:4px 8px;">${esc(rp.name)}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${rp.qty} ${esc(rp.unit)}</td><td style="border:1px solid #ccc;padding:4px 8px;">補強鋼板</td></tr>`).join('')}
         </table>
         ${r.totalPrice > 0 ? `<div style="text-align:right;font-size:11px;color:#2D7A4F;font-weight:600;margin-top:2px;">小計 $${r.totalPrice.toLocaleString()}</div>` : ''}</div>`;
         addT(params.studType+'_'+r.studStock, matName('studs', params.studType)+' 骨架（下料 '+r.studStock+'cm）', r.studs, '支');
@@ -3435,7 +3451,7 @@ function printResults() {
           if (r.fill.rawPieces != null) addP(params.fillSpec||params.fillType, r.fill.label, r.fill.unit, 'pack', r.fill.rawPieces, r.fill.perPack);
           else if (r.fill.rawM2 != null) addP(params.fillSpec||params.fillType, r.fill.label, r.fill.unit, 'roll', r.fill.rawM2, r.fill.rollArea);
         }
-        if (r.reinf) addT('reinf_'+r.reinf.type, r.reinf.name, r.reinf.qty, r.reinf.unit);
+        (r.reinf||[]).forEach(rp => addT('reinf_'+rp.type, rp.name, rp.qty, rp.unit));
       }
       if (z.type === 'ceiling') {
         const sysLabel = params.sys==='centipede'?'蜈蚣腳':'N38';
