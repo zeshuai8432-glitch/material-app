@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v20</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v21</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v20</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v21</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2062,6 +2062,7 @@ function renderSpaces() {
           <div style="display:flex;align-items:center;gap:8px;" onclick="event.stopPropagation()">
             <span class="space-badge">${zoneCount} 個區塊</span>
             <button class="btn btn-primary btn-sm" onclick="openZoneModal(null,'${s.id}')">＋ 新增區塊</button>
+            <button class="btn btn-secondary btn-sm" onclick="copyZonesTo('${s.id}')">📋 複製隔間到…</button>
             <button class="btn-icon" onclick="openSpaceModal('${s.id}')">✏️</button>
             <button class="btn-icon" onclick="deleteSpace('${s.id}')">🗑️</button>
           </div>
@@ -2350,6 +2351,40 @@ function deleteZone(spaceId, zoneId) {
   toast('區塊已刪除','info');
 }
 
+// 把一個房型的所有隔間複製到另一個房型（現有或新建），用於「標準房 → ADA房 只差一點點」
+function copyZonesTo(sourceId) {
+  const spaces = state.spaces[state.activeProjectId] || [];
+  const src = spaces.find(s => s.id === sourceId);
+  const srcZones = state.zones[sourceId] || [];
+  if (!srcZones.length) { toast('這個房型還沒有隔間可複製', 'error'); return; }
+  const others = spaces.filter(s => s.id !== sourceId);
+  const listStr = others.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
+  const ans = prompt(`把「${src.name}」的 ${srcZones.length} 個隔間複製到哪裡？\n\n${listStr ? listStr + '\n\n' : ''}輸入上面的編號＝複製到現有房型；\n直接輸入新名稱＝新建一個房型（例：ADA房）`, '');
+  if (ans == null) return;
+  const s = ans.trim(); if (!s) return;
+  let target;
+  const n = parseInt(s, 10);
+  if (String(n) === s && others[n - 1]) {
+    target = others[n - 1];
+    const existing = (state.zones[target.id] || []).length;
+    if (existing && !confirm(`「${target.name}」已有 ${existing} 個隔間。複製是「新增」不是取代，確定？`)) return;
+  } else {
+    target = { id: 'space_' + Date.now(), name: s, floors: JSON.parse(JSON.stringify(src.floors || [])), note: '' };
+    spaces.push(target);
+    state.zones[target.id] = [];
+  }
+  const tz = state.zones[target.id] = state.zones[target.id] || [];
+  srcZones.forEach(z => {
+    const c = JSON.parse(JSON.stringify(z));
+    c.id = 'zone_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    tz.push(c);
+  });
+  recalcActiveProject();
+  saveUserData();
+  renderSpaces();
+  renderResults();
+  toast(`已把 ${srcZones.length} 個隔間複製到「${target.name}」，去改細部差異即可`);
+}
 function duplicateZone(spaceId, zoneId) {
   const zones = state.zones[spaceId] || [];
   const z = zones.find(x => x.id === zoneId);
