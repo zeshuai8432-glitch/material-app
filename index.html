@@ -126,7 +126,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v37</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v38</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1105,11 +1105,16 @@ function floorCuts(p, floor){
     if(!S.length || !H.length) return;
     H.sort((a,b)=>a.len-b.len).forEach(short=>{
       let need = short.amt;
-      // 長度 ≥ 需求都可用；先用同長度、再用最接近的長料（少浪費）
-      S.filter(s=>s.len >= short.len && s.matId!==short.matId).sort((a,b)=>a.len-b.len).forEach(c=>{
+      // 同型號 1 支=1 支互補：先用同長度、再用較長(裁)、最後才用較短(現場接/補)
+      S.filter(s=>s.matId!==short.matId).sort((a,b)=>{
+        const aOk=a.len>=short.len, bOk=b.len>=short.len;
+        if(aOk!==bOk) return aOk?-1:1;   // 長度夠的優先
+        return aOk ? a.len-b.len : b.len-a.len; // 都夠：短的先少浪費；都不夠：最接近的先
+      }).forEach(c=>{
         if(need<=0 || c.amt<=0) return;
         const q=Math.min(c.amt, need);
-        cuts.push({floor, fromMatId:c.matId, toMatId:short.matId, qty:q, cut:c.len>short.len});
+        const mode = c.len>short.len ? 'cut' : (c.len<short.len ? 'join' : 'same');
+        cuts.push({floor, fromMatId:c.matId, toMatId:short.matId, qty:q, cut:c.len>short.len, mode});
         c.amt-=q; need-=q;
       });
     });
@@ -1186,15 +1191,16 @@ function openAllocSheet(){
   const cutRows = cuts.map(c=>{
     const fromIt = D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.fromMatId);
     const reserve = fromIt ? itemNeed(fromIt) : 0;
-    const verb = c.cut ? '裁' : '改用';
+    const verb = c.mode==='cut' ? '裁' : '改用';
+    const note = c.mode==='cut' ? '（裁短）' : c.mode==='join' ? '（長度較短，現場接／不夠再補）' : '（同長度直接用）';
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-      <div style="flex:1;min-width:0;font-size:13px">🏢 ${esc(c.floor)}：<b>${esc(mat(c.fromMatId)?.name||'')}</b> ${verb} <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(mat(c.toMatId)?.name||'')}</b><br><span style="color:var(--text2);font-size:12px">這料自己還要 ${reserve} 支已先留著，只用多的${c.cut?'（裁短）':'（同長度直接用）'}</span></div>
+      <div style="flex:1;min-width:0;font-size:13px">🏢 ${esc(c.floor)}：<b>${esc(mat(c.fromMatId)?.name||'')}</b> ${verb} <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(mat(c.toMatId)?.name||'')}</b><br><span style="color:var(--text2);font-size:12px">這料自己還要 ${reserve} 支已先留著，只用多的${note}</span></div>
       <button class="btn mini" style="flex:0 0 auto" onclick="applyCut('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">${verb}</button>
     </div>`;
   }).join('');
   const cutsCard = cuts.length ? `<div class="card" style="padding:12px;border-left:4px solid var(--amber)">
-    <div style="font-weight:800;margin-bottom:4px">✂️ 同型號通用（先做這個最省）</div>
-    <div class="muted" style="margin-bottom:8px">同一支型號（N38/C65…）不管做隔間或天花都能互相補：同長度直接用、較長的裁短。只用「自己整體用完還多出來」的。</div>
+    <div style="font-weight:800;margin-bottom:4px">🔧 同型號通用（先做這個最省）</div>
+    <div class="muted" style="margin-bottom:8px">同一支型號（N38/C65…）不分隔間/天花，<b>1 支＝1 支</b>互相補：同長度直接用、長的裁短、短的先頂（現場接、不夠最後再補料）。只用「自己整體用完還多出來」的。</div>
     ${cutRows}
     <button class="btn sm gray" style="margin-top:4px" onclick="applyAllCuts()">✅ 全部套用</button>
   </div>` : '';
