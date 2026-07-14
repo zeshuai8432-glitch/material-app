@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v30</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v31</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v30</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v31</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2769,7 +2769,12 @@ function calcCeiling(p) {
   const subMat = p.subMatId ? (state.materials.subFrames || []).find(x => x.id === p.subMatId) : null;
   const subLen = subMat ? subMat.length : (p.subLenCustom ? p.subLenCustom : parseInt(p.subLen));
   const subPerRow = Math.ceil(mainSpan / subLen);
-  const subTotal = subCount * subPerRow;
+  // 百葉跨 mainSpan：整支整支接、最後一段裁切，剩料可續接到別條（同主架邏輯）
+  const subLastLen = Math.max(1, Math.min(subLen, mainSpan - (subPerRow - 1) * subLen));
+  const subFullSticks = subCount * Math.max(0, subPerRow - 1);
+  const subLastPerStick = Math.max(1, Math.floor(subLen / subLastLen));
+  const subLastSticks = Math.ceil(subCount / subLastPerStick);
+  const subTotal = subFullSticks + subLastSticks;
   // 四齒夾 = 副架條數 × 每條跟幾支主架交叉
   const clipsTotal = p.sys === 'n38' ? subCount * mainRows : 0;
   // 吊勾具 = N38 吊點數
