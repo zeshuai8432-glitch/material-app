@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v18</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v19</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v18</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v19</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1228,6 +1228,19 @@
         </div>
 
         <hr class="divider">
+        <div class="section-title">補強鋼板（選填，只有需要的牆才填）</div>
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label>鋼板尺寸</label>
+            <select id="p-reinf-type"><option value="">無</option></select>
+          </div>
+          <div class="field">
+            <label>片數（這道牆）</label>
+            <input type="number" id="p-reinf-qty" inputmode="decimal" value="0" min="0">
+          </div>
+        </div>
+
+        <hr class="divider">
         <div class="section-title">填塞物設定</div>
         <div class="form-grid form-grid-2">
           <div class="field">
@@ -1508,6 +1521,11 @@ const DEFAULT_MATERIALS = {
     { id: 'L10', name: 'L收邊 10尺（305cm）', length: 305, unit: '支', price: 0 },
     { id: '7word', name: '七字收邊 8尺（243cm）', length: 243, unit: '支', price: 0 },
   ],
+  reinfPlates: [
+    { id: 'rp-4x8', name: '補強鋼板 4x8尺', unit: '片', price: 0 },
+    { id: 'rp-4x6', name: '補強鋼板 4x6尺', unit: '片', price: 0 },
+    { id: 'rp-2x8', name: '補強鋼板 2x8尺', unit: '片', price: 0 },
+  ],
   rods: [
     { id: '2fen', name: '兩分螺桿 3M', length: 300, unit: '支', price: 0 },
     { id: '3fen', name: '三分螺桿 3M', length: 300, unit: '支', price: 0 },
@@ -1655,6 +1673,8 @@ function migrateMaterials() {
     }
     g.rollSize = (+g.rollW || 0) * (+g.rollL || 0);
   });
+  // 補強鋼板：舊資料沒有這個分類，補上預設尺寸
+  if (!Array.isArray(state.materials.reinfPlates)) state.materials.reinfPlates = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.reinfPlates));
   // 板材：舊資料把矽酸鈣板／水泥板混成同一類，補上水泥板選項（插在石膏板之前）
   if (Array.isArray(state.materials.boards) && !state.materials.boards.some(b => String(b.id).startsWith('cement-'))) {
     const cement = DEFAULT_MATERIALS.boards.filter(b => String(b.id).startsWith('cement-'));
@@ -2090,6 +2110,9 @@ function openZoneModal(zoneId, spaceId) {
   // 動態帶入骨架/槽鐵選單（隔間）
   populateStudSelects();
   refreshPartitionLengths();
+  populateReinfSelect();
+  document.getElementById('p-reinf-type').value = '';
+  document.getElementById('p-reinf-qty').value = 0;
 
   if (zoneId) {
     const zone = (state.zones[spaceId] || []).find(z => z.id === zoneId);
@@ -2115,6 +2138,8 @@ function openZoneModal(zoneId, spaceId) {
         document.getElementById('p-fill-type').value = zone.params.fillType;
         updateFillFields();
         if (zone.params.fillSpec) document.getElementById('p-fill-spec').value = zone.params.fillSpec;
+        document.getElementById('p-reinf-type').value = zone.params.reinfType || '';
+        document.getElementById('p-reinf-qty').value = zone.params.reinfQty || 0;
       }
       if (zone.type === 'ceiling') {
         const cp = zone.params;
@@ -2262,6 +2287,8 @@ function saveZone() {
       sides: state.sides,
       fillType: document.getElementById('p-fill-type').value,
       fillSpec: document.getElementById('p-fill-spec').value,
+      reinfType: document.getElementById('p-reinf-type').value,
+      reinfQty: parseFloat(document.getElementById('p-reinf-qty').value) || 0,
     };
     zoneData.result = calcPartition(zoneData.params);
   }
@@ -2432,6 +2459,11 @@ function populateStudSelects() {
   if (pBrace) pBrace.innerHTML = '<option value="none">不加</option>' + braces.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
   if (cFasciaStud) cFasciaStud.innerHTML = studs.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
   if (cFasciaTrack) cFasciaTrack.innerHTML = tracks.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+}
+function populateReinfSelect() {
+  const sel = document.getElementById('p-reinf-type'); if (!sel) return;
+  const plates = state.materials.reinfPlates || [];
+  sel.innerHTML = '<option value="">無</option>' + plates.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
 }
 
 // 依所選材料的長度清單填入「下料長度」下拉；preset 可帶入已存值以選取
@@ -2781,7 +2813,21 @@ function calcPartition(p) {
     }
   }
 
-  return { studs, studPosts, studLen: H, studStock, studPerStickText, tracks, trackRaw, trackUnit, rawTrackCm: W * 2, boards, boardsRaw: boardsRaw.toFixed(2), boardsRawNum: boardsRaw, fill, braces, bracePerRow, braceLen, rawBraceCm, totalPrice: totalPrice || 0, priceDetail };
+  // 補強鋼板（手動填片數，只有需要的牆才有）
+  let reinf = null;
+  if (p.reinfType && (p.reinfQty || 0) > 0) {
+    const rpMat = (state.materials.reinfPlates || []).find(x => x.id === p.reinfType);
+    if (rpMat) {
+      reinf = { type: p.reinfType, name: rpMat.name, qty: p.reinfQty, unit: rpMat.unit || '片' };
+      if (rpMat.price > 0) {
+        const cost = p.reinfQty * rpMat.price;
+        totalPrice += cost;
+        priceDetail.push({ name: rpMat.name, qty: p.reinfQty, unit: rpMat.unit || '片', unitPrice: rpMat.price, cost });
+      }
+    }
+  }
+
+  return { studs, studPosts, studLen: H, studStock, studPerStickText, tracks, trackRaw, trackUnit, rawTrackCm: W * 2, boards, boardsRaw: boardsRaw.toFixed(2), boardsRawNum: boardsRaw, fill, braces, bracePerRow, braceLen, rawBraceCm, reinf, totalPrice: totalPrice || 0, priceDetail };
 }
 
 // ════════════════════════════════════
@@ -2804,6 +2850,7 @@ function guessFieldCat(label) {
   if (/骨架/.test(s)) return '骨架立柱';
   if (/槽鐵/.test(s)) return '槽鐵';
   if (/加強橫枝/.test(s)) return '加強橫枝';
+  if (/補強鋼板|鋼板/.test(s)) return '補強鋼板';
   if (/矽酸鈣|水泥板|石膏|板材/.test(s)) return '板材';
   if (/玻璃棉/.test(s)) return '玻璃棉';
   if (/岩棉/.test(s)) return '岩棉';
@@ -2889,6 +2936,7 @@ function aggregateZone(z, mult, agg) {
       if (r.fill.rawPieces != null) AP(params.fillSpec || params.fillType, r.fill.label, r.fill.unit, 'pack', r.fill.rawPieces, r.fill.perPack);
       else if (r.fill.rawM2 != null) AP(params.fillSpec || params.fillType, r.fill.label, r.fill.unit, 'roll', r.fill.rawM2, r.fill.rollArea);
     }
+    if (r.reinf) AT('reinf_' + r.reinf.type, r.reinf.name, r.reinf.qty, r.reinf.unit);
   }
   if (z.type === 'ceiling') {
     const sysLabel = params.sys === 'centipede' ? '蜈蚣腳' : 'N38';
@@ -2933,6 +2981,7 @@ function zoneDetailHTML(z) {
             ${r.braces > 0 ? `<tr><td>${matName('braces', params.braceType)} 加強橫枝 ${params.braceLength}cm</td><td class="qty">${(r.rawBraceCm/r.braceLen).toFixed(2)} 支</td><td class="unit-cell">${params.braceRows}排（原始用量）</td></tr>` : ''}
             <tr><td>${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td class="qty">${r.boardsRawNum.toFixed(2)} 片</td><td class="unit-cell">原始用量（總表才含5%損耗）</td></tr>
             ${r.fill ? `<tr><td>${r.fill.label}</td><td class="qty">${(r.fill.rawPieces!=null ? r.fill.rawPieces/r.fill.perPack : r.fill.rawM2/r.fill.rollArea).toFixed(2)} ${r.fill.unit}</td><td class="unit-cell">原始用量（合併後看總表）</td></tr>` : ''}
+            ${r.reinf ? `<tr><td>${esc(r.reinf.name)}</td><td class="qty">${r.reinf.qty} ${esc(r.reinf.unit)}</td><td class="unit-cell">補強鋼板（手動）</td></tr>` : ''}
           </tbody>
         </table>
         ${r.totalPrice > 0 ? `<div style="text-align:right;margin-top:6px;font-size:13px;color:var(--green);font-weight:600;">小計：$${r.totalPrice.toLocaleString()}</div>` : ''}
@@ -3068,6 +3117,7 @@ function renderMaterials() {
   el.innerHTML = `
     ${renderSystems()}
     ${materialSection('板材', 'boards', ['品名', '單價(元/片)'])}
+    ${reinfSection()}
     ${materialSection('岩棉', 'rockwool', ['規格', '幾片/包', '單價(元/包)'])}
     ${materialSection('玻璃棉', 'glasswool', ['規格', '捲寬(m)', '捲長(m)', '單價(元/捲)'])}
     ${materialSection('收邊料', 'trims', ['規格', '長度(cm)', '單價(元/支)'])}
@@ -3280,6 +3330,28 @@ function materialSection(title, key, headers) {
   return matSectionWrap(title, key, headers, rows, false);
 }
 
+// 補強鋼板：依尺寸各一筆，名稱＋單價可編輯
+function reinfSection() {
+  const items = state.materials.reinfPlates || [];
+  const rows = items.map((item, i) => `<tr>
+    <td><input value="${esc(item.name)}" onchange="state.materials.reinfPlates[${i}].name=this.value;saveUserData();renderMaterials()" style="width:160px"></td>
+    <td><input type="number" value="${item.price}" onchange="state.materials.reinfPlates[${i}].price=+this.value;saveUserData()" style="width:80px"></td>
+    <td><button class="btn btn-danger btn-sm" onclick="removeMaterial('reinfPlates',${i})">刪</button></td>
+  </tr>`).join('');
+  return `<div class="material-category">
+    <div class="card-header"><div><div class="card-title">補強鋼板</div><div style="font-size:11px;color:#999;margin-top:2px">依尺寸各一筆；在隔間設定裡選尺寸＋填片數（只有需要的牆才填）</div></div>
+      <button class="btn btn-secondary btn-sm" onclick="addReinfPlate()">＋ 新增尺寸</button></div>
+    <table class="material-table"><thead><tr><th>品名／尺寸</th><th>單價(元/片)</th><th></th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="3" style="color:#999;padding:10px">尚無</td></tr>'}</tbody></table>
+  </div>`;
+}
+function addReinfPlate() {
+  const name = prompt('補強鋼板尺寸名稱（例：補強鋼板 3x6尺）', '補強鋼板 ');
+  if (!name || !name.trim()) return;
+  state.materials.reinfPlates.push({ id: 'rp_' + Date.now(), name: name.trim(), unit: '片', price: 0 });
+  saveUserData();
+  renderMaterials();
+}
 function addCustomMaterial(key) {
   const name = prompt('新增材料名稱（例：C64 骨架）');
   if (!name) return;
@@ -3351,6 +3423,7 @@ function printResults() {
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${matName('tracks', params.trackType)} 槽鐵</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${(r.rawTrackCm/r.trackUnit).toFixed(2)} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">單支${r.trackUnit}cm・原始 ${r.trackRaw}m</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.boardsRawNum.toFixed(2)} 片</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>
           ${r.fill ? `<tr><td style="border:1px solid #ccc;padding:4px 8px;">${r.fill.label}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${(r.fill.rawPieces!=null ? r.fill.rawPieces/r.fill.perPack : r.fill.rawM2/r.fill.rollArea).toFixed(2)} ${r.fill.unit}</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>` : ''}
+          ${r.reinf ? `<tr><td style="border:1px solid #ccc;padding:4px 8px;">${esc(r.reinf.name)}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.reinf.qty} ${esc(r.reinf.unit)}</td><td style="border:1px solid #ccc;padding:4px 8px;">補強鋼板</td></tr>` : ''}
         </table>
         ${r.totalPrice > 0 ? `<div style="text-align:right;font-size:11px;color:#2D7A4F;font-weight:600;margin-top:2px;">小計 $${r.totalPrice.toLocaleString()}</div>` : ''}</div>`;
         addT(params.studType+'_'+r.studStock, matName('studs', params.studType)+' 骨架（下料 '+r.studStock+'cm）', r.studs, '支');
@@ -3362,6 +3435,7 @@ function printResults() {
           if (r.fill.rawPieces != null) addP(params.fillSpec||params.fillType, r.fill.label, r.fill.unit, 'pack', r.fill.rawPieces, r.fill.perPack);
           else if (r.fill.rawM2 != null) addP(params.fillSpec||params.fillType, r.fill.label, r.fill.unit, 'roll', r.fill.rawM2, r.fill.rollArea);
         }
+        if (r.reinf) addT('reinf_'+r.reinf.type, r.reinf.name, r.reinf.qty, r.reinf.unit);
       }
       if (z.type === 'ceiling') {
         const sysLabel = params.sys==='centipede'?'蜈蚣腳':'N38';

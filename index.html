@@ -126,7 +126,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v32</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v33</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -366,6 +366,7 @@ const STAGE_KEYS = STAGES.map(s=>s.key);
 function stageOfCat(c){
   if(c==='岩棉'||c==='玻璃棉') return 'fill';
   if(c==='板材'||c==='收邊'||c==='其他') return 'board2';
+  if(c==='補強鋼板') return 'frame'; // 補強鋼板：立骨架後、封板前裝上，歸在骨架結構階段
   return 'frame';
 }
 // 這道牆實際有哪些階段（沒鐵板/雙面就沒「封第一面」、沒棉就沒塞棉）
