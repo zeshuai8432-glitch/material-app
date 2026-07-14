@@ -126,7 +126,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v36</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v37</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1083,13 +1083,15 @@ function itemSurplus(it){ // 這層這材料的溢料（現場剩餘超過整體
   if(!hasNeedBasis(it)) return 0; // 需求沒填 → 不當溢料，免得把之後才要用的料調走
   return Math.max(round(itemRemaining(it) - itemNeed(it)), 0);
 }
-// ── 同層「長料裁短料」：同一種骨架/槽鐵/加強，長的多、短的缺 → 裁長補短（1 支長裁 1 支短）──
+// ── 同層「同型號通用」：同一支型號(N38/C65/U67…)不管做隔間或天花，長度 ≥ 需求就能補
+//    同長度＝直接改用；較長＝裁短。短的補不了長的。──
 function cutKey(m){
-  const cutCats = ['骨架立柱','槽鐵','加強橫枝'];
+  const cutCats = ['骨架立柱','槽鐵','加強橫枝','主架']; // 這些是同型號可跨用途的結構料
   if(!m || !cutCats.includes(m.cat)) return null;
-  const mm = String(m.name).match(/([\d.]+)\s*cm/);
-  if(!mm) return null;
-  return { base: m.cat+'::'+String(m.name).replace(/[\d.]+\s*cm/,'#'), len:+mm[1] };
+  const s = String(m.name);
+  const lm = s.match(/([\d.]+)\s*cm/); if(!lm) return null;      // 長度
+  const pm = s.match(/([A-Za-z]+\d+)/); if(!pm) return null;      // 型號：N38、C65、U67…（蜈蚣腳等無型號的不併）
+  return { base: pm[1].toUpperCase(), len:+lm[1] };              // 以型號為底，跨用途通用
 }
 function floorCuts(p, floor){
   const its = D.items.filter(i=>i.project===p && i.room===floor)
@@ -1103,10 +1105,11 @@ function floorCuts(p, floor){
     if(!S.length || !H.length) return;
     H.sort((a,b)=>a.len-b.len).forEach(short=>{
       let need = short.amt;
-      S.filter(s=>s.len > short.len).sort((a,b)=>a.len-b.len).forEach(c=>{ // 用最接近的長料，少浪費
+      // 長度 ≥ 需求都可用；先用同長度、再用最接近的長料（少浪費）
+      S.filter(s=>s.len >= short.len && s.matId!==short.matId).sort((a,b)=>a.len-b.len).forEach(c=>{
         if(need<=0 || c.amt<=0) return;
         const q=Math.min(c.amt, need);
-        cuts.push({floor, fromMatId:c.matId, toMatId:short.matId, qty:q});
+        cuts.push({floor, fromMatId:c.matId, toMatId:short.matId, qty:q, cut:c.len>short.len});
         c.amt-=q; need-=q;
       });
     });
@@ -1183,16 +1186,17 @@ function openAllocSheet(){
   const cutRows = cuts.map(c=>{
     const fromIt = D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.fromMatId);
     const reserve = fromIt ? itemNeed(fromIt) : 0;
+    const verb = c.cut ? '裁' : '改用';
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-      <div style="flex:1;min-width:0;font-size:13px">🏢 ${esc(c.floor)}：<b>${esc(mat(c.fromMatId)?.name||'')}</b> 裁 <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(mat(c.toMatId)?.name||'')}</b><br><span style="color:var(--text2);font-size:12px">這長料自己還要 ${reserve} 支已先留著，只裁多的</span></div>
-      <button class="btn mini" style="flex:0 0 auto" onclick="applyCut('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">裁</button>
+      <div style="flex:1;min-width:0;font-size:13px">🏢 ${esc(c.floor)}：<b>${esc(mat(c.fromMatId)?.name||'')}</b> ${verb} <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(mat(c.toMatId)?.name||'')}</b><br><span style="color:var(--text2);font-size:12px">這料自己還要 ${reserve} 支已先留著，只用多的${c.cut?'（裁短）':'（同長度直接用）'}</span></div>
+      <button class="btn mini" style="flex:0 0 auto" onclick="applyCut('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">${verb}</button>
     </div>`;
   }).join('');
   const cutsCard = cuts.length ? `<div class="card" style="padding:12px;border-left:4px solid var(--amber)">
-    <div style="font-weight:800;margin-bottom:4px">✂️ 同層長料裁短料（先做這個最省）</div>
-    <div class="muted" style="margin-bottom:8px">只裁「長料整體用完還多出來」的——長料自己之後要用的都先保留了，不會裁到不夠用。可逐筆裁或全部套用。</div>
+    <div style="font-weight:800;margin-bottom:4px">✂️ 同型號通用（先做這個最省）</div>
+    <div class="muted" style="margin-bottom:8px">同一支型號（N38/C65…）不管做隔間或天花都能互相補：同長度直接用、較長的裁短。只用「自己整體用完還多出來」的。</div>
     ${cutRows}
-    <button class="btn sm gray" style="margin-top:4px" onclick="applyAllCuts()">✂️ 全部套用裁切</button>
+    <button class="btn sm gray" style="margin-top:4px" onclick="applyAllCuts()">✅ 全部套用</button>
   </div>` : '';
   openSheet(`<h3>🔄 調撥建議<span class="x" onclick="closeSheet()">✕</span></h3>
     <div class="muted" style="margin-bottom:10px">順序：<b>先同層裁切 → 再跨樓層調撥 → 最後才叫料</b>。只動「超過該樓層整體需求」的量。</div>
