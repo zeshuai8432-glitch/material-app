@@ -126,7 +126,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v39</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v40</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1083,8 +1083,9 @@ function itemSurplus(it){ // 這層這材料的溢料（現場剩餘超過整體
   if(!hasNeedBasis(it)) return 0; // 需求沒填 → 不當溢料，免得把之後才要用的料調走
   return Math.max(round(itemRemaining(it) - itemNeed(it)), 0);
 }
-// ── 同層「同型號通用」：同一支型號(N38/C65/U67…)不管做隔間或天花，長度 ≥ 需求就能補
-//    同長度＝直接改用；較長＝裁短。短的補不了長的。──
+// ── 同層「同型號通用」：同一支型號(N38/C65/U67…)不管做隔間或天花可互相補
+//    預設：同長度直接用、長裁短；只有 JOINABLE_PROFILES 的型號可「短頂長」(水平會接) ──
+const JOINABLE_PROFILES = ['N38']; // 只有 N38 允許短的頂長的
 function cutKey(m){
   const cutCats = ['骨架立柱','槽鐵','加強橫枝','主架']; // 這些是同型號可跨用途的結構料
   if(!m || !cutCats.includes(m.cat)) return null;
@@ -1099,16 +1100,16 @@ function floorCuts(p, floor){
   const groups={};
   its.forEach(x=>{ (groups[x.k.base]=groups[x.k.base]||[]).push({matId:x.it.matId, len:x.k.len, it:x.it}); });
   const cuts=[];
-  Object.values(groups).forEach(arr=>{
+  Object.entries(groups).forEach(([base, arr])=>{
+    // 只有這些型號允許「短頂長」（水平會接）；其餘一律只能長裁短/同長度
+    const canJoin = JOINABLE_PROFILES.includes(base);
     const S = arr.map(x=>({matId:x.matId, len:x.len, amt:itemSurplus(x.it)})).filter(x=>x.amt>0);
     const H = arr.map(x=>({matId:x.matId, len:x.len, amt:Math.max(itemLack(x.it),0)})).filter(x=>x.amt>0);
     if(!S.length || !H.length) return;
     H.sort((a,b)=>a.len-b.len).forEach(short=>{
       let need = short.amt;
-      // 立柱是單支切到牆高，短的補不了長的（只能長裁短）；槽鐵/加強/主架是水平會接，短的可以頂
-      const spanning = (mat(short.matId)?.cat) !== '骨架立柱';
-      // 同型號互補：先用同長度、再用較長(裁)、spanning 才允許較短(現場接/補)
-      S.filter(s=> s.matId!==short.matId && (spanning || s.len>=short.len)).sort((a,b)=>{
+      // 同型號互補：先用同長度、再用較長(裁)、canJoin 才允許較短(現場接/補)
+      S.filter(s=> s.matId!==short.matId && (canJoin || s.len>=short.len)).sort((a,b)=>{
         const aOk=a.len>=short.len, bOk=b.len>=short.len;
         if(aOk!==bOk) return aOk?-1:1;   // 長度夠的優先
         return aOk ? a.len-b.len : b.len-a.len; // 都夠：短的先少浪費；都不夠：最接近的先
