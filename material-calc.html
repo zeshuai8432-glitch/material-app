@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v24</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v25</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v24</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v25</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2431,19 +2431,40 @@ function duplicateZone(spaceId, zoneId) {
   const zones = state.zones[spaceId] || [];
   const z = zones.find(x => x.id === zoneId);
   if (!z) return;
+  const spaces = state.spaces[state.activeProjectId] || [];
+  const others = spaces.filter(s => s.id !== spaceId);
+  let target = spaces.find(s => s.id === spaceId); // 預設：本房型
+  let inPlace = true;
+  if (others.length) {
+    const listStr = others.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
+    const ans = prompt(`把「${z.name}」複製到哪個房型？\n\n0. 本房型（原地複製）\n${listStr}\n\n輸入編號（直接按確定＝本房型）`, '');
+    if (ans === null) return;
+    const s = ans.trim();
+    if (s !== '' && s !== '0') {
+      const n = parseInt(s, 10);
+      if (!others[n - 1]) { toast('找不到那個房型', 'error'); return; }
+      target = others[n - 1]; inPlace = false;
+    }
+  }
   const copy = JSON.parse(JSON.stringify(z));
-  copy.id = 'zone_' + Date.now();
-  copy.name = z.name + '（複製）';
-  const idx = zones.findIndex(x => x.id === zoneId);
-  zones.splice(idx + 1, 0, copy);
+  copy.id = 'zone_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  const tid = target.id;
+  if (inPlace) {
+    copy.name = z.name + '（複製）';
+    const idx = zones.findIndex(x => x.id === zoneId);
+    zones.splice(idx + 1, 0, copy);
+  } else {
+    (state.zones[tid] = state.zones[tid] || []).push(copy);
+  }
+  recalcActiveProject();
   saveUserData();
   renderSpaces();
   setTimeout(() => {
-    const body = document.getElementById('space-body-' + spaceId);
-    const chevron = document.getElementById('chevron-' + spaceId);
-    if (body) { body.classList.add('open'); chevron.classList.add('open'); }
+    const body = document.getElementById('space-body-' + tid);
+    const chevron = document.getElementById('chevron-' + tid);
+    if (body) { body.classList.add('open'); if (chevron) chevron.classList.add('open'); }
   }, 50);
-  toast('已複製區塊，可點編輯修改尺寸');
+  toast(inPlace ? '已複製區塊，可點編輯修改尺寸' : `已複製到「${target.name}」`);
 }
 
 function renderZonesHTML(spaceId) {
