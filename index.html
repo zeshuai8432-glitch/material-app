@@ -126,7 +126,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v33</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v34</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -697,13 +697,16 @@ function renderCount(){
   const p = cur.project; const room = document.getElementById('ct-room').value;
   const el = document.getElementById('ct-list');
   if(!p || !room){ el.innerHTML = emptyBox('📋','沒有房間','到「設定」新增房間'); return; }
+  // 智慧排序：依系統分組（C41+U43=41系統），組內先類別再自然排序，與送料/總覽一致
   const its = D.items.filter(i=>i.project===p && i.room===room)
-    .sort((a,b)=> catOrder(mat(a.matId)?.cat)-catOrder(mat(b.matId)?.cat));
+    .sort((a,b)=>{ const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
+      return ga.sort-gb.sort || ga.label.localeCompare(gb.label) || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''}); });
   if(!its.length){ el.innerHTML = emptyBox('📦','此房間尚無材料','到「設定 → 需求量」加材料，或直接送料'); return; }
-  let html = '', lastCat=null;
+  let html = '', lastG=null;
   its.forEach(it=>{
-    const m = mat(it.matId); const c=m?m.cat:'其他'; const unit=m?m.unit:'';
-    if(c!==lastCat){ html+=`<div class="catrow" style="padding-left:14px">${esc(c)}</div>`; lastCat=c; }
+    const m = mat(it.matId); const unit=m?m.unit:'';
+    const g = deliverGroupKey(m).label;
+    if(g!==lastG){ html+=`<div class="catrow" style="padding-left:14px">${esc(g)}</div>`; lastG=g; }
     const ctn = nameTone(m?m.name:'');
     // 已用（依進度）= 全做完的量 − 現況還需要；建議現場剩餘 = 送料 − 已用（與總覽同一套算法）
     const used = itemUsed(it);
@@ -1080,6 +1083,52 @@ function itemSurplus(it){ // 這層這材料的溢料（現場剩餘超過整體
   if(!hasNeedBasis(it)) return 0; // 需求沒填 → 不當溢料，免得把之後才要用的料調走
   return Math.max(round(itemRemaining(it) - itemNeed(it)), 0);
 }
+// ── 同層「長料裁短料」：同一種骨架/槽鐵/加強，長的多、短的缺 → 裁長補短（1 支長裁 1 支短）──
+function cutKey(m){
+  const cutCats = ['骨架立柱','槽鐵','加強橫枝'];
+  if(!m || !cutCats.includes(m.cat)) return null;
+  const mm = String(m.name).match(/([\d.]+)\s*cm/);
+  if(!mm) return null;
+  return { base: m.cat+'::'+String(m.name).replace(/[\d.]+\s*cm/,'#'), len:+mm[1] };
+}
+function floorCuts(p, floor){
+  const its = D.items.filter(i=>i.project===p && i.room===floor)
+    .map(it=>({it, k:cutKey(mat(it.matId))})).filter(x=>x.k);
+  const groups={};
+  its.forEach(x=>{ (groups[x.k.base]=groups[x.k.base]||[]).push({matId:x.it.matId, len:x.k.len, it:x.it}); });
+  const cuts=[];
+  Object.values(groups).forEach(arr=>{
+    const S = arr.map(x=>({matId:x.matId, len:x.len, amt:itemSurplus(x.it)})).filter(x=>x.amt>0);
+    const H = arr.map(x=>({matId:x.matId, len:x.len, amt:Math.max(itemLack(x.it),0)})).filter(x=>x.amt>0);
+    if(!S.length || !H.length) return;
+    H.sort((a,b)=>a.len-b.len).forEach(short=>{
+      let need = short.amt;
+      S.filter(s=>s.len > short.len).sort((a,b)=>a.len-b.len).forEach(c=>{ // 用最接近的長料，少浪費
+        if(need<=0 || c.amt<=0) return;
+        const q=Math.min(c.amt, need);
+        cuts.push({floor, fromMatId:c.matId, toMatId:short.matId, qty:q});
+        c.amt-=q; need-=q;
+      });
+    });
+  });
+  return cuts;
+}
+function projectCuts(p){ let all=[]; projRooms(p).forEach(r=>{ all=all.concat(floorCuts(p, r.name)); }); return all; }
+function doCuts(p, cuts){
+  cuts.forEach(c=>{
+    const from=D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.fromMatId);
+    const to=D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.toMatId);
+    if(from) from.remaining = round(Math.max(itemRemaining(from)-c.qty, 0));
+    if(to) to.remaining = round(itemRemaining(to)+c.qty);
+    D.transfers.push({id:uid(), date:todayStr(), project:p, matId:c.toMatId, from:c.floor+'（'+(mat(c.fromMatId)?.name||'')+' 裁）', to:c.floor, qty:round(c.qty), cut:true});
+  });
+}
+function applyAllCuts(){
+  const p=cur.project; const cuts=projectCuts(p);
+  if(!cuts.length){ toast('目前沒有可裁切的'); return; }
+  doCuts(p, cuts); save(); renderAll(); openAllocSheet();
+  toast(`✅ 已裁切 ${cuts.length} 筆`);
+}
 // 針對一個材料，算各樓層溢/缺，並用貪婪法配出「搬最少趟、叫最少料」的調撥
 function matAlloc(p, matId){
   const its = D.items.filter(i=>i.project===p && i.matId===matId);
@@ -1122,8 +1171,18 @@ function openAllocSheet(){
   });
   const recent = (D.transfers||[]).filter(t=>t.project===p).slice(-6).reverse()
     .map(t=>{ const m=mat(t.matId); return `<div class="listitem" style="padding:7px 10px"><div class="li-m"><div class="li-t" style="font-size:13px">${esc(m?m.name:'?')}</div><div class="li-s">${esc(t.from)} → ${esc(t.to)}　${t.qty}${esc(m?m.unit:'')}　${esc(t.date)}</div></div></div>`; }).join('');
-  openSheet(`<h3>🔄 跨樓層調撥建議<span class="x" onclick="closeSheet()">✕</span></h3>
-    <div class="muted" style="margin-bottom:10px">只搬「超過該樓層<b>整體需求</b>」的量——每層自己之後要用的都先保留了，不會搬走再搬回。<br>👉 前提：先確認每層<b>總需求量</b>是對的（換料/追加記得改），它才算得準。</div>
+  // 同層「長料裁短料」建議（優先做，最省）
+  const cuts = projectCuts(p);
+  const cutRows = cuts.map(c=>`<div style="font-size:13px;margin-bottom:2px">🏢 ${esc(c.floor)}：<b>${esc(mat(c.fromMatId)?.name||'')}</b> 裁 <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(mat(c.toMatId)?.name||'')}</b></div>`).join('');
+  const cutsCard = cuts.length ? `<div class="card" style="padding:12px;border-left:4px solid var(--amber)">
+    <div style="font-weight:800;margin-bottom:4px">✂️ 同層長料裁短料（先做這個最省）</div>
+    <div class="muted" style="margin-bottom:8px">同一種料，長的多、短的缺 → 裁長補短，免叫料、免跨樓層搬。</div>
+    ${cutRows}
+    <button class="btn sm" style="margin-top:8px" onclick="applyAllCuts()">✂️ 全部套用裁切</button>
+  </div>` : '';
+  openSheet(`<h3>🔄 調撥建議<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="muted" style="margin-bottom:10px">順序：<b>先同層裁切 → 再跨樓層調撥 → 最後才叫料</b>。只動「超過該樓層整體需求」的量。</div>
+    ${cutsCard}
     <button class="btn gray sm" onclick="openManualTransfer()" style="margin-bottom:12px">✋ 手動調撥（緊急，先搬再說）</button>
     ${cards.length? cards.join('')+`<button class="btn" onclick="applyAllAlloc()" style="margin-top:2px">✅ 全部套用</button>` : '<div class="card"><div class="muted">目前沒有可自動調撥的材料（沒有「某層多、另一層缺」的情況）。要把還沒用到的先搬去別層，用上面的「手動調撥」。</div></div>'}
     ${recent?`<div style="margin-top:14px"><div style="font-size:13px;font-weight:800;margin-bottom:6px">最近調撥</div>${recent}</div>`:''}`);
