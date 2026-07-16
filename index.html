@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v43</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v44</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -753,7 +753,11 @@ function renderDeliverLog(){
     order.sort((a,b)=> groups[a].sort-groups[b].sort || groups[a].label.localeCompare(groups[b].label));
     const inner = order.map(k=>{
       const g=groups[k];
-      const rows = g.rows.slice().reverse().map(delivRow).join('');
+      // 組內：先照材料（骨架C41→槽鐵U43…），同材料再新到舊 → C41 C41 C41 U43
+      const rows = g.rows.slice().sort((a,b)=>{
+        const ma=mat(a.matId)||{cat:'其他',name:''}, mb=mat(b.matId)||{cat:'其他',name:''};
+        return matSort(ma,mb) || String(b.date||'').localeCompare(String(a.date||''));
+      }).map(delivRow).join('');
       return `<div style="margin-bottom:6px"><div style="font-size:12px;font-weight:700;color:var(--text2);padding:5px 4px 3px">${esc(g.label)} · ${g.rows.length}</div>${rows}</div>`;
     }).join('');
     return `<div class="grp">
