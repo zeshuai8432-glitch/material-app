@@ -94,6 +94,9 @@
   .sheet h3{font-size:16px;font-weight:800;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
   .sheet h3 .x{font-size:22px;color:var(--text2);cursor:pointer;padding:0 4px}
   .seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .segbtn{flex:1;min-width:64px;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#f8fafc;
+    font-size:13px;font-weight:800;color:var(--text2);cursor:pointer;transition:.12s}
+  .segbtn.on{background:var(--blue);border-color:var(--blue);color:#fff}
   .listitem{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:11px;margin-bottom:7px;background:#fff}
   .listitem .li-m{flex:1;min-width:0}
   .listitem .li-t{font-weight:700;font-size:14px}
@@ -126,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v40</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v41</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -262,7 +265,7 @@ let D = {
   recipes: {},       // { [project]: [{floor, rooms:[{type,count,walls:[{name,mats:[{label,unit,cat,kind,raw,div}]}]}]}] }
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
-let cur = { project: null, page: 'board' };
+let cur = { project: null, page: 'board', sysFilter: '全部' };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -438,6 +441,20 @@ function itemLack(it){ // >0 需補：手動優先，否則用 需求−有效�
   return round(itemNeed(it) - itemRemaining(it));
 }
 function catOrder(c){ const i = D.cats.indexOf(c); return i<0?999:i; }
+// 隔間系統 / 天花系統 分類（板材類共用）
+const SYS_PARTITION = ['骨架立柱','槽鐵','加強橫枝','補強鋼板','玻璃棉','岩棉'];
+const SYS_CEILING = ['主架','副架','螺桿','收邊','五金'];
+function catSystem(c){
+  if(SYS_PARTITION.includes(c)) return '隔間';
+  if(SYS_CEILING.includes(c)) return '天花';
+  return '共用'; // 板材、其他 兩邊都會用到
+}
+function sysMatch(c){ // 是否通過目前系統篩選
+  const f = cur.sysFilter || '全部';
+  if(f==='全部') return true;
+  const s = catSystem(c);
+  return s===f || s==='共用';
+}
 
 // ════════════════════════════════════════════
 //  NAV
@@ -472,8 +489,10 @@ function renderBoard(){
   const el = document.getElementById('board');
   const p = cur.project;
   if(!p){ el.innerHTML = emptyBox('🏗️','還沒有案場','到「設定」新增案場，再建房間與需求量'); return; }
-  const items = projItems(p);
-  if(!items.length){ el.innerHTML = emptyBox('📋','此案場尚無材料','到「設定 → 需求量」設定各房間要用的材料'); return; }
+  const allItems = projItems(p);
+  if(!allItems.length){ el.innerHTML = emptyBox('📋','此案場尚無材料','到「設定 → 需求量」設定各房間要用的材料'); return; }
+  // 系統篩選（隔間 / 天花 / 全部）
+  const items = allItems.filter(it=> sysMatch(mat(it.matId)?.cat));
 
   // group by 樓層 -> 房間 -> 分類
   const floors = {};
@@ -485,16 +504,21 @@ function renderBoard(){
   // summary
   let totLack = 0, lackRooms = new Set();
   items.forEach(it=>{ const l=itemLack(it); if(l>0){ totLack+=l; lackRooms.add(it.room); } });
-  let html = `<div class="card" style="display:flex;gap:10px;align-items:center;padding:13px 15px">
-    <div style="flex:1">
-      <div style="font-size:13px;color:var(--text2);font-weight:700">現場狀態</div>
-      <div style="font-size:15px;font-weight:800;margin-top:2px">${lackRooms.size? `<span class="lack">${lackRooms.size} 個房間要補料</span>` : '<span class="ok">全部房間庫存充足 ✅</span>'}</div>
+  const sysBtn = (f,lbl)=>`<button class="segbtn ${(cur.sysFilter||'全部')===f?'on':''}" onclick="setSysFilter('${f}')">${lbl}</button>`;
+  let html = `<div class="card" style="padding:13px 15px">
+    <div style="display:flex;gap:10px;align-items:center">
+      <div style="flex:1">
+        <div style="font-size:13px;color:var(--text2);font-weight:700">現場狀態${(cur.sysFilter&&cur.sysFilter!=='全部')?`　<span style="color:var(--blue)">· ${cur.sysFilter}系統</span>`:''}</div>
+        <div style="font-size:15px;font-weight:800;margin-top:2px">${lackRooms.size? `<span class="lack">${lackRooms.size} 個房間要補料</span>` : '<span class="ok">全部房間庫存充足 ✅</span>'}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;flex:0 0 auto">
+        <button class="btn sm" onclick="openAllocSheet()">🔄 調撥建議</button>
+        <button class="btn sm gray" onclick="openRefillSheet()">📄 補料單</button>
+      </div>
     </div>
-    <div style="display:flex;flex-direction:column;gap:6px;flex:0 0 auto">
-      <button class="btn sm" onclick="openAllocSheet()">🔄 調撥建議</button>
-      <button class="btn sm gray" onclick="openRefillSheet()">📄 補料單</button>
-    </div>
+    <div class="seg" style="margin-top:11px">${sysBtn('全部','全部')}${sysBtn('隔間','🧱 隔間')}${sysBtn('天花','🔲 天花')}</div>
   </div>`;
+  if(!items.length){ el.innerHTML = html + emptyBox('🔍','此系統沒有材料','切換到其他系統，或選「全部」'); return; }
 
   Object.keys(floors).sort(cmpFloor).forEach(fl=>{
     const rooms = floors[fl].rooms;
@@ -540,6 +564,7 @@ function renderBoard(){
   el.innerHTML = html;
 }
 function toggleGrp(id){ if(collapsed.has(id))collapsed.delete(id); else collapsed.add(id); renderBoard(); }
+function setSysFilter(f){ cur.sysFilter = f; save(); renderBoard(); }
 function cmpFloor(a,b){ return String(a).localeCompare(String(b),'zh-Hant',{numeric:true}); }
 function emptyBox(ic,t,s){ return `<div class="card"><div class="empty"><div class="ic">${ic}</div><div style="font-weight:800;font-size:15px;color:var(--text)">${t}</div><div class="muted" style="margin-top:4px">${s}</div></div></div>`; }
 
