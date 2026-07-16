@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v34</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v35</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v34</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v35</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2779,16 +2779,17 @@ function calcCeiling(p) {
   const nuts = hangPointsTotal * 2;
   // 擊釘片：標準品才需要，數量 = 吊點數
   const hitNails = rodResult.needHitNail ? hangPointsTotal : 0;
-  // 四齒夾：N38才需要（百葉與N38的結合點）
-  // 副架（百葉）第一支離牆30.5、固定間距30.5，排到最後一支離牆≤30.5（不排到牆外）
-  const subSpan = p.mainDir === 'length' ? W : L;
-  const subCount = Math.max(1, Math.ceil((subSpan - 30.5) / 30.5));
+  // 副架（百葉）與主架「交錯（垂直）」：
+  //  - 沿著「主架長度方向(mainSpan)」每 30.5 排一條（第一條離牆30.5、末條離牆≤30.5、不排到牆外）
+  //  - 每條副架垂直橫跨另一個方向(mainCount_dim)，長度靠這邊算
+  const subCount = Math.max(1, Math.ceil((mainSpan - 30.5) / 30.5));
+  const subFrameSpan = mainCount_dim; // 每條副架橫跨的長度（垂直於主架）
   // 每支副架長度：有指定資料庫品項就用它的長度
   const subMat = p.subMatId ? (state.materials.subFrames || []).find(x => x.id === p.subMatId) : null;
   const subLen = subMat ? subMat.length : (p.subLenCustom ? p.subLenCustom : parseInt(p.subLen));
-  const subPerRow = Math.ceil(mainSpan / subLen);
-  // 百葉跨 mainSpan：整支整支接、最後一段裁切，剩料可續接到別條（同主架邏輯）
-  const subLastLen = Math.max(1, Math.min(subLen, mainSpan - (subPerRow - 1) * subLen));
+  const subPerRow = Math.ceil(subFrameSpan / subLen);
+  // 每條副架跨 subFrameSpan：整支整支接、最後一段裁切，剩料可續接到別條（同主架邏輯）
+  const subLastLen = Math.max(1, Math.min(subLen, subFrameSpan - (subPerRow - 1) * subLen));
   const subFullSticks = subCount * Math.max(0, subPerRow - 1);
   const subLastPerStick = Math.max(1, Math.floor(subLen / subLastLen));
   const subLastSticks = Math.ceil(subCount / subLastPerStick);
