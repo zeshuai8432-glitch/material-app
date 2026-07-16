@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v31</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v32</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v31</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v32</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1472,6 +1472,7 @@ let state = {
   zoneType: 'partition',
   sides: 'single',
   materials: null,
+  resultSys: 'all',   // 用量彙總的系統檢視：all / partition / ceiling
 };
 
 // ════════════════════════════════════
@@ -3226,13 +3227,21 @@ function renderResults() {
   const zonesOf = s => (state.zones[s.id] || []).filter(z => z.result);
   const hasAny = spaces.some(s => zonesOf(s).length);
 
+  const sys = state.resultSys || 'all';
+  const showP = sys === 'all' || sys === 'partition';
+  const showC = sys === 'all' || sys === 'ceiling';
+  const sysBtn = (f, lbl) => `<button class="toggle-btn ${sys === f ? 'active' : ''}" style="font-size:13px;padding:6px 14px" onclick="setResultSys('${f}')">${lbl}</button>`;
+
   let html = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px;">
       <h2 style="font-size:16px;font-weight:700;">${esc(p.name)} — 用量彙總</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="exportToFieldApp()">📤 匯出給材料管理</button>
         <button class="btn btn-secondary" onclick="printResults()">🖨️ 列印報表</button>
       </div>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+      ${sysBtn('all', '全部')}${sysBtn('partition', '🧱 隔間系統')}${sysBtn('ceiling', '⬜ 天花板系統')}
     </div>`;
 
   if (!hasAny) {
@@ -3240,16 +3249,18 @@ function renderResults() {
     return;
   }
 
-  // 隔間/天花分開的彙總表（apply 回呼把 zone 加進 agg）
+  // 隔間/天花分開的彙總表（apply 回呼把 zone 加進 agg；依上方系統切換只顯示對應系統）
   const splitTotalsHTML = (apply) => {
-    const pAgg = makeAgg(), cAgg = makeAgg();
-    apply(pAgg, 'partition'); pAgg.finalize();
-    apply(cAgg, 'ceiling'); cAgg.finalize();
-    const pHas = Object.keys(pAgg.totals).length, cHas = Object.keys(cAgg.totals).length;
     let h = '';
-    if (pHas) h += `<div style="font-weight:700;font-size:13px;color:#1d4ed8;margin:2px 0 4px">🧱 隔間</div>${totalsTableHTML(pAgg.totals)}`;
-    if (cHas) h += `<div style="font-weight:700;font-size:13px;color:#0f766e;margin:12px 0 4px">⬜ 天花板</div>${totalsTableHTML(cAgg.totals)}`;
-    return h || '<div style="color:#999;padding:6px">無</div>';
+    if (showP) {
+      const pAgg = makeAgg(); apply(pAgg, 'partition'); pAgg.finalize();
+      if (Object.keys(pAgg.totals).length) h += `<div style="font-weight:700;font-size:13px;color:#1d4ed8;margin:2px 0 4px">🧱 隔間</div>${totalsTableHTML(pAgg.totals)}`;
+    }
+    if (showC) {
+      const cAgg = makeAgg(); apply(cAgg, 'ceiling'); cAgg.finalize();
+      if (Object.keys(cAgg.totals).length) h += `<div style="font-weight:700;font-size:13px;color:#0f766e;margin:12px 0 4px">⬜ 天花板</div>${totalsTableHTML(cAgg.totals)}`;
+    }
+    return h || '<div style="color:#999;padding:6px">此系統無材料</div>';
   };
 
   // 1) 全案彙總（× 各空間間數），隔間/天花分開
@@ -3271,6 +3282,9 @@ function renderResults() {
         count += c; comp.push({ name: s.name, count: c });
       });
       if (!count) return;
+      // 若目前只看某系統，且此樓層沒有該系統的區塊，就跳過
+      const hasSysZone = spaces.some(s => { const fe = (s.floors || []).find(f => f.floor === fl); if (!fe || (parseInt(fe.count) || 0) <= 0) return false; return zonesOf(s).some(z => sys === 'all' || z.type === sys); });
+      if (!hasSysZone) return;
       const compStr = comp.map(c => `${esc(c.name)}×${c.count}`).join('・');
       const body = splitTotalsHTML((agg, type) => {
         spaces.forEach(s => { const fe = (s.floors || []).find(f => f.floor === fl); if (!fe) return; const c = parseInt(fe.count) || 0; if (c <= 0) return; zonesOf(s).forEach(z => { if (z.type === type) aggregateZone(z, c, agg); }); });
@@ -3285,7 +3299,7 @@ function renderResults() {
   // 3) 空間單間明細（預設收合）
   html += '<div class="result-header" style="margin-top:20px">📦 空間單間明細</div>';
   spaces.forEach(s => {
-    const zones = zonesOf(s); if (!zones.length) return;
+    const zones = zonesOf(s).filter(z => sys === 'all' || z.type === sys); if (!zones.length) return;
     const cnt = spaceTotalCount(s);
     const sum = spaceFloorSummary(s);
     html += `<details style="border:1px solid var(--border,#e3e8ef);border-radius:10px;margin-bottom:8px;background:var(--card,#fff)">
@@ -3296,6 +3310,7 @@ function renderResults() {
 
   el.innerHTML = html;
 }
+function setResultSys(f) { state.resultSys = f; renderResults(); }
 
 
 // ════════════════════════════════════
