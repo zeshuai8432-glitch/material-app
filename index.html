@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v41</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v42</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -270,6 +270,15 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const round = n => Math.round(n*100)/100;
+// 支援算式輸入：例「20+30」「10*2+5」→ 現場分區加總。只允許數字與 + - * / ( ) . 空白
+function evalQty(v){
+  const s = String(v==null?'':v).trim();
+  if(s==='') return 0;
+  if(/^[-+]?\d*\.?\d+$/.test(s)) return num(s);            // 純數字直接回
+  if(!/^[\d+\-*/().\s]+$/.test(s)) return num(s);          // 含非算式字元 → 退回一般解析
+  try{ const r = Function('"use strict";return('+s+')')(); return (typeof r==='number'&&isFinite(r))?round(r):num(s); }
+  catch(e){ return num(s); }
+}
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const collapsed = new Set(); // dashboard group collapse (default open, store closed)
 // 同名稱 → 同色系（辨識同一種料的不同規格）
@@ -574,16 +583,17 @@ function quickCount(itemId){
   const m = mat(it.matId); const unit = m?m.unit:'';
   openSheet(`<h3>${esc(matLabel(m))}<span class="x" onclick="closeSheet()">✕</span></h3>
     <div class="muted" style="margin-bottom:12px">${esc(it.room)}</div>
-    <div class="fg"><label>還缺 / 要補（${esc(unit)}）· 現場看到缺多少直接填</label>
+    <div class="fg"><label>還缺 / 要補（${esc(unit)}）· 可用算式，如 20+30</label>
       <div class="stepper"><button type="button" onclick="stepQty('qc-restock',-1)">−</button>
-      <input type="number" id="qc-restock" inputmode="decimal" value="${itemManual(it)?num(it.restock):''}" placeholder="直接填缺幾${esc(unit)||'支'}" style="flex:1;width:auto;text-align:left">
+      <input type="text" id="qc-restock" inputmode="text" value="${itemManual(it)?num(it.restock):''}" placeholder="例：20+30" style="flex:1;width:auto;text-align:left" oninput="qcEcho('qc-restock')" onchange="normQty('qc-restock')">
       <button type="button" onclick="stepQty('qc-restock',1)">＋</button></div>
-      <div class="muted" style="margin-top:4px">留空＝用下面「需求 − 現場剩餘」自動算</div></div>
+      <div class="muted" id="qc-restock-sum" style="margin-top:4px">留空＝用下面「需求 − 現場剩餘」自動算</div></div>
     <div class="divider"></div>
-    <div class="fg"><label>現場剩餘（${esc(unit)}）</label>
+    <div class="fg"><label>現場剩餘（${esc(unit)}）· 可用算式，如各區加總</label>
       <div class="stepper"><button type="button" onclick="stepQty('qc-rem',-1)">−</button>
-      <input type="number" id="qc-rem" inputmode="decimal" value="${num(it.remaining)}" style="flex:1;width:auto;text-align:left">
-      <button type="button" onclick="stepQty('qc-rem',1)">＋</button></div></div>
+      <input type="text" id="qc-rem" inputmode="text" value="${num(it.remaining)}" placeholder="例：20+30+15" style="flex:1;width:auto;text-align:left" oninput="qcEcho('qc-rem')" onchange="normQty('qc-rem')">
+      <button type="button" onclick="stepQty('qc-rem',1)">＋</button></div>
+      <div class="muted" id="qc-rem-sum" style="margin-top:3px;font-size:11px"></div></div>
     <div class="fg"><label>總需求量（${esc(unit)}）· 這房間總共要用多少</label>
       <input type="number" id="qc-need" inputmode="decimal" value="${itemTotal(it)}">
       ${needAdj(it)?`<div class="muted" style="margin-top:4px">已手動調整 ${needAdj(it)>0?'+':''}${needAdj(it)}${esc(unit)}（原計算 ${round(num(it.demand))}）</div>`:''}</div>
@@ -591,15 +601,22 @@ function quickCount(itemId){
       <input type="text" id="qc-needdelta" inputmode="text" placeholder="例：36 追加、-12 減少" style="text-align:left"></div>
     <button class="btn" onclick="saveQuickCount('${it.id}')">儲存</button>`);
 }
+// 算式即時回顯「＝ N」（只有含運算符才顯示）
+function qcEcho(id){ const el=document.getElementById(id), out=document.getElementById(id+'-sum'); if(!el||!out) return;
+  const raw=String(el.value).trim();
+  if(/[+\-*/]/.test(raw.slice(1)) && raw!==''){ out.textContent='＝ '+evalQty(raw)+' '; out.style.color='var(--blue)'; }
+  else if(id==='qc-restock'){ out.textContent='留空＝用下面「需求 − 現場剩餘」自動算'; out.style.color=''; }
+  else out.textContent='';
+}
 function saveQuickCount(itemId){
   const it = D.items.find(i=>i.id===itemId); if(!it) return;
   const rs = (document.getElementById('qc-restock').value||'').trim();
-  it.restock = rs==='' ? null : round(num(rs)); // 手動要補，留空＝自動算
-  it.remaining = round(num(document.getElementById('qc-rem').value));
+  it.restock = rs==='' ? null : evalQty(rs); // 手動要補，留空＝自動算
+  it.remaining = evalQty(document.getElementById('qc-rem').value);
   // 總需求量改成手動增減（存成與原計算的差），這樣換料/追加不會被重新匯出蓋掉。
   // 「加減」欄有填就在目前總數上加減；否則用「總需求量」欄當絕對值。
   const deltaRaw = (document.getElementById('qc-needdelta').value||'').trim();
-  const newTotal = deltaRaw!=='' ? round(itemTotal(it) + num(deltaRaw))
+  const newTotal = deltaRaw!=='' ? round(itemTotal(it) + evalQty(deltaRaw))
                                  : round(num(document.getElementById('qc-need').value));
   const adj = round(newTotal - round(num(it.demand)));
   it.needAdj = adj===0 ? null : adj;
@@ -741,10 +758,11 @@ function renderCount(){
       <div style="font-weight:800;font-size:14px;color:${ctn.c}">${esc(m?m.name:'?')}</div>
       <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 已送 ${num(it.delivered)}${esc(unit)}${used>0?(' · 已用 '+used+esc(unit)):''}</div>
       <div class="row">
-        <div><label>現場剩餘</label>
+        <div><label>現場剩餘・可用算式</label>
           <div class="stepper"><button type="button" onclick="stepQty('ct-rem-${it.id}',-1)">−</button>
-          <input type="number" id="ct-rem-${it.id}" inputmode="decimal" value="${defVal}" style="flex:1;width:auto;text-align:left" onchange="liveCount('${it.id}')">
-          <button type="button" onclick="stepQty('ct-rem-${it.id}',1)">＋</button></div></div>
+          <input type="text" id="ct-rem-${it.id}" inputmode="text" value="${defVal}" placeholder="例：20+30" style="flex:1;width:auto;text-align:left" oninput="liveCount('${it.id}')" onchange="normQty('ct-rem-${it.id}');liveCount('${it.id}')">
+          <button type="button" onclick="stepQty('ct-rem-${it.id}',1)">＋</button></div>
+          <div class="muted" id="ct-remsum-${it.id}" style="margin-top:3px;font-size:11px"></div></div>
         <div><label>需求量</label>
           <input type="number" id="ct-need-${it.id}" inputmode="decimal" value="${itemNeed(it)}" onchange="liveCount('${it.id}')"></div>
       </div>
@@ -759,19 +777,24 @@ function countResHTML(it){
   const lack = itemLack(it);
   return lack>0 ? `<span class="lack">要補 ${lack}</span>` : `<span class="ok">庫存充足 ✅</span>`;
 }
+// 把算式欄位算完後直接寫回（失焦時整理成數字）
+function normQty(id){ const el=document.getElementById(id); if(el) el.value = evalQty(el.value); }
 function liveCount(id){
   const it = D.items.find(i=>i.id===id); if(!it) return;
-  // 盤點時直接用畫面上輸入的剩餘/需求算，不再套「送料−已用」估算
-  const rem = num(document.getElementById('ct-rem-'+id).value);
+  // 盤點時直接用畫面上輸入的剩餘/需求算，不再套「送料−已用」估算（現場剩餘支援算式）
+  const raw = document.getElementById('ct-rem-'+id).value;
+  const rem = evalQty(raw);
   const need = num(document.getElementById('ct-need-'+id).value);
   const lack = itemManual(it) ? round(num(it.restock)) : round(need - rem);
+  const sumEl = document.getElementById('ct-remsum-'+id);
+  if(sumEl) sumEl.textContent = /[+\-*/]/.test(String(raw).trim().slice(1)) ? ('＝ '+rem) : '';
   document.getElementById('ct-res-'+id).innerHTML = lack>0 ? `<span class="lack">要補 ${lack}</span>` : `<span class="ok">庫存充足 ✅</span>`;
 }
 function saveCount(){
   const p = cur.project; const room = document.getElementById('ct-room').value;
   D.items.filter(i=>i.project===p && i.room===room).forEach(it=>{
     const r=document.getElementById('ct-rem-'+it.id), n=document.getElementById('ct-need-'+it.id);
-    if(r) it.remaining = round(num(r.value));
+    if(r) it.remaining = evalQty(r.value);
     // 需求量編輯存成手動增減（相對依進度的還需要），不動原計算基準、也不會被重新匯出蓋掉
     if(n){ const adj = round(num(n.value) - baseNeed(it)); it.needAdj = adj===0 ? null : adj; }
   });
@@ -1379,7 +1402,7 @@ function restorePreImport(){
 }
 
 // ── shared ui ──
-function stepQty(id,d){ const el=document.getElementById(id); el.value = round(Math.max(num(el.value)+d,0)); if(id.startsWith('ct-rem-'))liveCount(id.slice(7)); }
+function stepQty(id,d){ const el=document.getElementById(id); el.value = round(Math.max(evalQty(el.value)+d,0)); if(id.startsWith('ct-rem-'))liveCount(id.slice(7)); }
 function openSheet(html){ document.getElementById('sheet').innerHTML=html; document.getElementById('ov').classList.add('show'); }
 function closeSheet(){ document.getElementById('ov').classList.remove('show'); }
 let toastT;
