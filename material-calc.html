@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v37</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v38</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v37</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v38</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1600,17 +1600,32 @@ async function doLogin() {
     let userData;
     if (dataRes.ok && dataRes.data) {
       userData = dataRes.data;
-      // 確保新欄位存在
-      if (!userData.materials.mainFrames) userData.materials.mainFrames = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.mainFrames));
-      if (!userData.materials.subFrames) userData.materials.subFrames = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.subFrames));
-      if (!userData.materials.trims) userData.materials.trims = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.trims));
-      if (!userData.materials.rods) userData.materials.rods = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.rods));
-      if (!userData.materials.hardware) userData.materials.hardware = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.hardware));
     } else {
-      userData = { projects: [], spaces: {}, zones: {}, materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)) };
+      userData = { projects: [], spaces: {}, zones: {}, reinf: {}, materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)) };
     }
 
+    // 2b. 本機備份若比雲端新（上次存雲端可能沒成功），改用本機的，並在載入後補存回雲端
+    let repush = false;
+    try {
+      const raw = localStorage.getItem('mc_cache_' + name);
+      if (raw) {
+        const local = JSON.parse(raw);
+        if (local && (local.savedAt || 0) > (userData.savedAt || 0)) { userData = local; repush = true; }
+      }
+    } catch (e) {}
+
+    // 確保新欄位存在
+    if (!userData.materials) userData.materials = JSON.parse(JSON.stringify(DEFAULT_MATERIALS));
+    if (!userData.materials.mainFrames) userData.materials.mainFrames = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.mainFrames));
+    if (!userData.materials.subFrames) userData.materials.subFrames = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.subFrames));
+    if (!userData.materials.trims) userData.materials.trims = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.trims));
+    if (!userData.materials.rods) userData.materials.rods = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.rods));
+    if (!userData.materials.hardware) userData.materials.hardware = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.hardware));
+
     loadUserData(userData);
+    // 讓本機備份 == 目前載入的資料（避免下次重整又拿舊本機蓋掉）
+    try { localStorage.setItem('mc_cache_' + name, JSON.stringify(userData)); } catch (e) {}
+    if (repush) saveNow(); // 把本機較新的資料補存回雲端
     // 記住登入狀態
     localStorage.setItem('mc_session', JSON.stringify({ user: name, password: pwd }));
 
@@ -1739,16 +1754,25 @@ let saveTimer = null;
 let cloudSaveState = 'idle'; // idle | pending | saving | saved | error
 let saveStatusHideTimer = null;
 
+// ── 本機備份（離線保險）：每次存檔同步寫一份到 localStorage，重整時若本機比雲端新就用本機 ──
+function localCacheKey() { return 'mc_cache_' + (state.user || ''); }
+function snapshotData() {
+  return { projects: state.projects, spaces: state.spaces, zones: state.zones, reinf: state.reinf, materials: state.materials, savedAt: Date.now() };
+}
+function cacheLocal(data) { try { if (state.user) localStorage.setItem(localCacheKey(), JSON.stringify(data)); } catch (e) {} }
+
 function saveUserData() {
   if (!state.user || !state.password) return;
+  cacheLocal(snapshotData());          // 立刻寫本機備份，就算馬上重整也不掉
   cloudSaveState = 'pending';
   setSaveStatus('saving', '☁ 儲存中…');
   clearTimeout(saveTimer);
   saveTimer = setTimeout(doCloudSave, 800);
 }
-// 結構性變更（新增／複製／刪除 空間或區塊）立刻存，不等 800ms，避免馬上重整就掉資料
+// 結構性變更（新增／複製／刪除 空間或區塊）立刻存，不等 800ms
 function saveNow() {
   if (!state.user || !state.password) return;
+  cacheLocal(snapshotData());
   cloudSaveState = 'pending';
   setSaveStatus('saving', '☁ 儲存中…');
   clearTimeout(saveTimer);
@@ -1760,14 +1784,15 @@ async function doCloudSave() {
   clearTimeout(saveTimer);
   cloudSaveState = 'saving';
   setSaveStatus('saving', '☁ 儲存中…');
-  const data = { projects: state.projects, spaces: state.spaces, zones: state.zones, reinf: state.reinf, materials: state.materials };
+  const data = snapshotData();
+  cacheLocal(data);
   try {
     const res = await gasCall('saveData', { username: state.user, password: state.password, data });
     if (res && res.ok) { cloudSaveState = 'saved'; setSaveStatus('saved', '✓ 已儲存', true); }
-    else { cloudSaveState = 'error'; setSaveStatus('error', '⚠ 儲存失敗，點此重試'); }
+    else { cloudSaveState = 'error'; setSaveStatus('error', '⚠ 儲存失敗（已存本機，連上網會補存）'); }
   } catch(e) {
     cloudSaveState = 'error';
-    setSaveStatus('error', '⚠ 儲存失敗，點此重試');
+    setSaveStatus('error', '⚠ 儲存失敗（已存本機，連上網會補存）');
   }
 }
 
@@ -1786,8 +1811,9 @@ function retrySave() {
 
 function flushSaveBeacon() {
   if (!state.user || !state.password) return;
+  const data = snapshotData();
+  cacheLocal(data); // 一律先寫本機
   if (cloudSaveState !== 'pending' && cloudSaveState !== 'error' && cloudSaveState !== 'saving') return;
-  const data = { projects: state.projects, spaces: state.spaces, zones: state.zones, reinf: state.reinf, materials: state.materials };
   try { navigator.sendBeacon(GAS_URL, JSON.stringify({ action: 'saveData', payload: { username: state.user, password: state.password, data } })); } catch(e) {}
 }
 
