@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v44</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v45</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1464,11 +1464,45 @@ function checkPendingImport(){
   if(_dismissedImport === pl.exportedAt) return;
   const matCount = pl.floors.reduce((a,f)=>a+((f.materials&&f.materials.length)||0),0);
   _pendingImport = pl;
+  // 幽靈偵測：這個案場現有、但新匯入已經沒有的材料（改過料/下料留下的殘影）
+  const ghosts = importGhosts(pl);
+  const ghostHtml = ghosts.length ? `<div class="divider"></div>
+    <div style="font-weight:800;font-size:13px;color:var(--amber)">🧹 這些材料「計算」已經沒有了（${ghosts.length}）</div>
+    <div class="muted" style="margin:3px 0 8px">多半是改過材料/下料長度留下的殘影，總需不會再更新。勾選要一起清掉的（預設不清、可還原）：</div>
+    ${ghosts.map(it=>{ const m=mat(it.matId); const unit=m?m.unit:''; return `<label class="listitem" style="cursor:pointer;gap:10px">
+      <input type="checkbox" class="ghost-ck" value="${it.id}" style="width:20px;height:20px;flex:0 0 auto">
+      <div class="li-m" style="min-width:0"><div class="li-t">${esc(m?m.name:'?')}</div>
+        <div class="li-s">${esc(it.room)}・總需 ${itemTotal(it)}${esc(unit)}・送 ${num(it.delivered)}${esc(unit)}</div></div>
+    </label>`; }).join('')}
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin-top:4px;cursor:pointer"><input type="checkbox" onclick="document.querySelectorAll('.ghost-ck').forEach(c=>c.checked=this.checked)" style="width:18px;height:18px"> 全選</label>` : '';
   openSheet(`<h3>📥 匯入計算結果<span class="x" onclick="dismissCalcImport()">✕</span></h3>
     <div class="hint">偵測到來自「材料計算」的資料。匯入會帶入各樓層的需求量，既有的送到／現場剩餘不受影響。</div>
     <div class="listitem"><div class="li-m"><div class="li-t">${esc(pl.project)}</div><div class="li-s">${pl.floors.length} 個樓層 · ${matCount} 項材料</div></div></div>
-    <button class="btn" style="margin-top:10px" onclick="confirmCalcImport()">✅ 匯入「${esc(pl.project)}」</button>
+    ${ghostHtml}
+    <button class="btn" style="margin-top:10px" onclick="confirmCalcImport()">✅ 匯入「${esc(pl.project)}」${ghosts.length?'（含清理）':''}</button>
     <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="dismissCalcImport()">稍後再說</button>`);
+}
+// 找出「案場現有、但新匯入的材料清單裡沒有」的品項＝幽靈殘影
+function importGhosts(pl){
+  const proj = pl.project;
+  const names = new Set();
+  (pl.floors||[]).forEach(f=>(f.materials||[]).forEach(m=>names.add(m.name)));
+  return D.items.filter(it=>{
+    if(it.project!==proj) return false;
+    const m = mat(it.matId); if(!m) return false;
+    return !names.has(m.name);
+  });
+}
+// 清掉選取的幽靈品項（連同該材料在此案場的送料/調撥紀錄）；有 preimport 備份可還原
+function deleteGhostItems(ids){
+  const set = new Set(ids); if(!set.size) return 0;
+  const gone = D.items.filter(it=>set.has(it.id));
+  const pairs = gone.map(it=>({project:it.project, matId:it.matId}));
+  const match = (x)=>pairs.some(p=>p.project===x.project && p.matId===x.matId);
+  D.items = D.items.filter(it=>!set.has(it.id));
+  D.deliveries = D.deliveries.filter(d=>!match(d));
+  D.transfers = (D.transfers||[]).filter(t=>!match(t));
+  return gone.length;
 }
 function applyCalcImport(pl){
   // 匯入前先備份整份資料，萬一名稱有變動導致對不上，可一鍵還原
@@ -1515,10 +1549,13 @@ function applyCalcImport(pl){
 }
 function confirmCalcImport(){
   if(!_pendingImport) return;
+  const kill = [...document.querySelectorAll('.ghost-ck:checked')].map(c=>c.value); // 先讀取，applyCalcImport 會重繪
   applyCalcImport(_pendingImport);
+  const n = deleteGhostItems(kill);
+  if(n) save();
   try{ localStorage.removeItem('fieldmat_pending_import'); }catch(e){}
   _dismissedImport = _pendingImport.exportedAt; _pendingImport = null;
-  closeSheet(); go('board'); toast('✅ 已匯入需求量');
+  closeSheet(); go('board'); renderBoard(); toast(n? ('✅ 已匯入，並清掉 '+n+' 筆幽靈') : '✅ 已匯入需求量');
 }
 function dismissCalcImport(){
   if(_pendingImport) _dismissedImport = _pendingImport.exportedAt;
