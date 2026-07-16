@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v33</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v34</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v33</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v34</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2549,7 +2549,7 @@ function renderZonesHTML(spaceId) {
     const pStr = z.type === 'partition'
       ? `${z.params.width}×${z.params.height} cm｜${z.params.studSpacing}cm 間距｜${z.params.sides === 'single' ? '單面' : '雙面'}`
       : z.type === 'ceiling'
-      ? `${z.params.cLength}×${z.params.cWidth} cm｜${z.params.sys==='centipede'?'蜈蚣腳':'N38'}｜${z.params.mainDir==='length'?'沿長邊':'沿寬邊'}`
+      ? `${z.params.cLength}×${z.params.cWidth} cm｜${z.params.sys==='centipede'?'蜈蚣腳':'N38'}｜${z.params.mainDir==='length'?'沿長邊':'沿寬邊'}（主架每支總長${z.params.mainDir==='length'?z.params.cLength:z.params.cWidth}cm）`
       : '';
     return `
       <div class="zone-item">
