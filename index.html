@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v49</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v50</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1484,22 +1484,22 @@ function checkPendingImport(){
   if(_dismissedImport === pl.exportedAt) return;
   const matCount = pl.floors.reduce((a,f)=>a+((f.materials&&f.materials.length)||0),0);
   _pendingImport = pl;
-  // 幽靈偵測：這個案場現有、但新匯入已經沒有的材料（改過料/下料留下的殘影）
-  const ghosts = importGhosts(pl);
-  const ghostHtml = ghosts.length ? `<div class="divider"></div>
-    <div style="font-weight:800;font-size:13px;color:var(--amber)">🧹 這些材料「計算」已經沒有了（${ghosts.length}）</div>
-    <div class="muted" style="margin:3px 0 8px">多半是改過材料/下料長度留下的殘影，總需不會再更新。勾選要一起清掉的（預設不清、可還原）：</div>
-    ${ghosts.map(it=>{ const m=mat(it.matId); const unit=m?m.unit:''; return `<label class="listitem" style="cursor:pointer;gap:10px">
-      <input type="checkbox" class="ghost-ck" value="${it.id}" style="width:20px;height:20px;flex:0 0 auto">
-      <div class="li-m" style="min-width:0"><div class="li-t">${esc(m?m.name:'?')}</div>
-        <div class="li-s">${esc(it.room)}・總需 ${itemTotal(it)}${esc(unit)}・送 ${num(it.delivered)}${esc(unit)}</div></div>
-    </label>`; }).join('')}
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin-top:4px;cursor:pointer"><input type="checkbox" onclick="document.querySelectorAll('.ghost-ck').forEach(c=>c.checked=this.checked)" style="width:18px;height:18px"> 全選</label>` : '';
+  // 以計算為準：預覽「計算已移除」的材料會怎麼處理
+  const vanished = importGhosts(pl);
+  const vSurplus = vanished.filter(it=> num(it.delivered)>0 || num(it.remaining)>0 || (it.restock!=null && it.restock!=='')).length;
+  const vRemove = vanished.length - vSurplus;
+  const reconHtml = vanished.length ? `<div class="divider"></div>
+    <div style="font-weight:800;font-size:13px;color:var(--amber);margin-bottom:4px">🔄 以計算為準：${vanished.length} 項計算已移除</div>
+    <div class="muted" style="font-size:12px;line-height:1.6">
+      ${vSurplus?`· <b>${vSurplus}</b> 項有送過料 → 需求歸 0、保留成「溢料」（現場那批還看得到）<br>`:''}
+      ${vRemove?`· <b>${vRemove}</b> 項沒送過料 → 直接移除<br>`:''}
+      · 手動「換料／追加」會清掉，完全跟著計算
+    </div>` : '';
   openSheet(`<h3>📥 匯入計算結果<span class="x" onclick="dismissCalcImport()">✕</span></h3>
-    <div class="hint">偵測到來自「材料計算」的資料。匯入會帶入各樓層的需求量，既有的送到／現場剩餘不受影響。</div>
+    <div class="hint">以「材料計算」為準覆蓋各樓層需求量。<b>送料、現場剩餘、施工進度都會保留</b>（計算不動這些）。</div>
     <div class="listitem"><div class="li-m"><div class="li-t">${esc(pl.project)}</div><div class="li-s">${pl.floors.length} 個樓層 · ${matCount} 項材料</div></div></div>
-    ${ghostHtml}
-    <button class="btn" style="margin-top:10px" onclick="confirmCalcImport()">✅ 匯入「${esc(pl.project)}」${ghosts.length?'（含清理）':''}</button>
+    ${reconHtml}
+    <button class="btn" style="margin-top:10px" onclick="confirmCalcImport()">✅ 以計算覆蓋「${esc(pl.project)}」</button>
     <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="dismissCalcImport()">稍後再說</button>`);
 }
 // 找出「案場現有、但新匯入的材料清單裡沒有」的品項＝幽靈殘影
@@ -1628,17 +1628,33 @@ function applyCalcImport(pl){
       });
     });
   });
+  // ── 以計算為準（整案覆蓋）──
+  //  ②甲：清掉所有手動加減（needAdj），完全以計算為準
+  //  ①甲：計算已移除的材料 → 有送過料/盤過的「歸零留成溢料」；完全沒碰過的移除
+  //  送料/現場剩餘/施工進度 一律保留（計算不知道這些現場事實）
+  const liveKeys = new Set();
+  (pl.floors||[]).forEach(fl=>(fl.materials||[]).forEach(m=> liveKeys.add(fl.floor+'||'+m.name)));
+  let nSurplus=0, nRemoved=0;
+  D.items = D.items.filter(it=>{
+    if(it.project!==project) return true;                 // 別的案場不動
+    const m = mat(it.matId);
+    if(liveKeys.has(it.room+'||'+(m?m.name:''))){ it.needAdj = null; return true; }  // 計算裡還有 → 清手動加減、保留
+    const physical = num(it.delivered)>0 || num(it.remaining)>0 || (it.restock!=null && it.restock!=='');
+    if(physical){ it.demand=0; it.needAdj=null; it.restock=null; nSurplus++; return true; }  // 送過料 → 溢料保留
+    nRemoved++; return false;                             // 沒碰過 → 移除
+  });
+  _lastRecon = {surplus:nSurplus, removed:nRemoved};
   save(); renderAll();
 }
+let _lastRecon = {surplus:0, removed:0};
 function confirmCalcImport(){
   if(!_pendingImport) return;
-  const kill = [...document.querySelectorAll('.ghost-ck:checked')].map(c=>c.value); // 先讀取，applyCalcImport 會重繪
   applyCalcImport(_pendingImport);
-  const n = deleteGhostItems(kill);
-  if(n) save();
   try{ localStorage.removeItem('fieldmat_pending_import'); }catch(e){}
   _dismissedImport = _pendingImport.exportedAt; _pendingImport = null;
-  closeSheet(); go('board'); renderBoard(); toast(n? ('✅ 已匯入，並清掉 '+n+' 筆幽靈') : '✅ 已匯入需求量');
+  const r = _lastRecon||{surplus:0,removed:0};
+  const extra = (r.surplus||r.removed) ? `（溢料 ${r.surplus}、移除 ${r.removed}）` : '';
+  closeSheet(); go('board'); renderBoard(); toast('✅ 已以計算覆蓋'+extra);
 }
 function dismissCalcImport(){
   if(_pendingImport) _dismissedImport = _pendingImport.exportedAt;
