@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v38</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v39</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v38</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v39</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -3320,9 +3320,14 @@ function zoneDetailHTML(z) {
   return '';
 }
 
+// 用量表的材料排序：骨架→槽鐵→加強橫枝→補強鋼板→主架→副架→螺桿→五金→板材→棉→收邊，同類再依名稱自然排序
+const RESULT_CAT_ORDER = ['骨架立柱', '槽鐵', '加強橫枝', '補強鋼板', '主架', '副架', '螺桿', '五金', '板材', '玻璃棉', '岩棉', '收邊', '其他'];
+function resultMatOrder(label) { const i = RESULT_CAT_ORDER.indexOf(guessFieldCat(label)); return i < 0 ? 99 : i; }
 function totalsTableHTML(totals) {
+  const rows = Object.values(totals).slice().sort((a, b) =>
+    resultMatOrder(a.label) - resultMatOrder(b.label) || String(a.label).localeCompare(String(b.label), 'zh-Hant', { numeric: true }));
   return `<table class="result-table"><thead><tr><th>材料</th><th>數量</th><th>單位</th></tr></thead><tbody>${
-    Object.values(totals).map(t => `<tr><td>${t.label}</td><td class="qty">${t.qty.toLocaleString()}</td><td class="unit-cell">${t.unit}</td></tr>`).join('')
+    rows.map(t => `<tr><td>${t.label}</td><td class="qty">${t.qty.toLocaleString()}</td><td class="unit-cell">${t.unit}</td></tr>`).join('')
   }</tbody></table>`;
 }
 
@@ -3832,7 +3837,7 @@ function printResults() {
     totalTable = `<h3 style="margin:20px 0 8px;font-size:14px;border-bottom:1px solid #ccc;padding-bottom:4px;">📊 全案材料彙總</h3>
     <table style="width:100%;border-collapse:collapse;font-size:12px;">
       <tr style="background:#2B5F8E;color:#fff;"><th style="padding:6px 10px;text-align:left;">材料</th><th style="padding:6px 10px;">總數量</th><th style="padding:6px 10px;">單位</th></tr>
-      ${Object.values(totals).map((t,i)=>`<tr style="background:${i%2?'#f8f8f8':'#fff'};"><td style="border:1px solid #ddd;padding:5px 10px;">${t.label}</td><td style="border:1px solid #ddd;padding:5px 10px;text-align:center;font-weight:700;">${t.qty.toLocaleString()}</td><td style="border:1px solid #ddd;padding:5px 10px;color:#666;">${t.unit}</td></tr>`).join('')}
+      ${Object.values(totals).slice().sort((a,b)=>resultMatOrder(a.label)-resultMatOrder(b.label)||String(a.label).localeCompare(String(b.label),'zh-Hant',{numeric:true})).map((t,i)=>`<tr style="background:${i%2?'#f8f8f8':'#fff'};"><td style="border:1px solid #ddd;padding:5px 10px;">${t.label}</td><td style="border:1px solid #ddd;padding:5px 10px;text-align:center;font-weight:700;">${t.qty.toLocaleString()}</td><td style="border:1px solid #ddd;padding:5px 10px;color:#666;">${t.unit}</td></tr>`).join('')}
     </table>`;
   }
 
