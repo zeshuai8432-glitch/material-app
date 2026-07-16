@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v36</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v37</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v36</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v37</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1746,6 +1746,14 @@ function saveUserData() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(doCloudSave, 800);
 }
+// 結構性變更（新增／複製／刪除 空間或區塊）立刻存，不等 800ms，避免馬上重整就掉資料
+function saveNow() {
+  if (!state.user || !state.password) return;
+  cloudSaveState = 'pending';
+  setSaveStatus('saving', '☁ 儲存中…');
+  clearTimeout(saveTimer);
+  return doCloudSave();
+}
 
 async function doCloudSave() {
   if (!state.user || !state.password) return;
@@ -1778,7 +1786,7 @@ function retrySave() {
 
 function flushSaveBeacon() {
   if (!state.user || !state.password) return;
-  if (cloudSaveState !== 'pending' && cloudSaveState !== 'error') return;
+  if (cloudSaveState !== 'pending' && cloudSaveState !== 'error' && cloudSaveState !== 'saving') return;
   const data = { projects: state.projects, spaces: state.spaces, zones: state.zones, reinf: state.reinf, materials: state.materials };
   try { navigator.sendBeacon(GAS_URL, JSON.stringify({ action: 'saveData', payload: { username: state.user, password: state.password, data } })); } catch(e) {}
 }
@@ -1829,7 +1837,7 @@ function saveProject() {
     state.projects.push({ id, name, note: document.getElementById('project-note-input').value.trim(), createdAt: new Date().toLocaleDateString('zh-TW') });
     state.spaces[id] = [];
   }
-  saveUserData();
+  saveNow();
   renderProjects();
   closeModal('modal-project');
   toast('案場已儲存');
@@ -1840,7 +1848,7 @@ function deleteProject(id) {
   state.projects = state.projects.filter(p => p.id !== id);
   delete state.spaces[id];
   if (state.activeProjectId === id) state.activeProjectId = null;
-  saveUserData();
+  saveNow();
   renderProjects();
   toast('案場已刪除','info');
 }
@@ -1963,7 +1971,7 @@ function saveFloorEdit() {
     if (c > 0) { if (idx >= 0) s.floors[idx].count = c; else s.floors.push({ floor: floorName, count: c }); }
     else if (idx >= 0) s.floors.splice(idx, 1);
   });
-  saveUserData(); renderSpaces(); renderResults(); closeModal('modal-floor');
+  saveNow(); renderSpaces(); renderResults(); closeModal('modal-floor');
   toast('已更新 ' + floorName + ' 組成');
 }
 
@@ -1994,7 +2002,7 @@ function copyFloor() {
     affected++;
   });
   if (!affected) { toast('沒有空間使用「' + source + '」', 'error'); return; }
-  saveUserData();
+  saveNow();
   renderSpaces();
   renderResults();
   toast('已把「' + source + '」複製成「' + target + '」（' + affected + ' 個空間）');
@@ -2033,7 +2041,7 @@ function saveSpace() {
     state.spaces[pid].push({ id, name, note: document.getElementById('space-note-input').value.trim(), floors });
     state.zones[id] = [];
   }
-  saveUserData();
+  saveNow();
   renderSpaces();
   closeModal('modal-space');
   toast('空間已儲存');
@@ -2045,7 +2053,7 @@ function deleteSpace(id) {
   state.spaces[pid] = (state.spaces[pid] || []).filter(s => s.id !== id);
   delete state.zones[id];
   delete state.reinf[id];
-  saveUserData();
+  saveNow();
   renderSpaces();
   toast('空間已刪除','info');
 }
@@ -2398,7 +2406,7 @@ function saveZone() {
     state.zones[spaceId].push(zoneData);
   }
 
-  saveUserData();
+  saveNow();
   renderSpaces();
   // reopen the space body
   setTimeout(() => {
@@ -2413,7 +2421,7 @@ function saveZone() {
 function deleteZone(spaceId, zoneId) {
   if (!confirm('確定刪除此區塊？')) return;
   state.zones[spaceId] = (state.zones[spaceId] || []).filter(z => z.id !== zoneId);
-  saveUserData();
+  saveNow();
   renderSpaces();
   toast('區塊已刪除','info');
 }
@@ -2450,7 +2458,7 @@ function copyZonesTo(sourceId) {
   const srcReinf = state.reinf[sourceId] || [];
   if (srcReinf.length) { state.reinf[target.id] = (state.reinf[target.id] || []).concat(srcReinf.map(r => Object.assign({}, r, { id: 'rf_' + Math.random().toString(36).slice(2, 8) }))); }
   recalcActiveProject();
-  saveUserData();
+  saveNow();
   renderSpaces();
   renderResults();
   toast(`已把 ${srcZones.length} 個隔間${srcReinf.length ? '＋補強鋼板' : ''}複製到「${target.name}」，去改細部差異即可`);
@@ -2471,7 +2479,7 @@ function copyGroupTo(sourceId, group) {
   else { target = { id: 'space_' + Date.now(), name: s, floors: JSON.parse(JSON.stringify(src.floors || [])), note: '' }; spaces.push(target); state.zones[target.id] = []; }
   const tz = state.zones[target.id] = state.zones[target.id] || [];
   srcZones.forEach(z => { const c = JSON.parse(JSON.stringify(z)); c.id = 'zone_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); tz.push(c); });
-  recalcActiveProject(); saveUserData(); renderSpaces(); renderResults();
+  recalcActiveProject(); saveNow(); renderSpaces(); renderResults();
   toast(`已把子區域「${group}」複製到「${target.name}」`);
 }
 function duplicateZone(spaceId, zoneId) {
@@ -2504,7 +2512,7 @@ function duplicateZone(spaceId, zoneId) {
     (state.zones[tid] = state.zones[tid] || []).push(copy);
   }
   recalcActiveProject();
-  saveUserData();
+  saveNow();
   renderSpaces();
   setTimeout(() => {
     const body = document.getElementById('space-body-' + tid);
@@ -2684,14 +2692,14 @@ function addSpaceReinfRow(sid) {
     wrap.insertAdjacentHTML('beforeend', reinfRowHTML(sid, r));
     const el = wrap.querySelector(`.reinf-row[data-id="${r.id}"] .rf-use`); if (el) el.focus();
   }
-  saveUserData();
+  saveNow();
 }
 function delSpaceReinfRow(sid, rid) {
   state.reinf[sid] = (state.reinf[sid] || []).filter(x => x.id !== rid);
   const row = document.querySelector(`#reinf-list-${sid} .reinf-row[data-id="${rid}"]`);
   if (row) row.remove();
   if (!(state.reinf[sid] || []).length) { const wrap = document.getElementById('reinf-list-' + sid); if (wrap) wrap.innerHTML = '<div style="font-size:12px;color:var(--text-3);padding:4px 2px">尚無補強鋼板，需要鎖東西的牆點下面加一筆</div>'; }
-  saveUserData(); renderResults();
+  saveNow(); renderResults();
 }
 function saveSpaceReinf(sid) {
   const wrap = document.getElementById('reinf-list-' + sid); if (!wrap) return;
