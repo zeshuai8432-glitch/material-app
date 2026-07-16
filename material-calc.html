@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v32</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v33</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v32</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v33</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1473,6 +1473,7 @@ let state = {
   sides: 'single',
   materials: null,
   resultSys: 'all',   // 用量彙總的系統檢視：all / partition / ceiling
+  calcSys: 'all',     // 材料計算頁的系統檢視：all / partition / ceiling
 };
 
 // ════════════════════════════════════
@@ -2052,6 +2053,13 @@ function renderSpaces() {
     return;
   }
 
+  // ── 系統切換（全部 / 隔間 / 天花）──
+  const csys = state.calcSys || 'all';
+  const csysBtn = (f, lbl) => `<button class="toggle-btn ${csys === f ? 'active' : ''}" style="font-size:13px;padding:6px 14px" onclick="setCalcSys('${f}')">${lbl}</button>`;
+  const sysToggle = `<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+    ${csysBtn('all', '全部')}${csysBtn('partition', '🧱 隔間系統')}${csysBtn('ceiling', '⬜ 天花板系統')}
+  </div>`;
+
   // ── 樓層總覽（floor-first：先看到 12F → 標準房×12、EXS×1）──
   const floorMap = {};
   spaces.forEach(s => (s.floors || []).forEach(f => { if (f.floor) (floorMap[f.floor] = floorMap[f.floor] || []).push({ name: s.name, count: f.count }); }));
@@ -2074,14 +2082,18 @@ function renderSpaces() {
     <div style="font-size:13px;font-weight:700;color:var(--text-2);margin-bottom:8px;">📦 空間（編輯牆／材料・重複空間跨樓層共用）</div>`;
   }
 
-  el.innerHTML = overview + spaces.map(s => {
-    const zones = state.zones[s.id] || [];
-    const zoneCount = zones.length;
+  // 記住目前展開的空間，重新渲染後還原（切換系統時才不會全部收合）
+  const openIds = new Set([...document.querySelectorAll('.space-body.open')].map(b => b.id.replace('space-body-', '')));
+  el.innerHTML = sysToggle + overview + spaces.map(s => {
+    const allZones = state.zones[s.id] || [];
+    const zones = csys === 'all' ? allZones : allZones.filter(z => z.type === csys);
+    const zoneCount = csys === 'all' ? allZones.length : `${zones.length}/${allZones.length}`;
+    const op = openIds.has(s.id);
     return `
       <div class="space-item">
         <div class="space-header" onclick="toggleSpaceBody('${s.id}')">
           <div style="display:flex;align-items:center;gap:10px;">
-            <span class="chevron" id="chevron-${s.id}">▶</span>
+            <span class="chevron${op ? ' open' : ''}" id="chevron-${s.id}">▶</span>
             <div>
               <div class="space-name">${esc(s.name)}${spaceTotalCount(s) > 1 ? ` <span style="font-size:12px;color:var(--green);font-weight:600">×${spaceTotalCount(s)}間</span>` : ''}</div>
               ${spaceFloorSummary(s) ? `<div style="font-size:12px;color:var(--text-3)">🏢 ${esc(spaceFloorSummary(s))}</div>` : ''}
@@ -2096,7 +2108,7 @@ function renderSpaces() {
             <button class="btn-icon" onclick="deleteSpace('${s.id}')">🗑️</button>
           </div>
         </div>
-        <div class="space-body" id="space-body-${s.id}">
+        <div class="space-body${op ? ' open' : ''}" id="space-body-${s.id}">
           ${renderZonesHTML(s.id)}
         </div>
       </div>`;
@@ -2494,10 +2506,15 @@ function duplicateZone(spaceId, zoneId) {
 }
 
 function renderZonesHTML(spaceId) {
-  const zones = state.zones[spaceId] || [];
-  zones.forEach(recalcZone); // 用最新算法重算，卡片顯示才會有原始用量欄位
-  if (!zones.length) {
+  const allZones = state.zones[spaceId] || [];
+  allZones.forEach(recalcZone); // 用最新算法重算，卡片顯示才會有原始用量欄位
+  const csys = state.calcSys || 'all';
+  const zones = csys === 'all' ? allZones : allZones.filter(z => z.type === csys);
+  if (!allZones.length) {
     return '<div style="text-align:center;padding:20px;color:var(--text-3);font-size:13px;">尚無計算區塊，點擊「新增區塊」開始計算</div>';
+  }
+  if (!zones.length) {
+    return `<div style="text-align:center;padding:16px;color:var(--text-3);font-size:12px;">此空間沒有${csys === 'partition' ? '隔間' : '天花板'}區塊</div>`;
   }
   const zoneCardHTML = z => {
     const typeLabel = z.type === 'partition' ? '隔間系統' : '天花板系統';
@@ -3311,6 +3328,7 @@ function renderResults() {
   el.innerHTML = html;
 }
 function setResultSys(f) { state.resultSys = f; renderResults(); }
+function setCalcSys(f) { state.calcSys = f; renderSpaces(); }
 
 
 // ════════════════════════════════════
