@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v47</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v48</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -222,7 +222,8 @@
       </div>
       <input type="file" id="imp-file" accept="application/json" style="display:none" onchange="importBackup(this.files[0])">
       <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="restorePreImport()">↩︎ 還原「匯入前」狀態</button>
-      <div class="muted" style="margin-top:8px">每次從計算程式匯入前會自動備份一份，對不上時可用上面按鈕還原。</div>
+      <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="forceCloudRestore()">☁️↓ 強制從雲端拉回（誤刪救援）</button>
+      <div class="muted" style="margin-top:8px">每次從計算程式匯入前會自動備份一份，對不上時可用上面按鈕還原。「強制拉回」會先告訴你雲端有幾筆，再讓你決定要不要覆蓋。</div>
     </div>
   </div>
 
@@ -1445,6 +1446,24 @@ function restorePreImport(){
   D = normalize(bk.data);
   cur.project = D.projects.includes(cur.project) ? cur.project : (D.projects[0]||null);
   clearNeedCache(); save(); renderAll(); toast('✅ 已還原到匯入前');
+}
+// 誤刪救援：直接把雲端的資料抓回來覆蓋本機（不管新舊）。先顯示雲端有幾筆，再確認。
+function forceCloudRestore(){
+  if(!CLOUD_URL){ toast('尚未設定雲端，無法救援'); return; }
+  toast('讀取雲端中…');
+  fetch(CLOUD_URL + '?_t=' + Date.now(), {credentials:'omit'}).then(r=>r.text()).then(txt=>{
+    if(!txt || txt.trim()==='' || txt.trim()==='{}'){ toast('雲端目前是空的'); return; }
+    let cd; try{ cd = JSON.parse(txt); if(cd && typeof cd.data==='string') cd = JSON.parse(cd.data); }
+    catch(e){ toast('雲端資料解析失敗'); return; }
+    if(!cd || typeof cd!=='object'){ toast('雲端資料異常'); return; }
+    const nItems=(cd.items||[]).length, nDeliv=(cd.deliveries||[]).length;
+    const at = cd.updatedAt ? ('\n雲端最後更新：'+cd.updatedAt) : '';
+    if(!confirm('雲端上有 '+nItems+' 筆材料、'+nDeliv+' 筆送料紀錄。'+at+'\n\n用雲端這份「覆蓋」目前本機的資料？（誤刪救援用）')) return;
+    D = normalize(cd);
+    if(!D.projects.includes(cur.project)) cur.project = D.projects[0]||null;
+    clearNeedCache(); save(); renderAll(); if(cur.page==='set')renderSettings();
+    toast('✅ 已從雲端拉回 '+nItems+' 筆材料');
+  }).catch(e=>{ toast('❌ 雲端讀取失敗，檢查網路'); });
 }
 
 // ── shared ui ──
