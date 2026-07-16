@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v42</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v43</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -513,6 +513,7 @@ function renderBoard(){
   // summary
   let totLack = 0, lackRooms = new Set();
   items.forEach(it=>{ const l=itemLack(it); if(l>0){ totLack+=l; lackRooms.add(it.room); } });
+  const adjCount = allItems.filter(it=>round(needAdj(it))!==0).length; // 有手動追加/換料的材料數（全案）
   const sysBtn = (f,lbl)=>`<button class="segbtn ${(cur.sysFilter||'全部')===f?'on':''}" onclick="setSysFilter('${f}')">${lbl}</button>`;
   let html = `<div class="card" style="padding:13px 15px">
     <div style="display:flex;gap:10px;align-items:center">
@@ -523,6 +524,7 @@ function renderBoard(){
       <div style="display:flex;flex-direction:column;gap:6px;flex:0 0 auto">
         <button class="btn sm" onclick="openAllocSheet()">🔄 調撥建議</button>
         <button class="btn sm gray" onclick="openRefillSheet()">📄 補料單</button>
+        <button class="btn sm gray" onclick="openAdjLog()">📝 追加紀錄${adjCount?` <span style="background:var(--amber);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${adjCount}</span>`:''}</button>
       </div>
     </div>
     <div class="seg" style="margin-top:11px">${sysBtn('全部','全部')}${sysBtn('隔間','🧱 隔間')}${sysBtn('天花','🔲 天花')}</div>
@@ -574,6 +576,45 @@ function renderBoard(){
 }
 function toggleGrp(id){ if(collapsed.has(id))collapsed.delete(id); else collapsed.add(id); renderBoard(); }
 function setSysFilter(f){ cur.sysFilter = f; save(); renderBoard(); }
+// 📝 追加紀錄：列出手動換料／追加（needAdj≠0）的材料
+function openAdjLog(){
+  const p = cur.project; if(!p) return;
+  const its = projItems(p).filter(it=>round(needAdj(it))!==0);
+  if(!its.length){
+    openSheet(`<h3>📝 追加紀錄<span class="x" onclick="closeSheet()">✕</span></h3>
+      <div class="muted" style="padding:10px 0">目前沒有手動追加／換料的紀錄。<br>在盤點（或點材料）填「換料／追加加減」後，這裡就會列出來。</div>`);
+    return;
+  }
+  const floors={};
+  its.forEach(it=>{ const fl=roomFloor(p,it.room); (floors[fl]=floors[fl]||{}); (floors[fl][it.room]=floors[fl][it.room]||[]).push(it); });
+  let body='';
+  Object.keys(floors).sort(cmpFloor).forEach(fl=>{
+    const rooms=floors[fl];
+    Object.keys(rooms).sort(cmpFloor).forEach(rn=>{
+      body+=`<div style="font-size:12px;font-weight:800;color:var(--text2);padding:9px 2px 3px">🏢 ${esc(fl)}${rn!==fl?(' · '+esc(rn)):''}</div>`;
+      rooms[rn].sort((a,b)=>catOrder(mat(a.matId)?.cat)-catOrder(mat(b.matId)?.cat)).forEach(it=>{
+        const m=mat(it.matId); const adj=round(needAdj(it)); const unit=m?m.unit:''; const pos=adj>0;
+        body+=`<div class="listitem" onclick="closeSheet();quickCount('${it.id}')" style="cursor:pointer">
+          <div class="li-m" style="min-width:0">
+            <div class="li-t">${esc(m?m.name:'?')}</div>
+            <div class="li-s">原計算 ${round(num(it.demand))}${esc(unit)} → 現總需 ${itemTotal(it)}${esc(unit)}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            <div style="font-weight:900;white-space:nowrap;color:${pos?'var(--amber)':'var(--blue)'}">${pos?'追加 +':'減 −'}${Math.abs(adj)}${esc(unit)}</div>
+            <button class="btn mini gray" onclick="event.stopPropagation();clearAdj('${it.id}')">清除</button>
+          </div>
+        </div>`;
+      });
+    });
+  });
+  openSheet(`<h3>📝 追加紀錄<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="muted" style="margin-bottom:10px">手動換料／追加的材料共 <b>${its.length}</b> 項。點一筆可修改、按「清除」還原成原計算量。</div>
+    ${body}`);
+}
+function clearAdj(id){
+  const it=D.items.find(i=>i.id===id); if(!it) return;
+  it.needAdj=null; save(); toast('已清除此追加'); renderBoard(); openAdjLog();
+}
 function cmpFloor(a,b){ return String(a).localeCompare(String(b),'zh-Hant',{numeric:true}); }
 function emptyBox(ic,t,s){ return `<div class="card"><div class="empty"><div class="ic">${ic}</div><div style="font-weight:800;font-size:15px;color:var(--text)">${t}</div><div class="muted" style="margin-top:4px">${s}</div></div></div>`; }
 
