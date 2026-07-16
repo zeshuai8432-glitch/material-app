@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v48</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v49</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1539,9 +1539,9 @@ function openCleanupSheet(showAll){
   const ghosts = list.filter(x=>x.ghost);
   const shown = showAll ? list : ghosts;
   const rowHtml = g=>`<label class="listitem" style="cursor:pointer;gap:10px;${g.ghost?'border-left:4px solid var(--amber)':''}">
-      <input type="checkbox" class="cg-ck" value="${g.matId}" ${g.ghost?'checked':''} style="width:20px;height:20px;flex:0 0 auto">
+      <input type="checkbox" class="cg-ck" data-ghost="${g.ghost?1:0}" value="${g.matId}" ${g.ghost?'checked':''} style="width:20px;height:20px;flex:0 0 auto">
       <div class="li-m" style="min-width:0">
-        <div class="li-t">${esc(g.m?g.m.name:'?')} ${g.ghost?'<span class="tag over-bg" style="font-size:10px;padding:1px 6px">計算已無</span>':''}</div>
+        <div class="li-t">${esc(g.m?g.m.name:'?')} ${g.ghost?'<span class="tag over-bg" style="font-size:10px;padding:1px 6px">計算已無</span>':(round(g.deliv)>0?'<span class="tag ok-bg" style="font-size:10px;padding:1px 6px">有送料</span>':'')}</div>
         <div class="li-s">${g.floors.size} 層・總需 ${round(g.total)}${esc(g.unit)}・送 ${round(g.deliv)}${esc(g.unit)}</div>
       </div>
     </label>`;
@@ -1550,20 +1550,28 @@ function openCleanupSheet(showAll){
     body=''; note = hasRec ? '沒有偵測到殘影材料 👍（都對得上最近一次匯入的計算）' : '此案場還沒從「材料計算」匯入過，無法自動判斷。點下面「顯示全部材料」自己勾要清的。';
   } else {
     body = shown.map(rowHtml).join('');
-    note = showAll ? `全部 ${list.length} 項材料，殘影已標琥珀色並勾好。` : `偵測到 <b>${ghosts.length}</b> 項「計算已無」的殘影，已幫你勾好。`;
+    note = showAll ? `全部 ${list.length} 項材料。<b style="color:var(--amber)">只有琥珀色「計算已無」是殘影</b>，其他是還在用的，勾了會警告。` : `偵測到 <b>${ghosts.length}</b> 項「計算已無」的殘影，已幫你勾好。`;
   }
   openSheet(`<h3>🧹 清理幽靈<span class="x" onclick="closeSheet()">✕</span></h3>
     <div class="muted" style="margin-bottom:8px">${note}清掉會連該材料的送料/盤點紀錄一起清，事後可從備份還原。</div>
     ${body}
-    ${(body)?`<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:8px 0;cursor:pointer"><input type="checkbox" onclick="document.querySelectorAll('.cg-ck').forEach(c=>c.checked=this.checked)" style="width:18px;height:18px"> 全選</label>
+    ${(body)?`<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:8px 0;cursor:pointer"><input type="checkbox" onclick="cleanupSelectGhosts(this.checked)" style="width:18px;height:18px"> 只全選「殘影」</label>
     <button class="btn" onclick="doCleanupGhosts()">🗑️ 清掉勾選的</button>`:''}
     ${!showAll?`<button class="btn gray sm" style="width:100%;margin-top:8px" onclick="openCleanupSheet(true)">顯示全部材料（自己勾）</button>`:''}`);
 }
+function cleanupSelectGhosts(on){ document.querySelectorAll('.cg-ck').forEach(c=>{ if(c.getAttribute('data-ghost')==='1') c.checked=on; }); }
 function doCleanupGhosts(){
-  const mids=[...document.querySelectorAll('.cg-ck:checked')].map(c=>c.value);
+  const p = cur.project;
+  const checked = [...document.querySelectorAll('.cg-ck:checked')];
+  const mids = checked.map(c=>c.value);
   if(!mids.length){ toast('沒有勾選任何材料'); return; }
-  const ids = projItems(cur.project).filter(it=>mids.includes(it.matId)).map(it=>it.id);
-  if(!confirm('確定清掉勾選的 '+mids.length+' 項材料？（含各樓層的需求與送料/盤點紀錄）')) return;
+  // 找出勾到的「不是殘影」的材料（還在計算裡、或有送料的），刪這些要特別警告
+  const live = checked.filter(c=>c.getAttribute('data-ghost')!=='1').map(c=>mat(c.value)?.name||'?');
+  if(live.length){
+    if(!confirm('⚠️ 危險：你勾的裡面有 '+live.length+' 項「不是殘影」的材料：\n\n'+live.join('、')+'\n\n刪掉會連它們的盤點/送料紀錄一起永久消失！\n確定要連這些「還在用的」也刪嗎？')) return;
+  }
+  const ids = projItems(p).filter(it=>mids.includes(it.matId)).map(it=>it.id);
+  if(!confirm('最後確認：清掉 '+mids.length+' 項材料（共 '+ids.length+' 筆、含各樓層需求＋送料/盤點）。\n繼續？')) return;
   try{ localStorage.setItem('fieldmat_preimport', JSON.stringify({at:new Date().toISOString(), data:JSON.parse(JSON.stringify(D))})); }catch(e){}
   const n = deleteGhostItems(ids);
   save(); closeSheet(); renderAll(); if(cur.page==='set') renderSettings(); toast('已清掉 '+mids.length+' 項材料');
