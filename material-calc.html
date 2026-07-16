@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v35</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v36</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v35</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v36</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1242,11 +1242,6 @@
         </div>
 
         <hr class="divider">
-        <div class="section-title">補強鋼板（選填，只有需要的牆才填；可加多種尺寸）</div>
-        <div id="p-reinf-list"></div>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="addReinfRow()">＋ 加一種鋼板</button>
-
-        <hr class="divider">
         <div class="section-title">填塞物設定</div>
         <div class="form-grid form-grid-2">
           <div class="field">
@@ -1466,6 +1461,7 @@ let state = {
   activeProjectId: null,
   spaces: {},     // projectId -> []
   zones: {},      // spaceId -> []
+  reinf: {},      // spaceId -> [{id,use,type,qty}] 補強鋼板（獨立清單，掛在房型底下）
   editingProject: null,
   editingSpace: null,
   editingZone: null,
@@ -1697,6 +1693,20 @@ function migrateMaterials() {
   });
   // 補強鋼板：舊資料沒有這個分類，補上預設尺寸
   if (!Array.isArray(state.materials.reinfPlates)) state.materials.reinfPlates = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.reinfPlates));
+  // 補強鋼板：從「牆(zone)裡」搬到「房型(space)獨立清單」。一次性、可重複執行（搬完 zone 就沒有了）
+  if (!state.reinf || typeof state.reinf !== 'object' || Array.isArray(state.reinf)) state.reinf = {};
+  Object.entries(state.zones || {}).forEach(([sid, zoneArr]) => {
+    (zoneArr || []).forEach(z => {
+      if (!z || !z.params) return;
+      const list = Array.isArray(z.params.reinfList) ? z.params.reinfList
+                 : (z.params.reinfType && (z.params.reinfQty || 0) > 0 ? [{ type: z.params.reinfType, qty: z.params.reinfQty }] : []);
+      if (list.length) {
+        state.reinf[sid] = state.reinf[sid] || [];
+        list.forEach(row => { if (row.type && row.qty > 0) state.reinf[sid].push({ id: 'rf_' + Math.random().toString(36).slice(2, 8), use: z.name || '', type: row.type, qty: row.qty }); });
+      }
+      delete z.params.reinfList; delete z.params.reinfType; delete z.params.reinfQty;
+    });
+  });
   // 板材：舊資料把矽酸鈣板／水泥板混成同一類，補上水泥板選項（插在石膏板之前）
   if (Array.isArray(state.materials.boards) && !state.materials.boards.some(b => String(b.id).startsWith('cement-'))) {
     const cement = DEFAULT_MATERIALS.boards.filter(b => String(b.id).startsWith('cement-'));
@@ -1718,6 +1728,7 @@ function loadUserData(data) {
   state.projects = data.projects || [];
   state.spaces = data.spaces || {};
   state.zones = data.zones || {};
+  state.reinf = data.reinf || {};
   state.materials = data.materials || JSON.parse(JSON.stringify(DEFAULT_MATERIALS));
   migrateMaterials();
   renderProjects();
@@ -1741,7 +1752,7 @@ async function doCloudSave() {
   clearTimeout(saveTimer);
   cloudSaveState = 'saving';
   setSaveStatus('saving', '☁ 儲存中…');
-  const data = { projects: state.projects, spaces: state.spaces, zones: state.zones, materials: state.materials };
+  const data = { projects: state.projects, spaces: state.spaces, zones: state.zones, reinf: state.reinf, materials: state.materials };
   try {
     const res = await gasCall('saveData', { username: state.user, password: state.password, data });
     if (res && res.ok) { cloudSaveState = 'saved'; setSaveStatus('saved', '✓ 已儲存', true); }
@@ -1768,7 +1779,7 @@ function retrySave() {
 function flushSaveBeacon() {
   if (!state.user || !state.password) return;
   if (cloudSaveState !== 'pending' && cloudSaveState !== 'error') return;
-  const data = { projects: state.projects, spaces: state.spaces, zones: state.zones, materials: state.materials };
+  const data = { projects: state.projects, spaces: state.spaces, zones: state.zones, reinf: state.reinf, materials: state.materials };
   try { navigator.sendBeacon(GAS_URL, JSON.stringify({ action: 'saveData', payload: { username: state.user, password: state.password, data } })); } catch(e) {}
 }
 
@@ -2033,6 +2044,7 @@ function deleteSpace(id) {
   const pid = state.activeProjectId;
   state.spaces[pid] = (state.spaces[pid] || []).filter(s => s.id !== id);
   delete state.zones[id];
+  delete state.reinf[id];
   saveUserData();
   renderSpaces();
   toast('空間已刪除','info');
@@ -2110,6 +2122,7 @@ function renderSpaces() {
         </div>
         <div class="space-body${op ? ' open' : ''}" id="space-body-${s.id}">
           ${renderZonesHTML(s.id)}
+          ${csys === 'ceiling' ? '' : spaceReinfBlockHTML(s.id)}
         </div>
       </div>`;
   }).join('');
@@ -2149,7 +2162,6 @@ function openZoneModal(zoneId, spaceId) {
   document.getElementById('c-main-len-row').style.display = '';
   document.getElementById('c-sub-len-row').style.display = '';
   refreshPartitionLengths();
-  document.getElementById('p-reinf-list').innerHTML = '';
   document.getElementById('p-corners').value = 0;
   document.getElementById('zone-group-input').value = '';
   // 子區域建議清單：這個房型已用過的子區域
@@ -2182,11 +2194,6 @@ function openZoneModal(zoneId, spaceId) {
         document.getElementById('p-fill-type').value = zone.params.fillType;
         updateFillFields();
         if (zone.params.fillSpec) document.getElementById('p-fill-spec').value = zone.params.fillSpec;
-        // 補強鋼板：新格式 reinfList[]，相容舊的單筆 reinfType/reinfQty
-        const rlist = Array.isArray(zone.params.reinfList) ? zone.params.reinfList
-                    : (zone.params.reinfType && zone.params.reinfQty>0 ? [{type:zone.params.reinfType, qty:zone.params.reinfQty}] : []);
-        document.getElementById('p-reinf-list').innerHTML = '';
-        rlist.forEach(row => addReinfRow(row.type, row.qty));
       }
       if (zone.type === 'ceiling') {
         const cp = zone.params;
@@ -2340,7 +2347,6 @@ function saveZone() {
       sides: state.sides,
       fillType: document.getElementById('p-fill-type').value,
       fillSpec: document.getElementById('p-fill-spec').value,
-      reinfList: collectReinfList(),
     };
     zoneData.result = calcPartition(zoneData.params);
   }
@@ -2440,11 +2446,14 @@ function copyZonesTo(sourceId) {
     c.id = 'zone_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
     tz.push(c);
   });
+  // 補強鋼板清單一起複製過去
+  const srcReinf = state.reinf[sourceId] || [];
+  if (srcReinf.length) { state.reinf[target.id] = (state.reinf[target.id] || []).concat(srcReinf.map(r => Object.assign({}, r, { id: 'rf_' + Math.random().toString(36).slice(2, 8) }))); }
   recalcActiveProject();
   saveUserData();
   renderSpaces();
   renderResults();
-  toast(`已把 ${srcZones.length} 個隔間複製到「${target.name}」，去改細部差異即可`);
+  toast(`已把 ${srcZones.length} 個隔間${srcReinf.length ? '＋補強鋼板' : ''}複製到「${target.name}」，去改細部差異即可`);
 }
 // 把一個「子區域」（例如衛浴）整組複製到另一個房型，重用模組
 function copyGroupTo(sourceId, group) {
@@ -2616,28 +2625,82 @@ function reinfOptions(sel) {
   const plates = state.materials.reinfPlates || [];
   return plates.map(p => `<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.name)}</option>`).join('');
 }
-function addReinfRow(type, qty) {
-  const wrap = document.getElementById('p-reinf-list'); if (!wrap) return;
-  const div = document.createElement('div');
-  div.className = 'reinf-row form-grid form-grid-2';
-  div.style.marginBottom = '6px';
-  div.innerHTML = `
-    <div class="field"><select class="reinf-type">${reinfOptions(type)}</select></div>
-    <div class="field" style="display:flex;gap:6px;align-items:center">
-      <input class="reinf-qty" type="number" inputmode="decimal" min="0" placeholder="片數" value="${qty!=null?qty:''}" style="flex:1">
-      <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.reinf-row').remove()">✕</button>
-    </div>`;
-  wrap.appendChild(div);
-}
-function collectReinfList() {
-  const rows = document.querySelectorAll('#p-reinf-list .reinf-row');
-  const list = [];
-  rows.forEach(r => {
-    const type = r.querySelector('.reinf-type').value;
-    const qty = parseFloat(r.querySelector('.reinf-qty').value) || 0;
-    if (type && qty > 0) list.push({ type, qty });
+// ── 補強鋼板（獨立清單，掛在房型底下）──────────────────────
+// 解析某房型的補強鋼板清單（帶入材料名稱）
+function reinfOf(sid) {
+  const plates = state.materials.reinfPlates || [];
+  return (state.reinf[sid] || []).map(row => {
+    const m = plates.find(x => x.id === row.type);
+    return { id: row.id, use: row.use || '', type: row.type, qty: +row.qty || 0, name: m ? m.name : '（未設定尺寸）', unit: (m && m.unit) || '片' };
   });
-  return list;
+}
+// 把某房型的補強鋼板 × mult 加進彙總器（算在隔間系統）
+function aggregateReinf(sid, mult, agg) {
+  reinfOf(sid).forEach(rp => { if (rp.type && rp.qty > 0) agg.addTotal('reinf_' + rp.type, rp.name, rp.qty * mult, rp.unit); });
+}
+// 單間明細裡的補強鋼板小表
+function reinfDetailHTML(sid) {
+  const rows = reinfOf(sid).filter(r => r.qty > 0); if (!rows.length) return '';
+  return `<div style="margin-bottom:12px;">
+    <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text-2);">🔩 補強鋼板</div>
+    <table class="result-table">
+      <thead><tr><th>材料</th><th>數量</th><th>用途／位置</th></tr></thead>
+      <tbody>${rows.map(r => `<tr><td>${esc(r.name)}</td><td class="qty">${r.qty} ${esc(r.unit)}</td><td class="unit-cell">${esc(r.use || '—')}</td></tr>`).join('')}</tbody>
+    </table>
+  </div>`;
+}
+// 房型卡片裡的補強鋼板區塊
+function spaceReinfBlockHTML(sid) {
+  const rows = state.reinf[sid] || [];
+  const body = rows.map(r => reinfRowHTML(sid, r)).join('') ||
+    '<div style="font-size:12px;color:var(--text-3);padding:4px 2px">尚無補強鋼板，需要鎖東西的牆點下面加一筆</div>';
+  return `<div style="margin-top:10px;border-top:1px dashed var(--border,#e3e8ef);padding-top:8px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <strong style="font-size:13px;color:var(--text-2)">🔩 補強鋼板（牆內襯鐵板）</strong>
+      <span style="font-size:11px;color:var(--text-3)">${rows.length} 筆・這房型每間的量</span>
+    </div>
+    <div id="reinf-list-${sid}">${body}</div>
+    <button type="button" class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="addSpaceReinfRow('${sid}')">＋ 補強鋼板</button>
+  </div>`;
+}
+function reinfRowHTML(sid, r) {
+  return `<div class="reinf-row" data-id="${r.id}" style="display:flex;gap:6px;align-items:center;margin-bottom:5px;flex-wrap:wrap">
+    <input class="rf-use" type="text" placeholder="用途／位置（例：扶手處）" value="${esc(r.use||'')}" oninput="saveSpaceReinf('${sid}')" style="flex:2;min-width:120px">
+    <select class="rf-type" onchange="saveSpaceReinf('${sid}')" style="flex:1;min-width:120px">${reinfOptions(r.type)}</select>
+    <div style="display:flex;gap:6px;align-items:center">
+      <input class="rf-qty" type="number" inputmode="decimal" min="0" placeholder="片數" value="${r.qty!=null?r.qty:''}" oninput="saveSpaceReinf('${sid}')" style="width:76px">
+      <button type="button" class="btn btn-danger btn-sm" onclick="delSpaceReinfRow('${sid}','${r.id}')">✕</button>
+    </div>
+  </div>`;
+}
+function addSpaceReinfRow(sid) {
+  state.reinf[sid] = state.reinf[sid] || [];
+  const first = (state.materials.reinfPlates || [])[0];
+  state.reinf[sid].push({ id: 'rf_' + Math.random().toString(36).slice(2, 8), use: '', type: first ? first.id : '', qty: '' });
+  const wrap = document.getElementById('reinf-list-' + sid);
+  const r = state.reinf[sid][state.reinf[sid].length - 1];
+  if (wrap) {
+    if (state.reinf[sid].length === 1) wrap.innerHTML = '';   // 清掉「尚無」提示
+    wrap.insertAdjacentHTML('beforeend', reinfRowHTML(sid, r));
+    const el = wrap.querySelector(`.reinf-row[data-id="${r.id}"] .rf-use`); if (el) el.focus();
+  }
+  saveUserData();
+}
+function delSpaceReinfRow(sid, rid) {
+  state.reinf[sid] = (state.reinf[sid] || []).filter(x => x.id !== rid);
+  const row = document.querySelector(`#reinf-list-${sid} .reinf-row[data-id="${rid}"]`);
+  if (row) row.remove();
+  if (!(state.reinf[sid] || []).length) { const wrap = document.getElementById('reinf-list-' + sid); if (wrap) wrap.innerHTML = '<div style="font-size:12px;color:var(--text-3);padding:4px 2px">尚無補強鋼板，需要鎖東西的牆點下面加一筆</div>'; }
+  saveUserData(); renderResults();
+}
+function saveSpaceReinf(sid) {
+  const wrap = document.getElementById('reinf-list-' + sid); if (!wrap) return;
+  const list = [];
+  wrap.querySelectorAll('.reinf-row').forEach(row => {
+    list.push({ id: row.getAttribute('data-id'), use: row.querySelector('.rf-use').value.trim(), type: row.querySelector('.rf-type').value, qty: parseFloat(row.querySelector('.rf-qty').value) || 0 });
+  });
+  state.reinf[sid] = list;
+  saveUserData();
 }
 
 // 依所選材料的長度清單填入「下料長度」下拉；preset 可帶入已存值以選取
@@ -3090,6 +3153,7 @@ function exportToFieldApp() {
       const fe = (s.floors || []).find(f => f.floor === fl); if (!fe) return;
       const c = parseInt(fe.count) || 0; if (c <= 0 || !zonesOf(s).length) return;
       zonesOf(s).forEach(z => aggregateZone(z, c, agg));
+      aggregateReinf(s.id, c, agg); // 補強鋼板（房型獨立清單）也算進該樓層需求
       rooms.push({ type: s.name, count: c, walls: zonesOf(s).map(z => ({ name: z.name, sides: (z.type === 'partition' && z.params && z.params.sides === 'double') ? 'double' : 'single', mats: zoneMatRecords(z) })) });
     });
     agg.finalize();
@@ -3133,7 +3197,7 @@ function aggregateZone(z, mult, agg) {
       if (r.fill.rawPieces != null) AP(params.fillSpec || params.fillType, r.fill.label, r.fill.unit, 'pack', r.fill.rawPieces, r.fill.perPack);
       else if (r.fill.rawM2 != null) AP(params.fillSpec || params.fillType, r.fill.label, r.fill.unit, 'roll', r.fill.rawM2, r.fill.rollArea);
     }
-    (r.reinf || []).forEach(rp => AT('reinf_' + rp.type, rp.name, rp.qty, rp.unit));
+    // 補強鋼板已改為房型獨立清單（見 aggregateReinf），不在牆裡算
   }
   if (z.type === 'ceiling') {
     const sysLabel = params.sys === 'centipede' ? '蜈蚣腳' : 'N38';
@@ -3178,7 +3242,6 @@ function zoneDetailHTML(z) {
             ${r.braces > 0 ? `<tr><td>${matName('braces', params.braceType)} 加強橫枝 ${params.braceLength}cm</td><td class="qty">${(r.rawBraceCm/r.braceLen).toFixed(2)} 支</td><td class="unit-cell">${params.braceRows}排（原始用量）</td></tr>` : ''}
             <tr><td>${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td class="qty">${r.boardsRawNum.toFixed(2)} 片</td><td class="unit-cell">原始用量（總表才含5%損耗）</td></tr>
             ${r.fill ? `<tr><td>${r.fill.label}</td><td class="qty">${(r.fill.rawPieces!=null ? r.fill.rawPieces/r.fill.perPack : r.fill.rawM2/r.fill.rollArea).toFixed(2)} ${r.fill.unit}</td><td class="unit-cell">原始用量（合併後看總表）</td></tr>` : ''}
-            ${(r.reinf||[]).map(rp=>`<tr><td>${esc(rp.name)}</td><td class="qty">${rp.qty} ${esc(rp.unit)}</td><td class="unit-cell">補強鋼板（手動）</td></tr>`).join('')}
           </tbody>
         </table>
         ${r.totalPrice > 0 ? `<div style="text-align:right;margin-top:6px;font-size:13px;color:var(--green);font-weight:600;">小計：$${r.totalPrice.toLocaleString()}</div>` : ''}
@@ -3284,7 +3347,7 @@ function renderResults() {
   // 1) 全案彙總（× 各空間間數），隔間/天花分開
   html += `<details style="border:1px solid var(--border,#e3e8ef);border-radius:10px;margin-bottom:8px;background:var(--card,#fff)">
     <summary style="cursor:pointer;font-weight:700;padding:11px 14px">📊 全案材料彙總 <span style="color:var(--text-3);font-weight:400;font-size:12px">・隔間／天花分開（點開）</span></summary>
-    <div style="padding:0 14px 12px">${splitTotalsHTML((agg, type) => { spaces.forEach(s => { const m = spaceTotalCount(s); zonesOf(s).forEach(z => { if (z.type === type) aggregateZone(z, m, agg); }); }); })}</div></details>`;
+    <div style="padding:0 14px 12px">${splitTotalsHTML((agg, type) => { spaces.forEach(s => { const m = spaceTotalCount(s); zonesOf(s).forEach(z => { if (z.type === type) aggregateZone(z, m, agg); }); if (type === 'partition') aggregateReinf(s.id, m, agg); }); })}</div></details>`;
 
   // 2) 依樓層（母）→ 空間（子）
   const floorList = [];
@@ -3305,7 +3368,7 @@ function renderResults() {
       if (!hasSysZone) return;
       const compStr = comp.map(c => `${esc(c.name)}×${c.count}`).join('・');
       const body = splitTotalsHTML((agg, type) => {
-        spaces.forEach(s => { const fe = (s.floors || []).find(f => f.floor === fl); if (!fe) return; const c = parseInt(fe.count) || 0; if (c <= 0) return; zonesOf(s).forEach(z => { if (z.type === type) aggregateZone(z, c, agg); }); });
+        spaces.forEach(s => { const fe = (s.floors || []).find(f => f.floor === fl); if (!fe) return; const c = parseInt(fe.count) || 0; if (c <= 0) return; zonesOf(s).forEach(z => { if (z.type === type) aggregateZone(z, c, agg); }); if (type === 'partition') aggregateReinf(s.id, c, agg); });
       });
       html += `<details open style="border:1px solid var(--border,#e3e8ef);border-radius:10px;margin-bottom:8px;background:var(--card,#fff)">
         <summary style="cursor:pointer;font-weight:700;padding:11px 14px">🏢 ${esc(fl)} <span style="color:var(--text-3);font-weight:400;font-size:12px">・${count} 間（${compStr}）</span></summary>
@@ -3317,12 +3380,14 @@ function renderResults() {
   // 3) 空間單間明細（預設收合）
   html += '<div class="result-header" style="margin-top:20px">📦 空間單間明細</div>';
   spaces.forEach(s => {
-    const zones = zonesOf(s).filter(z => sys === 'all' || z.type === sys); if (!zones.length) return;
+    const zones = zonesOf(s).filter(z => sys === 'all' || z.type === sys);
+    const showReinf = (sys === 'all' || sys === 'partition') && reinfOf(s.id).some(r => r.qty > 0);
+    if (!zones.length && !showReinf) return;
     const cnt = spaceTotalCount(s);
     const sum = spaceFloorSummary(s);
     html += `<details style="border:1px solid var(--border,#e3e8ef);border-radius:10px;margin-bottom:8px;background:var(--card,#fff)">
       <summary style="cursor:pointer;font-weight:700;padding:11px 14px">📦 ${esc(s.name)}${cnt > 1 ? ` <span style="font-size:12px;color:var(--green)">×${cnt}間</span>` : ''}${sum ? ` <span style="color:var(--text-3);font-weight:400;font-size:12px">・${esc(sum)}</span>` : ''}</summary>
-      <div style="padding:0 14px 12px"><div style="font-size:11px;color:var(--text-3);margin-bottom:6px">以下為單間用量，上方各表已 ×間數</div>${zones.map(zoneDetailHTML).join('')}</div>
+      <div style="padding:0 14px 12px"><div style="font-size:11px;color:var(--text-3);margin-bottom:6px">以下為單間用量，上方各表已 ×間數</div>${zones.map(zoneDetailHTML).join('')}${showReinf ? reinfDetailHTML(s.id) : ''}</div>
     </details>`;
   });
 
@@ -3657,7 +3722,7 @@ function printResults() {
   let body = '';
   spaces.forEach(s => {
     const zones = (state.zones[s.id] || []).filter(z => z.result);
-    if (!zones.length) return;
+    if (!zones.length && !reinfOf(s.id).some(x => x.qty > 0)) return;
     curMult = spaceTotalCount(s);
     const sfx = curMult > 1 ? ` × ${curMult} 間${spaceFloorSummary(s) ? '（' + spaceFloorSummary(s) + '）' : ''}` : '';
     body += `<h3 style="margin:16px 0 8px;font-size:14px;border-bottom:1px solid #ccc;padding-bottom:4px;">▌ ${s.name}${sfx}</h3>`;
@@ -3671,7 +3736,6 @@ function printResults() {
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${matName('tracks', params.trackType)} 槽鐵</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${(r.rawTrackCm/r.trackUnit).toFixed(2)} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">單支${r.trackUnit}cm・原始 ${r.trackRaw}m</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.boardsRawNum.toFixed(2)} 片</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>
           ${r.fill ? `<tr><td style="border:1px solid #ccc;padding:4px 8px;">${r.fill.label}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${(r.fill.rawPieces!=null ? r.fill.rawPieces/r.fill.perPack : r.fill.rawM2/r.fill.rollArea).toFixed(2)} ${r.fill.unit}</td><td style="border:1px solid #ccc;padding:4px 8px;">原始用量</td></tr>` : ''}
-          ${(r.reinf||[]).map(rp=>`<tr><td style="border:1px solid #ccc;padding:4px 8px;">${esc(rp.name)}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${rp.qty} ${esc(rp.unit)}</td><td style="border:1px solid #ccc;padding:4px 8px;">補強鋼板</td></tr>`).join('')}
         </table>
         ${r.totalPrice > 0 ? `<div style="text-align:right;font-size:11px;color:#2D7A4F;font-weight:600;margin-top:2px;">小計 $${r.totalPrice.toLocaleString()}</div>` : ''}</div>`;
         addT(params.studType+'_'+r.studStock, matName('studs', params.studType)+' 骨架（下料 '+r.studStock+'cm）', r.studs, '支');
@@ -3714,6 +3778,16 @@ function printResults() {
         addT('trim_'+params.trimType,trimNames[params.trimType]||params.trimType,r.trims,'支');
       }
     });
+    // 補強鋼板（房型獨立清單）
+    const rfRows = reinfOf(s.id).filter(x => x.qty > 0);
+    if (rfRows.length) {
+      body += `<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;margin-bottom:4px;">🔩 補強鋼板</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <tr style="background:#f0f0f0;"><th style="border:1px solid #ccc;padding:4px 8px;text-align:left;">材料</th><th style="border:1px solid #ccc;padding:4px 8px;">數量</th><th style="border:1px solid #ccc;padding:4px 8px;">用途／位置</th></tr>
+          ${rfRows.map(rp=>`<tr><td style="border:1px solid #ccc;padding:4px 8px;">${esc(rp.name)}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${rp.qty} ${esc(rp.unit)}</td><td style="border:1px solid #ccc;padding:4px 8px;">${esc(rp.use||'—')}</td></tr>`).join('')}
+        </table></div>`;
+      rfRows.forEach(rp => addT('reinf_'+rp.type, rp.name, rp.qty, rp.unit));
+    }
   });
 
   finalizePool(); // 可裁切材料合併零頭後才進位
