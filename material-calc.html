@@ -2011,17 +2011,28 @@ function spaceFloorSummary(s) {
 let editingFloorName = null;
 function openFloorEditModal(floorName) {
   editingFloorName = floorName;
-  document.getElementById('modal-floor-title').textContent = '編輯 ' + floorName + ' 組成';
-  const spaces = state.spaces[state.activeProjectId] || [];
-  const el = document.getElementById('floor-edit-list');
-  el.innerHTML = spaces.length ? spaces.map(s => {
+  const csys = state.calcSys || 'all';
+  document.getElementById('modal-floor-title').textContent = '編輯 ' + floorName + ' 組成' + (csys === 'partition' ? '（只動隔間）' : csys === 'ceiling' ? '（只動天花板）' : '');
+  const all = state.spaces[state.activeProjectId] || [];
+  const sysOf = s => (s.sys === 'ceiling' ? 'ceiling' : 'partition');
+  // 只列目前系統的空間；「全部」檢視時分兩組，各自標題
+  const spaces = csys === 'all' ? all : all.filter(s => sysOf(s) === csys);
+  const row = s => {
     const fe = (s.floors || []).find(f => f.floor === floorName);
     const cnt = fe ? fe.count : 0;
     return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border,#eef2f6)">
-      <span style="flex:1;font-weight:600">${esc(s.name)}</span>
+      <span style="flex:1;font-weight:600">${sysOf(s) === 'ceiling' ? '⬜' : '🧱'} ${esc(s.name)}</span>
       <input type="number" min="0" class="fe-count" data-sid="${s.id}" value="${cnt}" style="width:80px"> <span style="color:var(--text-3)">間</span>
     </div>`;
-  }).join('') : '<div style="color:#999">此案場尚無房型，請先新增空間</div>';
+  };
+  const hdr = t => `<div style="font-size:12px;font-weight:800;color:var(--text-3);padding:8px 0 2px">${t}</div>`;
+  let html;
+  if (!spaces.length) html = '<div style="color:#999">此區尚無空間，請先新增空間</div>';
+  else if (csys === 'all') {
+    const parts = spaces.filter(s => sysOf(s) === 'partition'), ceils = spaces.filter(s => sysOf(s) === 'ceiling');
+    html = (parts.length ? hdr('🧱 隔間房型') + parts.map(row).join('') : '') + (ceils.length ? hdr('⬜ 天花板配置') + ceils.map(row).join('') : '');
+  } else html = spaces.map(row).join('');
+  document.getElementById('floor-edit-list').innerHTML = html;
   openModal('modal-floor');
 }
 function saveFloorEdit() {
@@ -2043,11 +2054,15 @@ function saveFloorEdit() {
 function copyFloor() {
   const pid = state.activeProjectId;
   if (!pid) { toast('請先選案場', 'error'); return; }
-  const spaces = state.spaces[pid] || [];
+  const csys = state.calcSys || 'all';
+  const sysOf = s => (s.sys === 'ceiling' ? 'ceiling' : 'partition');
+  // 只複製目前系統的空間（在「全部」檢視才兩區一起）
+  const spaces = (state.spaces[pid] || []).filter(s => csys === 'all' || sysOf(s) === csys);
+  const scopeNote = csys === 'partition' ? '（只動🧱隔間房型）' : csys === 'ceiling' ? '（只動⬜天花板配置）' : '（隔間＋天花板一起）';
   const floors = [];
   spaces.forEach(s => (s.floors || []).forEach(f => { if (f.floor && !floors.includes(f.floor)) floors.push(f.floor); }));
   if (!floors.length) { toast('尚無樓層可複製（先在空間裡設定樓層配置）', 'error'); return; }
-  const src = prompt('要複製哪一個樓層？\n現有樓層：' + floors.join('、'), floors[0]);
+  const src = prompt('要複製哪一個樓層？' + scopeNote + '\n現有樓層：' + floors.join('、'), floors[0]);
   if (src === null) return;
   const source = src.trim();
   if (!floors.includes(source)) { toast('找不到樓層「' + source + '」', 'error'); return; }
