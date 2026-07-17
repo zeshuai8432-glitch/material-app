@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v51</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v52</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -858,16 +858,70 @@ function renderProgressPage(){
   sel.innerHTML = floors.length ? floors.map(f=>`<option>${esc(f)}</option>`).join('') : '<option value="">（尚無匯入的施工資料）</option>';
   renderProgress();
 }
+// 完成度：每「牆×階段×間」算一個單位，done = 間數 − 還沒做
+function progressStats(project, floor){
+  const rec = (D.recipes && D.recipes[project] || []).find(f=>f.floor===floor); if(!rec) return null;
+  const prog = (D.progress[project] && D.progress[project][floor]) || {};
+  let done=0, total=0;
+  (rec.rooms||[]).forEach(room=>{
+    const rp = prog[room.type] || {};
+    const cnt = num(room.count);
+    (room.walls||[]).forEach(wall=>{
+      const wp = (rp[wall.name] && typeof rp[wall.name]==='object') ? rp[wall.name] : {};
+      wallStages(wall).forEach(st=>{
+        const undone = wp[st.key]!=null ? Math.max(0, Math.min(num(wp[st.key]), cnt)) : cnt;
+        total += cnt; done += cnt - undone;
+      });
+    });
+  });
+  return { done, total, pct: total ? Math.round(done/total*100) : 0 };
+}
+function projectProgress(project){
+  let done=0, total=0;
+  ((D.recipes && D.recipes[project])||[]).forEach(f=>{ const s=progressStats(project, f.floor); if(s){ done+=s.done; total+=s.total; } });
+  return { done, total, pct: total ? Math.round(done/total*100) : 0 };
+}
+function pctBar(pct, h){ return `<div style="background:#e8edf3;border-radius:99px;height:${h||8}px;overflow:hidden"><div style="width:${pct}%;height:100%;border-radius:99px;background:${pct>=100?'var(--green)':'var(--blue)'}"></div></div>`; }
+function roomProgressPct(project, floor, room){ // 單一房型在該層的完成度
+  const prog = (D.progress[project] && D.progress[project][floor]) || {};
+  const rp = prog[room.type] || {}; const cnt = num(room.count);
+  let done=0, total=0;
+  (room.walls||[]).forEach(wall=>{
+    const wp = (rp[wall.name] && typeof rp[wall.name]==='object') ? rp[wall.name] : {};
+    wallStages(wall).forEach(st=>{ const undone = wp[st.key]!=null ? Math.max(0, Math.min(num(wp[st.key]), cnt)) : cnt; total+=cnt; done+=cnt-undone; });
+  });
+  return total ? Math.round(done/total*100) : 0;
+}
 function renderProgress(){
   const el = document.getElementById('pr-list');
   const project = cur.project; const floor = document.getElementById('pr-floor').value;
   const rec = (D.recipes && D.recipes[project] || []).find(f=>f.floor===floor);
   if(!rec){ el.innerHTML = emptyBox('🔨','尚無施工資料','從「材料計算」按匯出後，這裡才會有各樓層、各房型的施工階段'); return; }
   const prog = (D.progress[project] && D.progress[project][floor]) || {};
-  let html = `<div class="hint">每道牆、每個階段填「還沒做幾間」：骨架立好就把骨架減下去、板還沒封就留著。全做完填 0。改完按下面儲存。</div>`;
+  // ── 完成度總覽（請款用）：整案 ＋ 各樓層 ──
+  const pj = projectProgress(project);
+  const floorRows = ((D.recipes[project])||[]).map(f=>f.floor).sort(cmpFloor).map(fl=>{
+    const s = progressStats(project, fl); if(!s) return '';
+    const cur_ = fl===floor;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:4px 0${cur_?';font-weight:800':''}">
+      <div style="flex:0 0 52px;font-size:13px${cur_?';color:var(--blue)':''}">${esc(fl)}</div>
+      <div style="flex:1">${pctBar(s.pct,7)}</div>
+      <div style="flex:0 0 44px;text-align:right;font-size:13px;font-weight:800;color:${s.pct>=100?'var(--green)':'var(--text)'}">${s.pct}%</div>
+    </div>`;
+  }).join('');
+  let html = `<div class="card" style="padding:13px 15px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">
+      <div style="font-size:13px;color:var(--text2);font-weight:700">📊 全案完成度（依已存進度）</div>
+      <div style="font-size:22px;font-weight:900;color:${pj.pct>=100?'var(--green)':'var(--blue)'}">${pj.pct}%</div>
+    </div>
+    ${pctBar(pj.pct,10)}
+    <div style="margin-top:10px">${floorRows}</div>
+  </div>`;
+  html += `<div class="hint">每道牆、每個階段填「還沒做幾間」：骨架立好就把骨架減下去、板還沒封就留著。全做完填 0。改完按下面儲存。</div>`;
   rec.rooms.forEach((room, ri)=>{
     const rp = prog[room.type] || {};
-    html += `<div class="card"><h2 style="margin-bottom:2px">${esc(room.type)} <span class="muted" style="font-weight:400">· 共 ${room.count} 間</span></h2>`;
+    const rpct = roomProgressPct(project, floor, room);
+    html += `<div class="card"><h2 style="margin-bottom:2px;display:flex;justify-content:space-between;align-items:baseline">${esc(room.type)} <span class="muted" style="font-weight:400">· 共 ${room.count} 間</span><span style="font-size:14px;font-weight:900;color:${rpct>=100?'var(--green)':'var(--blue)'};margin-left:auto">${rpct}%</span></h2>`;
     room.walls.forEach((wall, wi)=>{
       const stages = wallStages(wall);
       if(!stages.length) return;
