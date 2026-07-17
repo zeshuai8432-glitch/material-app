@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v50</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v51</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1291,8 +1291,13 @@ function openAllocSheet(){
     const reserve = fromIt ? itemNeed(fromIt) : 0;
     const verb = c.mode==='cut' ? '裁' : '改用';
     const note = c.mode==='cut' ? '（裁短）' : c.mode==='join' ? '（長度較短，現場接／不夠再補）' : '（同長度直接用）';
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-      <div style="flex:1;min-width:0;font-size:13px">🏢 ${esc(c.floor)}：<b>${esc(mat(c.fromMatId)?.name||'')}</b> ${verb} <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(mat(c.toMatId)?.name||'')}</b><br><span style="color:var(--text2);font-size:12px">這料自己還要 ${reserve} 支已先留著，只用多的${note}</span></div>
+    // 跨系統（隔間↔天花）同型號通用：明確標出來，例如 隔間 N38 拿去天花板
+    const fs = catSystem(mat(c.fromMatId)?.cat), ts = catSystem(mat(c.toMatId)?.cat);
+    const cross = fs!==ts && fs!=='共用' && ts!=='共用';
+    const sysBadge = cross ? `<span style="display:inline-block;background:var(--amber-bg);color:var(--amber);font-size:11px;font-weight:800;padding:1px 7px;border-radius:6px;margin-left:4px">${fs==='隔間'?'🧱隔間 → ⬜天花':'⬜天花 → 🧱隔間'}</span>` : '';
+    const crossNote = cross ? `<br><span style="color:var(--amber);font-size:12px;font-weight:700">↑ ${fs}的料拿去${ts}用，同型號 1 支＝1 支</span>` : '';
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;${cross?'background:var(--amber-bg);border-radius:8px;padding:6px 8px':''}">
+      <div style="flex:1;min-width:0;font-size:13px">🏢 ${esc(c.floor)}${sysBadge}：<b>${esc(mat(c.fromMatId)?.name||'')}</b> ${verb} <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(mat(c.toMatId)?.name||'')}</b>${crossNote}<br><span style="color:var(--text2);font-size:12px">這料自己還要 ${reserve} 支已先留著，只用多的${note}</span></div>
       <button class="btn mini" style="flex:0 0 auto" onclick="applyCut('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">${verb}</button>
     </div>`;
   }).join('');
