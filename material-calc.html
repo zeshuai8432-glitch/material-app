@@ -1038,6 +1038,13 @@
     </div>
     <div class="modal-body">
       <div class="field">
+        <label>這是哪一區（空間不共用，一個空間只屬一種）</label>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="toggle-btn active" id="space-sys-partition" onclick="setSpaceSys('partition')">🧱 隔間房型</button>
+          <button type="button" class="toggle-btn" id="space-sys-ceiling" onclick="setSpaceSys('ceiling')">⬜ 天花板配置</button>
+        </div>
+      </div>
+      <div class="field">
         <label>空間名稱</label>
         <input type="text" id="space-name-input" placeholder="例：標準房、套房、走廊">
       </div>
@@ -1086,8 +1093,8 @@
     </div>
     <div class="modal-body">
 
-      <!-- 類型選擇 -->
-      <div class="field">
+      <!-- 類型選擇（空間已分系統時隱藏，直接鎖定該空間的系統） -->
+      <div class="field" id="zone-type-field">
         <label>區塊類型</label>
         <div class="toggle-group">
           <button class="toggle-btn active" id="zone-type-partition" onclick="setZoneType('partition')">🧱 隔間系統</button>
@@ -1732,6 +1739,35 @@ function migrateMaterials() {
   }
 }
 
+// 空間分系統遷移：每個空間貼上 sys（partition/ceiling）；混合的自動拆成兩個（非破壞，用量不變）
+function migrateSpaceSys() {
+  Object.keys(state.spaces || {}).forEach(pid => {
+    const spaces = state.spaces[pid] || [];
+    const out = [];
+    let seq = 0;
+    spaces.forEach(s => {
+      if (s.sys === 'partition' || s.sys === 'ceiling') { out.push(s); return; }
+      const zs = state.zones[s.id] || [];
+      const hasP = zs.some(z => z.type === 'partition');
+      const hasC = zs.some(z => z.type === 'ceiling');
+      if (hasP && hasC) {
+        // 混合 → 原空間留隔間（＋補強鋼板），另開一個天花板空間放天花板區塊
+        const cid = 'sp_c_' + Date.now() + '_' + (seq++) + '_' + Math.random().toString(36).slice(2, 5);
+        state.zones[cid] = zs.filter(z => z.type === 'ceiling');
+        state.zones[s.id] = zs.filter(z => z.type !== 'ceiling');
+        s.sys = 'partition';
+        out.push(s);
+        out.push({ id: cid, name: s.name + '（天花）', note: s.note || '', floors: JSON.parse(JSON.stringify(s.floors || [])), sys: 'ceiling' });
+      } else if (hasC && !hasP) {
+        s.sys = 'ceiling'; out.push(s);
+      } else {
+        s.sys = 'partition'; out.push(s); // 純隔間或空的，預設隔間（可在編輯裡改）
+      }
+    });
+    state.spaces[pid] = out;
+  });
+}
+
 // 設定玻璃棉的捲寬／捲長，面積(rollSize)自動 = 寬 × 長
 function setGwDim(idx, field, val) {
   const g = (state.materials.glasswool || [])[idx]; if (!g) return;
@@ -1747,6 +1783,7 @@ function loadUserData(data) {
   state.reinf = data.reinf || {};
   state.materials = data.materials || JSON.parse(JSON.stringify(DEFAULT_MATERIALS));
   migrateMaterials();
+  migrateSpaceSys();
   renderProjects();
   renderMaterials();
 }
@@ -2035,6 +2072,13 @@ function copyFloor() {
   toast('已把「' + source + '」複製成「' + target + '」（' + affected + ' 個空間）');
 }
 
+let spaceSysChoice = 'partition';
+function setSpaceSys(s) {
+  spaceSysChoice = s;
+  const pb = document.getElementById('space-sys-partition'), cb = document.getElementById('space-sys-ceiling');
+  if (pb) pb.classList.toggle('active', s === 'partition');
+  if (cb) cb.classList.toggle('active', s === 'ceiling');
+}
 function openSpaceModal(id) {
   state.editingSpace = id || null;
   document.getElementById('modal-space-title').textContent = id ? '編輯空間' : '新增空間';
@@ -2044,10 +2088,13 @@ function openSpaceModal(id) {
     document.getElementById('space-name-input').value = s.name;
     document.getElementById('space-note-input').value = s.note || '';
     renderSpaceFloors(s.floors || []);
+    setSpaceSys(s.sys === 'ceiling' ? 'ceiling' : 'partition');
   } else {
     document.getElementById('space-name-input').value = '';
     document.getElementById('space-note-input').value = '';
     renderSpaceFloors([]);
+    // 新增時：預設跟著目前的系統切換（在天花板檢視就建天花板配置）
+    setSpaceSys(state.calcSys === 'ceiling' ? 'ceiling' : 'partition');
   }
   openModal('modal-space');
 }
@@ -2063,9 +2110,10 @@ function saveSpace() {
     s.name = name;
     s.note = document.getElementById('space-note-input').value.trim();
     s.floors = floors;
+    s.sys = spaceSysChoice;
   } else {
     const id = 'sp_' + Date.now();
-    state.spaces[pid].push({ id, name, note: document.getElementById('space-note-input').value.trim(), floors });
+    state.spaces[pid].push({ id, name, note: document.getElementById('space-note-input').value.trim(), floors, sys: spaceSysChoice });
     state.zones[id] = [];
   }
   saveNow();
@@ -2107,9 +2155,12 @@ function renderSpaces() {
     ${csysBtn('all', '全部')}${csysBtn('partition', '🧱 隔間系統')}${csysBtn('ceiling', '⬜ 天花板系統')}
   </div>`;
 
-  // ── 樓層總覽（floor-first：先看到 12F → 標準房×12、EXS×1）──
+  const sysOf = s => (s.sys === 'ceiling' ? 'ceiling' : 'partition');
+  const shown = spaces.filter(s => csys === 'all' || sysOf(s) === csys);
+
+  // ── 樓層總覽（只看目前系統的空間）──
   const floorMap = {};
-  spaces.forEach(s => (s.floors || []).forEach(f => { if (f.floor) (floorMap[f.floor] = floorMap[f.floor] || []).push({ name: s.name, count: f.count }); }));
+  shown.forEach(s => (s.floors || []).forEach(f => { if (f.floor) (floorMap[f.floor] = floorMap[f.floor] || []).push({ name: s.name, count: f.count }); }));
   const floorNames = Object.keys(floorMap).sort((a, b) => String(a).localeCompare(String(b), 'zh-Hant', { numeric: true }));
   let overview = '';
   if (floorNames.length) {
@@ -2125,16 +2176,14 @@ function renderSpaces() {
             ${floorMap[fl].map(c => `<div style="display:flex;justify-content:space-between;padding:8px 13px;border-top:1px solid var(--border,#eef2f6);font-size:14px;"><span>${esc(c.name)}</span><span style="color:var(--green);font-weight:700;">×${c.count} 間</span></div>`).join('')}
           </div>`).join('')}
       </div>
-    </div>
-    <div style="font-size:13px;font-weight:700;color:var(--text-2);margin-bottom:8px;">📦 空間（編輯牆／材料・重複空間跨樓層共用）</div>`;
+    </div>`;
   }
 
   // 記住目前展開的空間，重新渲染後還原（切換系統時才不會全部收合）
   const openIds = new Set([...document.querySelectorAll('.space-body.open')].map(b => b.id.replace('space-body-', '')));
-  el.innerHTML = sysToggle + overview + spaces.map(s => {
-    const allZones = state.zones[s.id] || [];
-    const zones = csys === 'all' ? allZones : allZones.filter(z => z.type === csys);
-    const zoneCount = csys === 'all' ? allZones.length : `${zones.length}/${allZones.length}`;
+  const spaceCard = s => {
+    const isCeil = sysOf(s) === 'ceiling';
+    const zoneCount = (state.zones[s.id] || []).length;
     const op = openIds.has(s.id);
     return `
       <div class="space-item">
@@ -2142,25 +2191,37 @@ function renderSpaces() {
           <div style="display:flex;align-items:center;gap:10px;">
             <span class="chevron${op ? ' open' : ''}" id="chevron-${s.id}">▶</span>
             <div>
-              <div class="space-name">${esc(s.name)}${spaceTotalCount(s) > 1 ? ` <span style="font-size:12px;color:var(--green);font-weight:600">×${spaceTotalCount(s)}間</span>` : ''}</div>
+              <div class="space-name">${isCeil ? '⬜' : '🧱'} ${esc(s.name)}${spaceTotalCount(s) > 1 ? ` <span style="font-size:12px;color:var(--green);font-weight:600">×${spaceTotalCount(s)}間</span>` : ''}</div>
               ${spaceFloorSummary(s) ? `<div style="font-size:12px;color:var(--text-3)">🏢 ${esc(spaceFloorSummary(s))}</div>` : ''}
               ${s.note ? `<div style="font-size:12px;color:var(--text-3)">${esc(s.note)}</div>` : ''}
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;" onclick="event.stopPropagation()">
             <span class="space-badge">${zoneCount} 個區塊</span>
-            <button class="btn btn-primary btn-sm" onclick="openZoneModal(null,'${s.id}')">＋ 新增區塊</button>
-            <button class="btn btn-secondary btn-sm" onclick="copyZonesTo('${s.id}')">📋 複製隔間到…</button>
+            <button class="btn btn-primary btn-sm" onclick="openZoneModal(null,'${s.id}')">＋ 新增${isCeil ? '天花' : '隔間'}</button>
+            <button class="btn btn-secondary btn-sm" onclick="copyZonesTo('${s.id}')">📋 複製到…</button>
             <button class="btn-icon" onclick="openSpaceModal('${s.id}')">✏️</button>
             <button class="btn-icon" onclick="deleteSpace('${s.id}')">🗑️</button>
           </div>
         </div>
         <div class="space-body${op ? ' open' : ''}" id="space-body-${s.id}">
           ${renderZonesHTML(s.id)}
-          ${csys === 'ceiling' ? '' : spaceReinfBlockHTML(s.id)}
+          ${isCeil ? '' : spaceReinfBlockHTML(s.id)}
         </div>
       </div>`;
-  }).join('');
+  };
+  const groupHdr = (t) => `<div style="font-size:13px;font-weight:800;color:var(--text-2);margin:10px 0 8px">${t}</div>`;
+  let listHtml;
+  if (csys === 'all') {
+    const parts = spaces.filter(s => sysOf(s) === 'partition');
+    const ceils = spaces.filter(s => sysOf(s) === 'ceiling');
+    listHtml = (parts.length ? groupHdr('🧱 隔間房型') + parts.map(spaceCard).join('') : '')
+             + (ceils.length ? groupHdr('⬜ 天花板配置') + ceils.map(spaceCard).join('') : '');
+  } else {
+    listHtml = shown.length ? shown.map(spaceCard).join('')
+      : `<div class="empty-state" style="padding:26px"><div class="icon">${csys === 'ceiling' ? '⬜' : '🧱'}</div><p>還沒有${csys === 'ceiling' ? '天花板配置' : '隔間房型'}，按上面「＋ 新增空間」建一個</p></div>`;
+  }
+  el.innerHTML = sysToggle + overview + listHtml;
 }
 
 // ════════════════════════════════════
@@ -2170,9 +2231,13 @@ function openZoneModal(zoneId, spaceId) {
   state.editingZone = zoneId || null;
   state.editingZoneSpace = spaceId;
   document.getElementById('modal-zone-title').textContent = zoneId ? '編輯計算區塊' : '新增計算區塊';
+  // 空間已分系統 → 鎖定該空間的系統，隱藏類型切換
+  const sp = (state.spaces[state.activeProjectId] || []).find(x => x.id === spaceId);
+  const lockSys = sp && (sp.sys === 'ceiling' || sp.sys === 'partition') ? sp.sys : null;
+  const ztf = document.getElementById('zone-type-field'); if (ztf) ztf.style.display = lockSys ? 'none' : '';
 
   // reset
-  setZoneType('partition');
+  setZoneType(lockSys || 'partition');
   setSides('single');
   ceilingSys = 'centipede';
   ceilingDir = 'length';
