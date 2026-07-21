@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v41</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v42</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v41</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v42</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1440,6 +1440,22 @@
               <div class="field"><label>百葉接縫間距</label><select id="c-fascia-louver-spacing"><option value="122">1.22 M</option><option value="183">1.83 M</option></select></div>
             </div>
           </div>
+        </div>
+
+        <hr class="divider">
+        <div class="section-title">手動加減（造型天花用，選填）</div>
+        <div style="font-size:12px;color:var(--text-3);margin-bottom:8px">公式算完後再加減，可填負數。例：造型多切 +3 片板、主架多 +2 支。</div>
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>主架 ±支</label><input type="number" id="c-adj-main" inputmode="numeric" placeholder="0"></div>
+          <div class="field"><label>百葉(副架) ±支</label><input type="number" id="c-adj-sub" inputmode="numeric" placeholder="0"></div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>螺桿 ±支</label><input type="number" id="c-adj-rod" inputmode="numeric" placeholder="0"></div>
+          <div class="field"><label>板材 ±片</label><input type="number" id="c-adj-board" inputmode="numeric" placeholder="0"></div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>收邊 ±支</label><input type="number" id="c-adj-trim" inputmode="numeric" placeholder="0"></div>
+          <div class="field"></div>
         </div>
       </div>
 
@@ -2267,6 +2283,7 @@ function openZoneModal(zoneId, spaceId) {
   document.getElementById('rod-custom-fields').style.display = 'none';
   document.getElementById('c-main-custom-field').style.display = 'none';
   document.getElementById('c-sub-custom-field').style.display = 'none';
+  ['c-adj-main','c-adj-sub','c-adj-rod','c-adj-board','c-adj-trim'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
   updateFillFields();
 
   // 動態帶入骨架/槽鐵選單（隔間）
@@ -2341,6 +2358,11 @@ function openZoneModal(zoneId, spaceId) {
         document.getElementById('c-board-thickness').value = cp.boardThickness;
         document.getElementById('c-board-size').value = cp.boardSize;
         document.getElementById('c-trim-type').value = cp.trimType;
+        document.getElementById('c-adj-main').value = cp.adjMain || '';
+        document.getElementById('c-adj-sub').value = cp.adjSub || '';
+        document.getElementById('c-adj-rod').value = cp.adjRod || '';
+        document.getElementById('c-adj-board').value = cp.adjBoard || '';
+        document.getElementById('c-adj-trim').value = cp.adjTrim || '';
         if (cp.fasciaEnable) {
           document.getElementById('c-fascia-enable').checked = true;
           document.getElementById('fascia-fields').style.display = '';
@@ -2522,6 +2544,12 @@ function saveZone() {
       fasciaBoardSize: document.getElementById('c-fascia-board-size').value,
       fasciaTrim: document.getElementById('c-fascia-trim').value,
       fasciaLouverSpacing: parseFloat(document.getElementById('c-fascia-louver-spacing').value)||122,
+      // 手動加減（造型天花）：公式算完後再加減，可負數
+      adjMain: parseInt(document.getElementById('c-adj-main').value)||0,
+      adjSub: parseInt(document.getElementById('c-adj-sub').value)||0,
+      adjRod: parseInt(document.getElementById('c-adj-rod').value)||0,
+      adjBoard: parseInt(document.getElementById('c-adj-board').value)||0,
+      adjTrim: parseInt(document.getElementById('c-adj-trim').value)||0,
     };
     zoneData.result = calcCeiling(zoneData.params);
   }
@@ -2682,11 +2710,14 @@ function renderZonesHTML(spaceId) {
     }
     if (r && z.type === 'ceiling') {
       const sysLabel = z.params.sys === 'centipede' ? '蜈蚣腳' : 'N38';
+      const adjTag = (k)=>{ const v=parseInt(z.params[k])||0; return v? `<em style="font-style:normal;color:#b45309;font-weight:700">(${v>0?'+':''}${v})</em>`:''; };
+      const hasAdj = ['adjMain','adjSub','adjRod','adjBoard','adjTrim'].some(k=>parseInt(z.params[k])||0);
       summary = `<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--text-2);">
-        <span>${sysLabel}主架 <strong>${r.mainTotal}</strong> 支</span>
-        <span>百葉 <strong>${r.subTotal}</strong> 支</span>
-        <span>螺桿 <strong>${r.rodResult.rods}</strong> 支</span>
-        <span>板材 <strong>${r.boards}</strong> 片</span>
+        ${hasAdj?'<span style="background:#fef3c7;color:#b45309;font-weight:800;font-size:11px;padding:1px 7px;border-radius:6px">✏️ 含手動調整</span>':''}
+        <span>${sysLabel}主架 <strong>${r.mainTotal}</strong> 支${adjTag('adjMain')}</span>
+        <span>百葉 <strong>${r.subTotal}</strong> 支${adjTag('adjSub')}</span>
+        <span>螺桿 <strong>${r.rodResult.rods}</strong> 支${adjTag('adjRod')}</span>
+        <span>板材 <strong>${r.boards}</strong> 片${adjTag('adjBoard')}</span>
         ${r.totalPrice ? `<span style="color:var(--green)">估價 <strong>$${r.totalPrice.toLocaleString()}</strong></span>` : ''}
       </div>`;
     }
@@ -2956,7 +2987,7 @@ function calcCeiling(p) {
   const mainFullSticks = mainRows * Math.max(0, mainPerRow - 1);
   const lastPerStick = Math.max(1, Math.floor(mainLen / lastLen));  // 一支能裁出幾段最後段
   const mainLastSticks = Math.ceil(mainRows / lastPerStick);        // 裁最後段用掉的支數
-  const mainTotal = mainFullSticks + mainLastSticks;
+  const mainTotal = Math.max(0, mainFullSticks + mainLastSticks + (parseInt(p.adjMain)||0)); // 含手動加減
 
   // 螺桿與吊點（每排主架：兩端各離牆30、中間均分≤90）
   const hangPoints_per_row = Math.max(1, Math.ceil((mainSpan - 60) / 90) + 1);
@@ -2972,6 +3003,7 @@ function calcCeiling(p) {
   } else {
     rodResult = { isStandard: false, hangPoints: hangPointsTotal, customLen: p.rodCustomLen, rods: hangPointsTotal, needHitNail: false };
   }
+  rodResult.rods = Math.max(0, rodResult.rods + (parseInt(p.adjRod)||0)); // 含手動加減
 
   // 螺母：每吊點2個
   const nuts = hangPointsTotal * 2;
@@ -2991,7 +3023,7 @@ function calcCeiling(p) {
   const subFullSticks = subCount * Math.max(0, subPerRow - 1);
   const subLastPerStick = Math.max(1, Math.floor(subLen / subLastLen));
   const subLastSticks = Math.ceil(subCount / subLastPerStick);
-  const subTotal = subFullSticks + subLastSticks;
+  const subTotal = Math.max(0, subFullSticks + subLastSticks + (parseInt(p.adjSub)||0)); // 含手動加減
   // 四齒夾 = 副架條數 × 每條跟幾支主架交叉
   const clipsTotal = p.sys === 'n38' ? subCount * mainRows : 0;
   // 吊勾具 = N38 吊點數
@@ -3001,11 +3033,11 @@ function calcCeiling(p) {
   const bs = BOARD_SIZES[p.boardSize];
   const boardArea = bs.w * bs.h;
   const boardsRaw = area / boardArea;
-  const boards = Math.ceil(boardsRaw * 1.05);
+  const boards = Math.max(0, Math.ceil(boardsRaw * 1.05) + (parseInt(p.adjBoard)||0)); // 含手動加減
 
   // 收邊料
   const trimLen = TRIM_LENGTHS[p.trimType] || 243;
-  const trims = Math.ceil(perimeter / trimLen);
+  const trims = Math.max(0, Math.ceil(perimeter / trimLen) + (parseInt(p.adjTrim)||0)); // 含手動加減
 
   // 立板
   let fascia = null;
