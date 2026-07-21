@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v52</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v53</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -441,9 +441,15 @@ function itemManual(it){ return it.restock!=null && it.restock!==''; } // 有手
 function itemUsed(it){ // 依進度推「已用」量（全做完的量 − 依進度還需要），不受手動增減影響
   return hasRecipe(it.project, it.room) ? Math.max(round(num(it.demand) - baseNeed(it)), 0) : 0;
 }
-function itemRemaining(it){ // 有效現場剩餘：有進度但還沒盤點過 → 用「送料 − 已用」估；否則用已存的
+function itemRemaining(it){ // 有效現場剩餘
   const used = itemUsed(it);
-  const notCounted = round(num(it.remaining)) === round(num(it.delivered)); // 還沒盤點過（剩餘＝送料）
+  // 盤點過且有記錄「盤點當下已用多少」(usedAt) → 盤點數 − 之後新增的用量
+  if(it.usedAt!=null){
+    const delta = Math.max(used - num(it.usedAt), 0);
+    return round(Math.max(num(it.remaining) - delta, 0));
+  }
+  // 還沒盤點過（剩餘＝送料）→ 用「送料 − 已用」估
+  const notCounted = round(num(it.remaining)) === round(num(it.delivered));
   if(used>0 && notCounted) return round(Math.max(num(it.delivered) - used, 0));
   return round(num(it.remaining));
 }
@@ -634,7 +640,7 @@ function quickCount(itemId){
     <div class="divider"></div>
     <div class="fg"><label>現場剩餘（${esc(unit)}）· 可用算式，如各區加總</label>
       <div class="stepper"><button type="button" onclick="stepQty('qc-rem',-1)">−</button>
-      <input type="text" id="qc-rem" inputmode="text" value="${num(it.remaining)}" placeholder="例：20+30+15" style="flex:1;width:auto;text-align:left" oninput="qcEcho('qc-rem')" onchange="normQty('qc-rem')">
+      <input type="text" id="qc-rem" inputmode="text" value="${itemRemaining(it)}" placeholder="例：20+30+15" style="flex:1;width:auto;text-align:left" oninput="qcEcho('qc-rem')" onchange="normQty('qc-rem')">
       <button type="button" onclick="stepQty('qc-rem',1)">＋</button></div>
       <div class="muted" id="qc-rem-sum" style="margin-top:3px;font-size:11px"></div></div>
     <div class="fg"><label>總需求量（${esc(unit)}）· 這房間總共要用多少</label>
@@ -656,6 +662,7 @@ function saveQuickCount(itemId){
   const rs = (document.getElementById('qc-restock').value||'').trim();
   it.restock = rs==='' ? null : evalQty(rs); // 手動要補，留空＝自動算
   it.remaining = evalQty(document.getElementById('qc-rem').value);
+  it.usedAt = itemUsed(it); // 記住盤點當下的已用量，之後進度前進會從盤點數續扣
   // 總需求量改成手動增減（存成與原計算的差），這樣換料/追加不會被重新匯出蓋掉。
   // 「加減」欄有填就在目前總數上加減；否則用「總需求量」欄當絕對值。
   const deltaRaw = (document.getElementById('qc-needdelta').value||'').trim();
@@ -841,7 +848,7 @@ function saveCount(){
   const p = cur.project; const room = document.getElementById('ct-room').value;
   D.items.filter(i=>i.project===p && i.room===room).forEach(it=>{
     const r=document.getElementById('ct-rem-'+it.id), n=document.getElementById('ct-need-'+it.id);
-    if(r) it.remaining = evalQty(r.value);
+    if(r){ it.remaining = evalQty(r.value); it.usedAt = itemUsed(it); } // 記住盤點當下已用量
     // 需求量編輯存成手動增減（相對依進度的還需要），不動原計算基準、也不會被重新匯出蓋掉
     if(n){ const adj = round(num(n.value) - baseNeed(it)); it.needAdj = adj===0 ? null : adj; }
   });
@@ -1278,8 +1285,8 @@ function doCuts(p, cuts){
   cuts.forEach(c=>{
     const from=D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.fromMatId);
     const to=D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.toMatId);
-    if(from) from.remaining = round(Math.max(itemRemaining(from)-c.qty, 0));
-    if(to) to.remaining = round(itemRemaining(to)+c.qty);
+    if(from){ from.remaining = round(Math.max(itemRemaining(from)-c.qty, 0)); from.usedAt = itemUsed(from); }
+    if(to){ to.remaining = round(itemRemaining(to)+c.qty); to.usedAt = itemUsed(to); }
     D.transfers.push({id:uid(), date:todayStr(), project:p, matId:c.toMatId, from:c.floor+'（'+(mat(c.fromMatId)?.name||'')+' 裁）', to:c.floor, qty:round(c.qty), cut:true});
   });
 }
@@ -1408,8 +1415,8 @@ function doManualTransfer(){
   const src=D.items.find(i=>i.project===p && i.room===from && i.matId===matId);
   let dst=D.items.find(i=>i.project===p && i.room===to && i.matId===matId);
   if(!dst){ dst={id:uid(), project:p, room:to, matId, demand:0, remaining:0, delivered:0}; D.items.push(dst); }
-  if(src) src.remaining = round(Math.max(itemRemaining(src)-qty,0));
-  dst.remaining = round(itemRemaining(dst)+qty);
+  if(src){ src.remaining = round(Math.max(itemRemaining(src)-qty,0)); src.usedAt = itemUsed(src); }
+  dst.remaining = round(itemRemaining(dst)+qty); dst.usedAt = itemUsed(dst);
   D.transfers.push({id:uid(), date:todayStr(), project:p, matId, from, to, qty, manual:true});
   save(); renderAll(); closeSheet();
   const m=mat(matId); toast(`✅ 已調撥 ${esc(m?m.name:'')} ${qty}${esc(m?m.unit:'')}：${from} → ${to}`);
@@ -1421,8 +1428,8 @@ function doAlloc(p, mid){ // 實際套用一個材料的調撥（重算以防過
     const src = D.items.find(i=>i.project===p && i.room===t.from && i.matId===mid);
     let dst = D.items.find(i=>i.project===p && i.room===t.to && i.matId===mid);
     if(!dst){ dst = {id:uid(), project:p, room:t.to, matId:mid, demand:0, remaining:0, delivered:0}; D.items.push(dst); }
-    if(src) src.remaining = round(Math.max(itemRemaining(src) - t.qty, 0));
-    dst.remaining = round(itemRemaining(dst) + t.qty);
+    if(src){ src.remaining = round(Math.max(itemRemaining(src) - t.qty, 0)); src.usedAt = itemUsed(src); }
+    dst.remaining = round(itemRemaining(dst) + t.qty); dst.usedAt = itemUsed(dst);
     D.transfers.push({id:uid(), date:todayStr(), project:p, matId:mid, from:t.from, to:t.to, qty:round(t.qty)});
   });
   return a.plan.length;
