@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v55</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v56</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -604,18 +604,44 @@ function openTransferLog(){
       const tag = t.cut ? '<span class="tag" style="background:#fef3c7;color:#b45309;font-size:10px;padding:1px 6px">裁切</span>'
                 : t.manual ? '<span class="tag" style="background:#e0e7ff;color:#3730a3;font-size:10px;padding:1px 6px">手動</span>'
                 : '<span class="tag ok-bg" style="font-size:10px;padding:1px 6px">自動</span>';
-      body+=`<div class="listitem" style="padding:8px 11px">
+      body+=`<div class="listitem" style="padding:8px 11px;gap:8px">
         <div class="li-m" style="min-width:0">
           <div class="li-t" style="font-size:13px">${esc(m?m.name:'?')} ${tag}</div>
           <div class="li-s">${esc(t.from)} → ${esc(t.to)}</div>
         </div>
         <div style="flex:0 0 auto;font-weight:800;white-space:nowrap;color:var(--blue)">${t.qty}${esc(unit)}</div>
+        <button class="btn mini gray" style="flex:0 0 auto" onclick="undoTransfer('${t.id}')">撤銷</button>
       </div>`;
     });
   });
   openSheet(`<h3>🚚 調撥紀錄<span class="x" onclick="closeSheet()">✕</span></h3>
     <div class="muted" style="margin-bottom:4px">共 ${logs.length} 筆（含裁切/手動/自動調撥），新到舊。</div>
     ${body}`);
+}
+// 撤銷一筆調撥：把數量搬回去（裁切則還原成來源材料），並刪除紀錄
+function undoTransfer(id){
+  const t = (D.transfers||[]).find(x=>x.id===id); if(!t){ toast('找不到這筆調撥'); return; }
+  const m = mat(t.matId); const unit = m?m.unit:'';
+  const findIt = (room, matId)=>D.items.find(i=>i.project===t.project && i.room===room && i.matId===matId);
+  const mkIt = (room, matId)=>{ let it=findIt(room, matId); if(!it){ it={id:uid(),project:t.project,room,matId,demand:0,remaining:0,delivered:0}; D.items.push(it); } return it; };
+  const setRem = (it, v)=>{ it.remaining = round(Math.max(v,0)); it.usedAt = itemUsed(it); };
+  if(t.cut){
+    // 裁切：目的材料 −qty、來源材料（同層）＋qty
+    let fromMatId = t.fromMatId;
+    if(!fromMatId){ const nm=(String(t.from).match(/（(.+) 裁）/)||[])[1]; const fm=nm && D.mats.find(x=>x.name===nm); fromMatId = fm && fm.id; }
+    if(!fromMatId){ toast('這筆是舊裁切紀錄，找不到來源材料，無法自動撤銷'); return; }
+    if(!confirm('撤銷這筆裁切？\n'+(mat(fromMatId)?.name||'')+' +'+t.qty+' ← '+(m?m.name:'')+' −'+t.qty+'（'+t.to+'）')) return;
+    const toIt = mkIt(t.to, t.matId), fromIt = mkIt(t.to, fromMatId);
+    setRem(toIt, itemRemaining(toIt)-t.qty);
+    setRem(fromIt, itemRemaining(fromIt)+t.qty);
+  } else {
+    if(!confirm('撤銷這筆調撥？\n'+(m?m.name:'')+' '+t.qty+unit+'：'+t.to+' 退回 '+t.from)) return;
+    const dst = mkIt(t.to, t.matId), src = mkIt(t.from, t.matId);
+    setRem(dst, itemRemaining(dst)-t.qty);
+    setRem(src, itemRemaining(src)+t.qty);
+  }
+  D.transfers = D.transfers.filter(x=>x.id!==id);
+  save(); renderAll(); openTransferLog(); toast('✅ 已撤銷，數量已搬回');
 }
 // 📝 追加紀錄：列出手動換料／追加（needAdj≠0）的材料
 function openAdjLog(){
@@ -1365,7 +1391,7 @@ function doCuts(p, cuts){
     const to=D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.toMatId);
     if(from){ from.remaining = round(Math.max(itemRemaining(from)-c.qty, 0)); from.usedAt = itemUsed(from); }
     if(to){ to.remaining = round(itemRemaining(to)+c.qty); to.usedAt = itemUsed(to); }
-    D.transfers.push({id:uid(), date:todayStr(), project:p, matId:c.toMatId, from:c.floor+'（'+(mat(c.fromMatId)?.name||'')+' 裁）', to:c.floor, qty:round(c.qty), cut:true});
+    D.transfers.push({id:uid(), date:todayStr(), project:p, matId:c.toMatId, fromMatId:c.fromMatId, from:c.floor+'（'+(mat(c.fromMatId)?.name||'')+' 裁）', to:c.floor, qty:round(c.qty), cut:true});
   });
 }
 function applyAllCuts(){
