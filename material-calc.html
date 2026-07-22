@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v43</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v44</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v43</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v44</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1316,7 +1316,15 @@
           <div class="field" style="display:flex;align-items:flex-end;font-size:12px;color:var(--text-3);">選了品項就用它的長度＆單價；不選＝照上面系統/長度自動抓</div>
         </div>
         <hr class="divider">
-        <div class="section-title">螺桿設定</div>
+        <div class="section-title">吊筋設定</div>
+        <div class="field">
+          <label>吊筋材料</label>
+          <div class="toggle-group">
+            <button class="toggle-btn active" id="hang-rod" onclick="setHangType('rod')">螺桿</button>
+            <button class="toggle-btn" id="hang-brace" onclick="setHangType('brace')">加強橫枝（型鋼吊筋）</button>
+          </div>
+        </div>
+        <div id="hang-rod-fields">
         <div class="form-grid form-grid-2">
           <div class="field">
             <label>螺桿類型</label>
@@ -1343,6 +1351,17 @@
             <div class="input-unit"><input type="number" id="c-rod-custom-len" placeholder="例：120" step="1" min="0"><span class="unit-label">cm</span></div>
           </div>
           <div class="field" style="display:flex;align-items:flex-end;"><div style="font-size:12px;color:var(--text-3);padding-bottom:10px;">訂做螺桿不需要擊釘片</div></div>
+        </div>
+        </div>
+        <div id="hang-brace-fields" style="display:none;">
+          <div class="form-grid form-grid-2">
+            <div class="field"><label>橫枝型號</label><select id="c-hang-brace-type"></select></div>
+            <div class="field">
+              <label>每支吊筋長度</label>
+              <div class="input-unit"><input type="number" id="c-hang-piece-len" placeholder="例：60" step="1" min="0"><span class="unit-label">cm</span></div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:8px">一支橫枝可裁「料長 ÷ 吊筋長」段。不需螺母／擊釘片／吊勾具，叫料會併入加強橫枝（跟隔間橫枝同一筆）。</div>
         </div>
         <hr class="divider">
         <div class="section-title">副架（大百葉）設定</div>
@@ -2284,6 +2303,9 @@ function openZoneModal(zoneId, spaceId) {
   document.getElementById('c-main-custom-field').style.display = 'none';
   document.getElementById('c-sub-custom-field').style.display = 'none';
   ['c-adj-main','c-adj-sub','c-adj-rod','c-adj-board','c-adj-trim'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  setHangType('rod');
+  populateHangBraceSelect();
+  document.getElementById('c-hang-piece-len').value = '';
   updateFillFields();
 
   // 動態帶入骨架/槽鐵選單（隔間）
@@ -2346,6 +2368,9 @@ function openZoneModal(zoneId, spaceId) {
         document.getElementById('c-rod-spec').value = cp.rodSpec;
         document.getElementById('c-rod-point-len').value = cp.rodPointLen || '';
         document.getElementById('c-rod-custom-len').value = cp.rodCustomLen || '';
+        setHangType(cp.hangType === 'brace' ? 'brace' : 'rod');
+        populateHangBraceSelect(cp.hangBraceType ? cp.hangBraceType + '|' + cp.hangStickLen : null);
+        document.getElementById('c-hang-piece-len').value = cp.hangPieceLen || '';
         document.getElementById('c-sub-length').value = cp.subLen;
         if (cp.subLen === 'custom') {
           document.getElementById('c-sub-custom-field').style.display = '';
@@ -2527,6 +2552,10 @@ function saveZone() {
       rodSpec: document.getElementById('c-rod-spec').value,
       rodPointLen: parseFloat(document.getElementById('c-rod-point-len').value)||0,
       rodCustomLen: parseFloat(document.getElementById('c-rod-custom-len').value)||0,
+      hangType,
+      hangBraceType: (document.getElementById('c-hang-brace-type').value || '').split('|')[0],
+      hangStickLen: parseFloat((document.getElementById('c-hang-brace-type').value || '').split('|')[1])||0,
+      hangPieceLen: parseFloat(document.getElementById('c-hang-piece-len').value)||0,
       subLen: subLenVal,
       subLenCustom: subLenVal === 'custom' ? (parseFloat(document.getElementById('c-sub-custom-len').value)||0) : null,
       subMatId: document.getElementById('c-sub-mat').value || '',
@@ -2716,7 +2745,7 @@ function renderZonesHTML(spaceId) {
         ${hasAdj?'<span style="background:#fef3c7;color:#b45309;font-weight:800;font-size:11px;padding:1px 7px;border-radius:6px">✏️ 含手動調整</span>':''}
         <span>${sysLabel}主架 <strong>${r.mainTotal}</strong> 支${adjTag('adjMain')}</span>
         <span>百葉 <strong>${r.subTotal}</strong> 支${adjTag('adjSub')}</span>
-        <span>螺桿 <strong>${r.rodResult.rods}</strong> 支${adjTag('adjRod')}</span>
+        <span>${r.rodResult.isBrace?'吊筋(橫枝)':'螺桿'} <strong>${r.rodResult.rods}</strong> 支${adjTag('adjRod')}</span>
         <span>板材 <strong>${r.boards}</strong> 片${adjTag('adjBoard')}</span>
         <span>收邊 <strong>${r.trims}</strong> 支${adjTag('adjTrim')}</span>
         ${r.totalPrice ? `<span style="color:var(--green)">估價 <strong>$${r.totalPrice.toLocaleString()}</strong></span>` : ''}
@@ -2917,6 +2946,20 @@ function setRodType(type) {
   document.getElementById('rod-std-fields').style.display = type === 'standard' ? '' : 'none';
   document.getElementById('rod-custom-fields').style.display = type === 'custom' ? '' : 'none';
 }
+let hangType = 'rod'; // 吊筋材料：rod=螺桿、brace=加強橫枝
+function setHangType(t) {
+  hangType = t;
+  document.getElementById('hang-rod').classList.toggle('active', t === 'rod');
+  document.getElementById('hang-brace').classList.toggle('active', t === 'brace');
+  document.getElementById('hang-rod-fields').style.display = t === 'rod' ? '' : 'none';
+  document.getElementById('hang-brace-fields').style.display = t === 'brace' ? '' : 'none';
+}
+function populateHangBraceSelect(preset) {
+  const sel = document.getElementById('c-hang-brace-type'); if (!sel) return;
+  // 每個型號 × 每個長度一個選項，value = id|長度
+  sel.innerHTML = (state.materials.braces || []).flatMap(b => (b.lengths || [243]).map(L => `<option value="${b.id}|${L}">${esc(b.name)} ${L}cm</option>`)).join('');
+  if (preset && [...sel.options].some(o => o.value === preset)) sel.value = preset;
+}
 
 function toggleFasciaFields() {
   const en = document.getElementById('c-fascia-enable').checked;
@@ -2995,7 +3038,16 @@ function calcCeiling(p) {
   const hangPointsTotal = hangPoints_per_row * mainRows;
 
   let rodResult = {};
-  if (p.rodType === 'standard') {
+  if (p.hangType === 'brace') {
+    // 吊筋用加強橫枝：一支料裁「料長÷吊筋長」段，段數蓋過吊點數
+    const br = (state.materials.braces || []).find(x => x.id === p.hangBraceType) || (state.materials.braces || [])[0];
+    const stickLen = p.hangStickLen || (br && br.lengths && br.lengths[0]) || 243;
+    const pieceLen = p.hangPieceLen || 0;
+    const per = pieceLen > 0 ? Math.max(1, Math.floor(stickLen / pieceLen)) : 1;
+    rodResult = { isBrace: true, hangPoints: hangPointsTotal, pieceLen, pointsPerRod: per,
+      rods: Math.ceil(hangPointsTotal / per), needHitNail: false,
+      braceId: br ? br.id : null, braceName: br ? br.name : '加強橫枝', stickLen };
+  } else if (p.rodType === 'standard') {
     const rodFullLen = 300; // 3M
     const pointLen = p.rodPointLen || 0;
     const pointsPerRod = pointLen > 0 ? Math.floor(rodFullLen / pointLen) : 1;
@@ -3006,9 +3058,9 @@ function calcCeiling(p) {
   }
   rodResult.rods = Math.max(0, rodResult.rods + (parseInt(p.adjRod)||0)); // 含手動加減
 
-  // 螺母：每吊點2個
-  const nuts = hangPointsTotal * 2;
-  // 擊釘片：標準品才需要，數量 = 吊點數
+  // 螺母：每吊點2個（橫枝吊筋不用）
+  const nuts = rodResult.isBrace ? 0 : hangPointsTotal * 2;
+  // 擊釘片：標準品螺桿才需要，數量 = 吊點數
   const hitNails = rodResult.needHitNail ? hangPointsTotal : 0;
   // 副架（百葉）與主架「交錯（垂直）」：
   //  - 沿著「主架長度方向(mainSpan)」每 30.5 排一條（第一條離牆30.5、末條離牆≤30.5、不排到牆外）
@@ -3027,8 +3079,8 @@ function calcCeiling(p) {
   const subTotal = Math.max(0, subFullSticks + subLastSticks + (parseInt(p.adjSub)||0)); // 含手動加減
   // 四齒夾 = 副架條數 × 每條跟幾支主架交叉
   const clipsTotal = p.sys === 'n38' ? subCount * mainRows : 0;
-  // 吊勾具 = N38 吊點數
-  const hooksTotal = p.sys === 'n38' ? hangPointsTotal : 0;
+  // 吊勾具 = N38 吊點數（橫枝吊筋直接鎖，不用吊勾）
+  const hooksTotal = (p.sys === 'n38' && !rodResult.isBrace) ? hangPointsTotal : 0;
 
   // 板材
   const bs = BOARD_SIZES[p.boardSize];
@@ -3070,8 +3122,15 @@ function calcCeiling(p) {
   addP(state.materials.boards, boardKey, boards, '片');
   // 收邊料
   addP(state.materials.trims, p.trimType, trims, '支');
-  // 螺桿
-  addP(state.materials.rods, p.rodSpec, rodResult.rods, '支');
+  // 吊筋：螺桿或加強橫枝（橫枝是 pricePerM 計價）
+  if (rodResult.isBrace) {
+    const brm = (state.materials.braces || []).find(x => x.id === rodResult.braceId);
+    if (brm && brm.pricePerM > 0) {
+      const unitPrice = Math.round(rodResult.stickLen / 100 * brm.pricePerM);
+      const cost = rodResult.rods * unitPrice;
+      totalPrice += cost; priceDetail.push({ name: brm.name + ' ' + rodResult.stickLen + 'cm（吊筋）', qty: rodResult.rods, unit: '支', unitPrice, cost });
+    }
+  } else addP(state.materials.rods, p.rodSpec, rodResult.rods, '支');
   // 五金
   addP(state.materials.hardware, 'nut', nuts, '個');
   if (hitNails > 0) addP(state.materials.hardware, 'hitnail', hitNails, '個');
@@ -3374,8 +3433,13 @@ function aggregateZone(z, mult, agg) {
     const fasciaR = r.fascia;
     AT('main_' + (r.mainFrameId || params.sys), r.mainFrameName || (sysLabel + ' 主架 ' + r.mainLen + 'cm'), r.mainTotal, '支');
     AT('sub_' + (r.subFrameId || 'louver'), r.subFrameName || ('大百葉 ' + r.subLen + 'cm'), r.subTotal, '支');
-    AT('rod_' + params.rodSpec, rodLabel, r.rodResult.rods, '支');
-    AT('nut', '螺母', r.nuts, '個');
+    if (r.rodResult.isBrace) {
+      // 橫枝吊筋：跟隔間加強橫枝用同一個 key/名稱 → 叫料自動合併成同一筆
+      AT(params.hangBraceType + '_' + r.rodResult.stickLen, matName('braces', params.hangBraceType) + ' 加強橫枝 ' + r.rodResult.stickLen + 'cm', r.rodResult.rods, '支');
+    } else {
+      AT('rod_' + params.rodSpec, rodLabel, r.rodResult.rods, '支');
+    }
+    if (r.nuts > 0) AT('nut', '螺母', r.nuts, '個');
     if (r.hitNails > 0) AT('hitnail', '擊釘片', r.hitNails, '個');
     if (r.clipsTotal > 0) AT('clip4', '四齒夾', r.clipsTotal, '個');
     if (r.hooksTotal > 0) AT('hook', '吊勾具', r.hooksTotal, '個');
@@ -3428,8 +3492,10 @@ function zoneDetailHTML(z) {
           <tbody>
             <tr><td>${sysLabel} 主架（${r.mainLen}cm）</td><td class="qty">${r.mainTotal} 支</td><td class="unit-cell">${r.mainRows}排・整支${r.mainFullSticks}＋裁接${r.mainLastSticks}（末段${Math.round(r.lastMainLen)}cm，剩料續接）</td></tr>
             <tr><td>大百葉 副架（${r.subLen}cm）</td><td class="qty">${r.subTotal} 支</td><td class="unit-cell">${r.subCount}條 × ${r.subPerRow}支/條</td></tr>
-            <tr><td>${rodLabel}${params.rodType==='standard'?' 3M':' 訂做'+params.rodCustomLen+'cm'}</td><td class="qty">${r.rodResult.rods} 支</td><td class="unit-cell">${params.rodType==='standard'?r.rodResult.hangPoints+'個吊點，每根可截'+r.rodResult.pointsPerRod+'個':r.rodResult.hangPoints+' 個吊點'}</td></tr>
-            <tr><td>螺母</td><td class="qty">${r.nuts} 個</td><td class="unit-cell">每吊點2個</td></tr>
+            ${r.rodResult.isBrace
+              ? `<tr><td>${esc(r.rodResult.braceName)}（吊筋）</td><td class="qty">${r.rodResult.rods} 支</td><td class="unit-cell">${r.rodResult.hangPoints}個吊點，每支${r.rodResult.stickLen}cm裁${r.rodResult.pointsPerRod}段${r.rodResult.pieceLen?('（吊筋'+r.rodResult.pieceLen+'cm）'):''}</td></tr>`
+              : `<tr><td>${rodLabel}${params.rodType==='standard'?' 3M':' 訂做'+params.rodCustomLen+'cm'}</td><td class="qty">${r.rodResult.rods} 支</td><td class="unit-cell">${params.rodType==='standard'?r.rodResult.hangPoints+'個吊點，每根可截'+r.rodResult.pointsPerRod+'個':r.rodResult.hangPoints+' 個吊點'}</td></tr>`}
+            ${r.nuts > 0 ? `<tr><td>螺母</td><td class="qty">${r.nuts} 個</td><td class="unit-cell">每吊點2個</td></tr>` : ''}
             ${r.hitNails > 0 ? `<tr><td>擊釘片</td><td class="qty">${r.hitNails} 個</td><td class="unit-cell">標準品螺桿需要</td></tr>` : ''}
             ${r.clipsTotal > 0 ? `<tr><td>四齒夾</td><td class="qty">${r.clipsTotal} 個</td><td class="unit-cell">N38與百葉結合</td></tr>` : ''}
             ${r.hooksTotal > 0 ? `<tr><td>吊勾具</td><td class="qty">${r.hooksTotal} 個</td><td class="unit-cell">N38系統專用</td></tr>` : ''}
@@ -3930,8 +3996,8 @@ function printResults() {
           <tr style="background:#f0f0f0;"><th style="border:1px solid #ccc;padding:4px 8px;text-align:left;">材料</th><th style="border:1px solid #ccc;padding:4px 8px;">數量</th><th style="border:1px solid #ccc;padding:4px 8px;">備註</th></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${sysLabel} 主架</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.mainTotal} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.mainRows}排・整支${r.mainFullSticks}+裁接${r.mainLastSticks}</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">大百葉 副架</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.subTotal} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.subCount}條×${r.subPerRow}支</td></tr>
-          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${rodLabel}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.rodResult.rods} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.hangPointsTotal}個吊點</td></tr>
-          <tr><td style="border:1px solid #ccc;padding:4px 8px;">螺母</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.nuts} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${r.rodResult.isBrace?esc(r.rodResult.braceName)+'（吊筋）':rodLabel}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.rodResult.rods} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.hangPointsTotal}個吊點</td></tr>
+          ${r.nuts>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">螺母</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.nuts} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
           ${r.hitNails>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">擊釘片</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.hitNails} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
           ${r.clipsTotal>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">四齒夾</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.clipsTotal} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
           ${r.hooksTotal>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">吊勾具</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.hooksTotal} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
@@ -3941,8 +4007,9 @@ function printResults() {
         ${r.totalPrice>0?`<div style="text-align:right;font-size:11px;color:#2D7A4F;font-weight:600;margin-top:2px;">小計 $${r.totalPrice.toLocaleString()}</div>`:''}</div>`;
         addT('main_'+(r.mainFrameId||params.sys), r.mainFrameName || (sysLabel+' 主架'), r.mainTotal, '支');
         addT('sub_'+(r.subFrameId||'louver'), r.subFrameName || '大百葉 副架', r.subTotal, '支');
-        addT('rod_'+params.rodSpec, rodLabel, r.rodResult.rods, '支');
-        addT('nut', '螺母', r.nuts, '個');
+        if (r.rodResult.isBrace) addT(params.hangBraceType+'_'+r.rodResult.stickLen, matName('braces', params.hangBraceType)+' 加強橫枝 '+r.rodResult.stickLen+'cm', r.rodResult.rods, '支');
+        else addT('rod_'+params.rodSpec, rodLabel, r.rodResult.rods, '支');
+        if (r.nuts>0) addT('nut', '螺母', r.nuts, '個');
         if (r.hitNails>0) addT('hitnail','擊釘片',r.hitNails,'個');
         if (r.clipsTotal>0) addT('clip4','四齒夾',r.clipsTotal,'個');
         if (r.hooksTotal>0) addT('hook','吊勾具',r.hooksTotal,'個');
