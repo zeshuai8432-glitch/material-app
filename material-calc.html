@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v42</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v43</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v42</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v43</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2718,6 +2718,7 @@ function renderZonesHTML(spaceId) {
         <span>百葉 <strong>${r.subTotal}</strong> 支${adjTag('adjSub')}</span>
         <span>螺桿 <strong>${r.rodResult.rods}</strong> 支${adjTag('adjRod')}</span>
         <span>板材 <strong>${r.boards}</strong> 片${adjTag('adjBoard')}</span>
+        <span>收邊 <strong>${r.trims}</strong> 支${adjTag('adjTrim')}</span>
         ${r.totalPrice ? `<span style="color:var(--green)">估價 <strong>$${r.totalPrice.toLocaleString()}</strong></span>` : ''}
       </div>`;
     }
