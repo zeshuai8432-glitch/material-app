@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v54</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v55</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -533,6 +533,7 @@ function renderBoard(){
         <button class="btn sm" onclick="openAllocSheet()">🔄 調撥建議</button>
         <button class="btn sm gray" onclick="openRefillSheet()">📄 補料單</button>
         <button class="btn sm gray" onclick="openAdjLog()">📝 追加紀錄${adjCount?` <span style="background:var(--amber);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${adjCount}</span>`:''}</button>
+        <button class="btn sm gray" onclick="openTransferLog()">🚚 調撥紀錄</button>
       </div>
     </div>
     <div class="seg" style="margin-top:11px">${sysBtn('全部','全部')}${sysBtn('隔間','🧱 隔間')}${sysBtn('天花','🔲 天花')}</div>
@@ -584,6 +585,38 @@ function renderBoard(){
 }
 function toggleGrp(id){ if(collapsed.has(id))collapsed.delete(id); else collapsed.add(id); renderBoard(); }
 function setSysFilter(f){ cur.sysFilter = f; save(); renderBoard(); }
+// 🚚 調撥紀錄：全部調撥/裁切流水帳，依日期分組
+function openTransferLog(){
+  const p = cur.project;
+  const logs = (D.transfers||[]).filter(t=>t.project===p).slice().reverse();
+  if(!logs.length){
+    openSheet(`<h3>🚚 調撥紀錄<span class="x" onclick="closeSheet()">✕</span></h3>
+      <div class="muted" style="padding:10px 0">還沒有調撥紀錄。<br><br>用「🔄 調撥建議」套用裁切/調撥、或「✋ 手動調撥」搬料時，都會自動記在這裡。<br>（自己實體搬了但沒在 App 操作的，不會有紀錄——下次用手動調撥登記一下就有。）</div>`);
+    return;
+  }
+  const byDate={}, order=[];
+  logs.forEach(t=>{ const d=t.date||'(無日期)'; if(!byDate[d]){ byDate[d]=[]; order.push(d); } byDate[d].push(t); });
+  let body='';
+  order.slice(0,30).forEach(d=>{
+    body+=`<div style="font-size:12px;font-weight:800;color:var(--text2);padding:10px 2px 4px">📅 ${esc(d)}　<span style="font-weight:500">${byDate[d].length} 筆</span></div>`;
+    byDate[d].forEach(t=>{
+      const m=mat(t.matId); const unit=m?m.unit:'';
+      const tag = t.cut ? '<span class="tag" style="background:#fef3c7;color:#b45309;font-size:10px;padding:1px 6px">裁切</span>'
+                : t.manual ? '<span class="tag" style="background:#e0e7ff;color:#3730a3;font-size:10px;padding:1px 6px">手動</span>'
+                : '<span class="tag ok-bg" style="font-size:10px;padding:1px 6px">自動</span>';
+      body+=`<div class="listitem" style="padding:8px 11px">
+        <div class="li-m" style="min-width:0">
+          <div class="li-t" style="font-size:13px">${esc(m?m.name:'?')} ${tag}</div>
+          <div class="li-s">${esc(t.from)} → ${esc(t.to)}</div>
+        </div>
+        <div style="flex:0 0 auto;font-weight:800;white-space:nowrap;color:var(--blue)">${t.qty}${esc(unit)}</div>
+      </div>`;
+    });
+  });
+  openSheet(`<h3>🚚 調撥紀錄<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="muted" style="margin-bottom:4px">共 ${logs.length} 筆（含裁切/手動/自動調撥），新到舊。</div>
+    ${body}`);
+}
 // 📝 追加紀錄：列出手動換料／追加（needAdj≠0）的材料
 function openAdjLog(){
   const p = cur.project; if(!p) return;
