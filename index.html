@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v56</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v57</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -441,6 +441,16 @@ function itemManual(it){ return it.restock!=null && it.restock!==''; } // 有手
 function itemUsed(it){ // 依進度推「已用」量（全做完的量 − 依進度還需要），不受手動增減影響
   return hasRecipe(it.project, it.room) ? Math.max(round(num(it.demand) - baseNeed(it)), 0) : 0;
 }
+function itemTransferNet(it){ // 這材料在此樓層的調撥進出（含裁切）
+  let tin=0, tout=0;
+  (D.transfers||[]).forEach(t=>{
+    if(t.project!==it.project) return;
+    if(t.matId===it.matId && t.to===it.room) tin+=num(t.qty);                         // 調入／裁切補入
+    if(!t.cut && t.matId===it.matId && t.from===it.room) tout+=num(t.qty);            // 調出到別層
+    if(t.cut && t.fromMatId===it.matId && t.to===it.room) tout+=num(t.qty);           // 被裁去補別的料
+  });
+  return { tin: round(tin), tout: round(tout), net: round(tin-tout) };
+}
 function itemRemaining(it){ // 有效現場剩餘
   const used = itemUsed(it);
   // 盤點過且有記錄「盤點當下已用多少」(usedAt) → 盤點數 − 之後新增的用量
@@ -448,9 +458,9 @@ function itemRemaining(it){ // 有效現場剩餘
     const delta = Math.max(used - num(it.usedAt), 0);
     return round(Math.max(num(it.remaining) - delta, 0));
   }
-  // 還沒盤點過（剩餘＝送料）→ 用「送料 − 已用」估
+  // 還沒盤點過（剩餘＝送料）→ 用「送料 ＋ 調撥淨額 − 已用」估
   const notCounted = round(num(it.remaining)) === round(num(it.delivered));
-  if(used>0 && notCounted) return round(Math.max(num(it.delivered) - used, 0));
+  if(used>0 && notCounted) return round(Math.max(num(it.delivered) + itemTransferNet(it).net - used, 0));
   return round(num(it.remaining));
 }
 function itemLack(it){ // >0 需補：手動優先，否則用 需求−有效剩餘 算
@@ -566,11 +576,13 @@ function renderBoard(){
         const total = itemTotal(it); // 總需求量（全做完要的量，含手動增減，不隨進度扣）
         const over = (!itemManual(it) && lack<0) ? round(rem-need) : 0; // 溢料＝現場剩餘超過還需要
         const tn = nameTone(m?m.name:'');
+        const tnet = itemTransferNet(it); // 調撥淨額：讓「送」欄看得出還有調撥進出
+        const tTag = tnet.net>0?`<span style="color:var(--blue);font-weight:700">＋調${tnet.net}</span>`:(tnet.net<0?`<span style="color:var(--amber);font-weight:700">−調${-tnet.net}</span>`:'');
         html += `<div class="mrow" onclick="quickCount('${it.id}')" style="border-left:4px solid ${tn.c};padding-left:9px;background:${tn.b}">
           <div class="mi">
             <div class="mn" style="color:${tn.c}">${esc(m?m.name:'?')}</div>
             <div class="ms">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''}</div>
-            <div class="nums">總需 ${total}${esc(unit)}　送 ${num(it.delivered)}${esc(unit)}　剩 ${rem}${esc(unit)}</div>
+            <div class="nums">總需 ${total}${esc(unit)}　送 ${num(it.delivered)}${esc(unit)}${tTag}　剩 ${rem}${esc(unit)}</div>
           </div>
           <div class="val">
             <div class="big ${lack>0?'lack':(over>0?'over':'ok')}">${lack>0?('缺'+lack):(over>0?('溢'+over):'✅')}</div>
@@ -908,10 +920,12 @@ function renderCount(){
     const g = deliverGroupKey(m).label;
     if(g!==lastG){ html+=`<div class="catrow" style="padding-left:14px">${esc(g)}</div>`; lastG=g; }
     const ctn = nameTone(m?m.name:'');
-    // 已用（依進度）= 全做完的量 − 現況還需要；建議現場剩餘 = 送料 − 已用（與總覽同一套算法）
+    // 已用（依進度）= 全做完的量 − 現況還需要；建議現場剩餘 = 送料 ＋ 調撥淨額 − 已用
     const used = itemUsed(it);
-    const est = round(Math.max(num(it.delivered) - used, 0));
+    const tn = itemTransferNet(it);
+    const est = round(Math.max(num(it.delivered) + tn.net - used, 0));
     const defVal = itemRemaining(it);
+    const bigGap = used>0 && Math.abs(defVal-est) >= Math.max(5, 0.2*Math.max(defVal, est)); // 差很大→提醒重盤
     html += `<div class="card" style="padding:11px 13px;margin-bottom:8px;border-left:4px solid ${ctn.c}">
       <div style="font-weight:800;font-size:14px;color:${ctn.c}">${esc(m?m.name:'?')}</div>
       <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 已送 ${num(it.delivered)}${esc(unit)}${used>0?(' · 已用 '+used+esc(unit)):''}</div>
@@ -924,7 +938,8 @@ function renderCount(){
         <div><label>需求量</label>
           <input type="number" id="ct-need-${it.id}" inputmode="decimal" value="${itemNeed(it)}" onchange="liveCount('${it.id}')"></div>
       </div>
-      ${used>0?`<div class="muted" style="margin-top:6px;font-size:12px">建議剩餘 = 送料 ${num(it.delivered)} − 已用 ${used} = <b>${est}</b>${defVal!==est?` <a onclick="document.getElementById('ct-rem-${it.id}').value=${est};liveCount('${it.id}')" style="color:var(--blue);cursor:pointer">帶入</a>`:''}</div>`:''}
+      ${used>0?`<div class="muted" style="margin-top:6px;font-size:12px">建議剩餘 = 送料 ${num(it.delivered)}${tn.tin?` ＋調入 ${tn.tin}`:''}${tn.tout?` −調出 ${tn.tout}`:''} − 已用 ${used} = <b>${est}</b>${defVal!==est?` <a onclick="document.getElementById('ct-rem-${it.id}').value=${est};liveCount('${it.id}')" style="color:var(--blue);cursor:pointer">帶入</a>`:''}</div>`:''}
+      ${bigGap?`<div style="margin-top:4px;font-size:12px;font-weight:700;color:var(--amber)">⚠️ 目前顯示 ${defVal}${esc(unit)}，與進度推算 ${est}${esc(unit)} 差 ${Math.abs(round(defVal-est))}${esc(unit)} — 建議實地重盤一次接回帳</div>`:''}
       <div id="ct-res-${it.id}" style="text-align:right;margin-top:7px;font-weight:800">${countResHTML(it)}</div>
     </div>`;
   });
