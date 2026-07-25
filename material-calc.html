@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v47</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v48</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v47</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v48</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1523,6 +1523,7 @@ let state = {
   reinf: {},      // spaceId -> [{id,use,type,qty}] 補強鋼板（獨立清單，掛在房型底下）
   extras: {},     // projectId -> [{id,name,qty,unit}] 用量結果的自訂材料（公式沒算的，手動加）
   fixes: {},      // projectId -> { aggKey: 改後總數 } 全案彙總的手改總數（列印/匯出跟著用）
+  ffixes: {},     // projectId -> { floor -> { aggKey: 改後數量 } } 依樓層的手改數量（匯出跟著用）
   editingProject: null,
   editingSpace: null,
   editingZone: null,
@@ -1836,6 +1837,7 @@ function loadUserData(data) {
   state.reinf = data.reinf || {};
   state.extras = data.extras || {};
   state.fixes = data.fixes || {};
+  state.ffixes = data.ffixes || {};
   state.materials = data.materials || JSON.parse(JSON.stringify(DEFAULT_MATERIALS));
   migrateMaterials();
   migrateSpaceSys();
@@ -1850,7 +1852,7 @@ let saveStatusHideTimer = null;
 // ── 本機備份（離線保險）：每次存檔同步寫一份到 localStorage，重整時若本機比雲端新就用本機 ──
 function localCacheKey() { return 'mc_cache_' + (state.user || ''); }
 function snapshotData() {
-  return { projects: state.projects, spaces: state.spaces, zones: state.zones, reinf: state.reinf, extras: state.extras || {}, fixes: state.fixes || {}, materials: state.materials, savedAt: Date.now() };
+  return { projects: state.projects, spaces: state.spaces, zones: state.zones, reinf: state.reinf, extras: state.extras || {}, fixes: state.fixes || {}, ffixes: state.ffixes || {}, materials: state.materials, savedAt: Date.now() };
 }
 function cacheLocal(data) { try { if (state.user) localStorage.setItem(localCacheKey(), JSON.stringify(data)); } catch (e) {} }
 
@@ -3433,13 +3435,18 @@ function exportToFieldApp() {
     return { floor: fl, materials, rooms };
   }).filter(f => f.materials.length);
   if (!floors.length) { toast('沒有可匯出的用量', 'error'); return; }
-  // 全案總數手改：把「改後 − 原總和」的差額套到量最大的樓層（不夠扣再往下一層）
+  // 樓層手改優先：該層該材料直接用你改的數字
+  const ffx = (state.ffixes && state.ffixes[pid]) || {};
+  floors.forEach(f => { const m2 = ffx[f.floor] || {}; f.materials.forEach(m => { if (m2[m.key] != null) m.qty = m2[m.key]; }); });
+  // 全案總數手改：把「改後 − 原總和」的差額套到量最大的樓層（樓層有手改的那層不動、不夠扣再往下一層）
   const fixes = (state.fixes && state.fixes[pid]) || {};
   Object.entries(fixes).forEach(([key, fq]) => {
-    const rows = floors.map(f => f.materials.find(m => m.key === key)).filter(Boolean);
-    if (!rows.length) return;
-    let delta = fq - rows.reduce((a, m) => a + m.qty, 0);
+    const all = floors.map(f => ({ f, m: f.materials.find(m => m.key === key) })).filter(x => x.m);
+    if (!all.length) return;
+    let delta = fq - all.reduce((a, x) => a + x.m.qty, 0);
     if (!delta) return;
+    const rows = all.filter(x => !((ffx[x.f.floor] || {})[key] != null)).map(x => x.m);
+    if (!rows.length) return; // 每層都手改過 → 尊重樓層數字，略過全案修正
     rows.sort((a, b) => b.qty - a.qty);
     for (const m of rows) { if (!delta) break; const nq = Math.max(0, m.qty + delta); delta -= (nq - m.qty); m.qty = nq; }
   });
@@ -3583,18 +3590,32 @@ const RESULT_CAT_ORDER = ['骨架立柱', '槽鐵', '加強橫枝', '補強鋼�
 function resultMatOrder(label) { const i = RESULT_CAT_ORDER.indexOf(guessFieldCat(label)); return i < 0 ? 99 : i; }
 // 全案總數手改（叫料前微調，不用回頭改牆）：pid -> { aggKey: 改後數量 }
 function projFixes(){ if(!state.fixes) state.fixes = {}; const pid=state.activeProjectId; return state.fixes[pid] = state.fixes[pid] || {}; }
+// 樓層總數手改：pid -> { floor -> { aggKey: 改後數量 } }
+function floorFixesOf(fl){ if(!state.ffixes) state.ffixes = {}; const pid=state.activeProjectId; const m = state.ffixes[pid] = state.ffixes[pid] || {}; return m[fl] = m[fl] || {}; }
+function askFix(cur, orig){
+  const v = prompt('手改數量（清空＝還原計算值 '+orig+'）', cur);
+  if(v===null) return undefined;
+  const s = String(v).trim();
+  if(s==='' || parseFloat(s)===orig) return null; // 還原
+  const n = parseFloat(s); if(isNaN(n)||n<0){ toast('數字不對','error'); return undefined; }
+  return n;
+}
 function fixTotal(key, orig){
   const fixes = projFixes();
-  const cur = fixes[key]!=null ? fixes[key] : orig;
-  const v = prompt('手改總數（清空＝還原計算值 '+orig+'）', cur);
-  if(v===null) return;
-  const s = String(v).trim();
-  if(s==='' || parseFloat(s)===orig){ delete fixes[key]; }
-  else { const n=parseFloat(s); if(isNaN(n)||n<0){ toast('數字不對','error'); return; } fixes[key]=n; }
+  const r = askFix(fixes[key]!=null?fixes[key]:orig, orig);
+  if(r===undefined) return;
+  if(r===null) delete fixes[key]; else fixes[key]=r;
   saveNow(); renderResults(); toast('已更新總數');
 }
-function totalsTableHTML(totals, editable) {
-  const fixes = editable ? projFixes() : null;
+function fixFloorTotal(fl, key, orig){
+  const fixes = floorFixesOf(fl);
+  const r = askFix(fixes[key]!=null?fixes[key]:orig, orig);
+  if(r===undefined) return;
+  if(r===null) delete fixes[key]; else fixes[key]=r;
+  saveNow(); renderResults(); toast('已更新 '+fl+' 數量');
+}
+function totalsTableHTML(totals, editable, floor) {
+  const fixes = !editable ? null : (floor!=null ? floorFixesOf(floor) : projFixes());
   const rows = Object.entries(totals).map(([k,t])=>Object.assign({key:k},t)).sort((a, b) =>
     resultMatOrder(a.label) - resultMatOrder(b.label) || String(a.label).localeCompare(String(b.label), 'zh-Hant', { numeric: true }));
   return `<table class="result-table"><thead><tr><th>材料</th><th>數量</th><th>單位</th></tr></thead><tbody>${
@@ -3603,7 +3624,7 @@ function totalsTableHTML(totals, editable) {
       const qty = fx!=null
         ? `<b style="color:#b45309">${fx.toLocaleString()}</b> <span style="color:#999;font-size:11px">(原 ${t.qty.toLocaleString()})</span>`
         : t.qty.toLocaleString();
-      const pen = editable ? ` <a onclick="fixTotal('${esc(t.key)}',${t.qty})" style="cursor:pointer;text-decoration:none">✏️</a>` : '';
+      const pen = editable ? ` <a onclick="${floor!=null?`fixFloorTotal(decodeURIComponent('${encodeURIComponent(floor)}'),'${esc(t.key)}',${t.qty})`:`fixTotal('${esc(t.key)}',${t.qty})`}" style="cursor:pointer;text-decoration:none">✏️</a>` : '';
       return `<tr><td>${t.label}</td><td class="qty">${qty}${pen}</td><td class="unit-cell">${t.unit}</td></tr>`;
     }).join('')
   }</tbody></table>`;
@@ -3673,15 +3694,15 @@ function renderResults() {
   }
 
   // 隔間/天花分開的彙總表（apply 回呼把 zone 加進 agg；依上方系統切換只顯示對應系統）
-  const splitTotalsHTML = (apply, editable) => {
+  const splitTotalsHTML = (apply, editable, floor) => {
     let h = '';
     if (showP) {
       const pAgg = makeAgg(); apply(pAgg, 'partition'); pAgg.finalize();
-      if (Object.keys(pAgg.totals).length) h += `<div style="font-weight:700;font-size:13px;color:#1d4ed8;margin:2px 0 4px">🧱 隔間</div>${totalsTableHTML(pAgg.totals, editable)}`;
+      if (Object.keys(pAgg.totals).length) h += `<div style="font-weight:700;font-size:13px;color:#1d4ed8;margin:2px 0 4px">🧱 隔間</div>${totalsTableHTML(pAgg.totals, editable, floor)}`;
     }
     if (showC) {
       const cAgg = makeAgg(); apply(cAgg, 'ceiling'); cAgg.finalize();
-      if (Object.keys(cAgg.totals).length) h += `<div style="font-weight:700;font-size:13px;color:#0f766e;margin:12px 0 4px">⬜ 天花板</div>${totalsTableHTML(cAgg.totals, editable)}`;
+      if (Object.keys(cAgg.totals).length) h += `<div style="font-weight:700;font-size:13px;color:#0f766e;margin:12px 0 4px">⬜ 天花板</div>${totalsTableHTML(cAgg.totals, editable, floor)}`;
     }
     return h || '<div style="color:#999;padding:6px">此系統無材料</div>';
   };
@@ -3731,7 +3752,7 @@ function renderResults() {
       const compStr = comp.map(c => `${esc(c.name)}×${c.count}`).join('・');
       const body = splitTotalsHTML((agg, type) => {
         spaces.forEach(s => { const fe = (s.floors || []).find(f => f.floor === fl); if (!fe) return; const c = parseInt(fe.count) || 0; if (c <= 0) return; zonesOf(s).forEach(z => { if (z.type === type) aggregateZone(z, c, agg); }); if (type === 'partition') aggregateReinf(s.id, c, agg); });
-      });
+      }, true, fl);
       html += `<details open style="border:1px solid var(--border,#e3e8ef);border-radius:10px;margin-bottom:8px;background:var(--card,#fff)">
         <summary style="cursor:pointer;font-weight:700;padding:11px 14px">🏢 ${esc(fl)} <span style="color:var(--text-3);font-weight:400;font-size:12px">・${count} 間（${compStr}）</span></summary>
         <div style="padding:0 14px 12px">${body}</div>
