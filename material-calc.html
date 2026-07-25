@@ -3436,8 +3436,11 @@ function aggregateZone(z, mult, agg) {
     if (r.rodResult.isBrace) {
       // 橫枝吊筋：跟隔間加強橫枝用同一個 key/名稱 → 叫料自動合併成同一筆
       AT(params.hangBraceType + '_' + r.rodResult.stickLen, matName('braces', params.hangBraceType) + ' 加強橫枝 ' + r.rodResult.stickLen + 'cm', r.rodResult.rods, '支');
+    } else if (r.rodResult.isStandard) {
+      AT('rod_' + params.rodSpec, rodLabel + ' 3M', r.rodResult.rods, '支');
     } else {
-      AT('rod_' + params.rodSpec, rodLabel, r.rodResult.rods, '支');
+      // 訂做長度：名稱帶長度、不同長度分開列，不跟 3M 混
+      AT('rod_' + params.rodSpec + '_c' + (r.rodResult.customLen || 0), rodLabel + ' 訂做 ' + (r.rodResult.customLen || '?') + 'cm', r.rodResult.rods, '支');
     }
     if (r.nuts > 0) AT('nut', '螺母', r.nuts, '個');
     if (r.hitNails > 0) AT('hitnail', '擊釘片', r.hitNails, '個');
@@ -3996,7 +3999,7 @@ function printResults() {
           <tr style="background:#f0f0f0;"><th style="border:1px solid #ccc;padding:4px 8px;text-align:left;">材料</th><th style="border:1px solid #ccc;padding:4px 8px;">數量</th><th style="border:1px solid #ccc;padding:4px 8px;">備註</th></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${sysLabel} 主架</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.mainTotal} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.mainRows}排・整支${r.mainFullSticks}+裁接${r.mainLastSticks}</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">大百葉 副架</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.subTotal} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.subCount}條×${r.subPerRow}支</td></tr>
-          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${r.rodResult.isBrace?esc(r.rodResult.braceName)+'（吊筋）':rodLabel}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.rodResult.rods} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.hangPointsTotal}個吊點</td></tr>
+          <tr><td style="border:1px solid #ccc;padding:4px 8px;">${r.rodResult.isBrace?esc(r.rodResult.braceName)+'（吊筋）':rodLabel+(r.rodResult.isStandard?' 3M':' 訂做 '+(r.rodResult.customLen||'?')+'cm')}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.rodResult.rods} 支</td><td style="border:1px solid #ccc;padding:4px 8px;">${r.hangPointsTotal}個吊點</td></tr>
           ${r.nuts>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">螺母</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.nuts} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
           ${r.hitNails>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">擊釘片</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.hitNails} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
           ${r.clipsTotal>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">四齒夾</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.clipsTotal} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
@@ -4008,7 +4011,8 @@ function printResults() {
         addT('main_'+(r.mainFrameId||params.sys), r.mainFrameName || (sysLabel+' 主架'), r.mainTotal, '支');
         addT('sub_'+(r.subFrameId||'louver'), r.subFrameName || '大百葉 副架', r.subTotal, '支');
         if (r.rodResult.isBrace) addT(params.hangBraceType+'_'+r.rodResult.stickLen, matName('braces', params.hangBraceType)+' 加強橫枝 '+r.rodResult.stickLen+'cm', r.rodResult.rods, '支');
-        else addT('rod_'+params.rodSpec, rodLabel, r.rodResult.rods, '支');
+        else if (r.rodResult.isStandard) addT('rod_'+params.rodSpec, rodLabel+' 3M', r.rodResult.rods, '支');
+        else addT('rod_'+params.rodSpec+'_c'+(r.rodResult.customLen||0), rodLabel+' 訂做 '+(r.rodResult.customLen||'?')+'cm', r.rodResult.rods, '支');
         if (r.nuts>0) addT('nut', '螺母', r.nuts, '個');
         if (r.hitNails>0) addT('hitnail','擊釘片',r.hitNails,'個');
         if (r.clipsTotal>0) addT('clip4','四齒夾',r.clipsTotal,'個');
