@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v59</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v60</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1336,14 +1336,49 @@ function doRefillPDF(){
   const fls = new Set([...document.querySelectorAll('.rf-fl:checked')].map(x=>x.value));
   const cts = new Set([...document.querySelectorAll('.rf-cat:checked')].map(x=>x.value));
   if(!fls.size || !cts.size){ toast('⚠️ 樓層和類別各至少選一個'); return; }
-  closeSheet();
-  exportRefillPDF(fls, cts);
+  openRefillPreview(fls, cts);
 }
-function exportRefillPDF(flSet, catSet){
+// 第二步：匯出前逐項確認，知道某層會多的就把那筆勾掉
+function openRefillPreview(flSet, catSet){
+  const p = cur.project;
+  const items = projItems(p).filter(it=> itemLack(it)>0 && flSet.has(roomFloor(p,it.room)) && catSet.has(mat(it.matId)?.cat||'其他'));
+  if(!items.length){ toast('✅ 選取範圍內沒有要補的料'); return; }
+  const byFl={};
+  items.forEach(it=>{ const fl=roomFloor(p,it.room); (byFl[fl]=byFl[fl]||[]).push(it); });
+  let body='';
+  Object.keys(byFl).sort(cmpFloor).forEach(fl=>{
+    body+=`<div style="font-size:12px;font-weight:800;color:var(--text2);padding:8px 2px 4px">🏢 ${esc(fl)}</div>`;
+    byFl[fl].sort((a,b)=>catOrder(mat(a.matId)?.cat)-catOrder(mat(b.matId)?.cat)).forEach(it=>{
+      const m=mat(it.matId); const u=m?m.unit:'';
+      body+=`<label class="listitem" style="cursor:pointer;gap:10px;padding:8px 11px">
+        <input type="checkbox" class="rf-it" value="${it.id}" checked style="width:20px;height:20px;flex:0 0 auto">
+        <div class="li-m" style="min-width:0">
+          <div class="li-t" style="font-size:13px">${esc(m?m.name:'?')}</div>
+          <div class="li-s">剩 ${itemRemaining(it)}${esc(u)}・需 ${itemNeed(it)}${esc(u)}</div>
+        </div>
+        <div style="flex:0 0 auto;font-weight:800;color:var(--red);white-space:nowrap">補 ${itemLack(it)}${esc(u)}</div>
+      </label>`;
+    });
+  });
+  openSheet(`<h3>補料單・確認品項<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="muted" style="margin-bottom:6px">共 ${items.length} 項。知道現場其實不缺的（例如某層會多），把勾拿掉再匯出。</div>
+    ${body}
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:8px 0;cursor:pointer"><input type="checkbox" checked onclick="document.querySelectorAll('.rf-it').forEach(c=>c.checked=this.checked)" style="width:18px;height:18px"> 全選</label>
+    <button class="btn" onclick="confirmRefillPDF()">📄 匯出 PDF</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="openRefillSheet()">⬅ 回上一步（重選樓層/類別）</button>`);
+}
+function confirmRefillPDF(){
+  const ids = new Set([...document.querySelectorAll('.rf-it:checked')].map(x=>x.value));
+  if(!ids.size){ toast('⚠️ 至少留一項'); return; }
+  closeSheet();
+  exportRefillPDF(null, null, ids);
+}
+function exportRefillPDF(flSet, catSet, idSet){
   const p = cur.project;
   let items = projItems(p).filter(it=>itemLack(it)>0);
   if(flSet) items = items.filter(it=> flSet.has(roomFloor(p,it.room)));
   if(catSet) items = items.filter(it=> catSet.has(mat(it.matId)?.cat||'其他'));
+  if(idSet) items = items.filter(it=> idSet.has(it.id));
   if(!items.length){ toast('✅ 選取範圍內沒有要補的料'); return; }
   const floors = {};
   items.forEach(it=>{ const fl=roomFloor(p,it.room); ((floors[fl]=floors[fl]||{})[it.room]=(floors[fl][it.room]||[])).push(it); });
