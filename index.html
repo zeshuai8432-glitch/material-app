@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v60</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v61</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -400,6 +400,7 @@ function floorNeedsMap(project, floor){ // {matId: 還需要數量}
   const key = project+'||'+floor;
   if(_needCache[key]) return _needCache[key];
   const map = {};
+  Object.defineProperty(map, '__has', { value:new Set(), enumerable:false }); // 牆食譜裡出現過的材料
   const rec = (D.recipes && D.recipes[project] || []).find(f=>f.floor===floor);
   if(rec){
     const lm = labelMatIdMap();
@@ -413,6 +414,7 @@ function floorNeedsMap(project, floor){ // {matId: 還需要數量}
         const undoneOf = k => { const v = wp[k]!=null ? num(wp[k]) : cnt; return Math.max(0, Math.min(v, cnt)); };
         (wall.mats||[]).forEach(r=>{
           const mid = lm[r.label]; if(!mid) return;
+          map.__has.add(mid); // 記錄「有出現在牆食譜」的材料（不管進度做到哪）
           const st = stageOfCat(r.cat);
           // 雙面牆的板材：一半算封第一面、一半算封版
           const eff = (st==='board2' && r.cat==='板材' && wall.sides==='double')
@@ -431,7 +433,12 @@ function floorNeedsMap(project, floor){ // {matId: 還需要數量}
   return map;
 }
 function baseNeed(it){ // 還需要（未計手動增減）：有施工資料就依進度算，否則用存的
-  if(hasRecipe(it.project, it.room)){ return round(floorNeedsMap(it.project, it.room)[it.matId] || 0); }
+  if(hasRecipe(it.project, it.room)){
+    const m = floorNeedsMap(it.project, it.room);
+    // 不在牆食譜裡的材料（補強鋼板等樓層彙總類）→ 沒有進度可扣，用匯入的需求量
+    if(m.__has && !m.__has.has(it.matId)) return num(it.demand);
+    return round(m[it.matId] || 0);
+  }
   return num(it.demand);
 }
 function needAdj(it){ return num(it.needAdj); } // 手動需求增減（換料/追加，可負）
