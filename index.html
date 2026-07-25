@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v57</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v58</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -451,6 +451,21 @@ function itemTransferNet(it){ // 這材料在此樓層的調撥進出（含裁�
   });
   return { tin: round(tin), tout: round(tout), net: round(tin-tout) };
 }
+function lastCountAt(it){ // 上次盤點時間：新資料存 countAt，舊資料從盤點紀錄回推
+  if(it.countAt) return it.countAt;
+  let best=null; (D.counts||[]).forEach(c=>{ if(c.project===it.project&&c.room===it.room&&c.matId===it.matId&&(!best||c.at>best)) best=c.at; });
+  return best;
+}
+const STALE_COUNT_DAYS = 7; // 超過幾天沒盤變琥珀提醒
+function countAgeHTML(it){
+  const at = lastCountAt(it);
+  if(!at) return `<span style="color:var(--text2)">未盤過</span>`;
+  const days = Math.floor((Date.now()-new Date(at).getTime())/86400000);
+  const label = days<=0 ? '今天盤' : `${days}天前盤`;
+  return days>STALE_COUNT_DAYS
+    ? `<span style="color:var(--amber);font-weight:700">⚠ ${label}</span>`
+    : `<span style="color:var(--text2)">🗓 ${label}</span>`;
+}
 function itemRemaining(it){ // 有效現場剩餘
   const used = itemUsed(it);
   // 盤點過且有記錄「盤點當下已用多少」(usedAt) → 盤點數 − 之後新增的用量
@@ -582,7 +597,7 @@ function renderBoard(){
           <div class="mi">
             <div class="mn" style="color:${tn.c}">${esc(m?m.name:'?')}</div>
             <div class="ms">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''}</div>
-            <div class="nums">總需 ${total}${esc(unit)}　送 ${num(it.delivered)}${esc(unit)}${tTag}　剩 ${rem}${esc(unit)}</div>
+            <div class="nums">總需 ${total}${esc(unit)}　送 ${num(it.delivered)}${esc(unit)}${tTag}　剩 ${rem}${esc(unit)}　${countAgeHTML(it)}</div>
           </div>
           <div class="val">
             <div class="big ${lack>0?'lack':(over>0?'over':'ok')}">${lack>0?('缺'+lack):(over>0?('溢'+over):'✅')}</div>
@@ -702,7 +717,7 @@ function quickCount(itemId){
   const it = D.items.find(i=>i.id===itemId); if(!it) return;
   const m = mat(it.matId); const unit = m?m.unit:'';
   openSheet(`<h3>${esc(matLabel(m))}<span class="x" onclick="closeSheet()">✕</span></h3>
-    <div class="muted" style="margin-bottom:12px">${esc(it.room)}</div>
+    <div class="muted" style="margin-bottom:12px">${esc(it.room)} · ${countAgeHTML(it)}</div>
     <div class="fg"><label>還缺 / 要補（${esc(unit)}）· 可用算式，如 20+30</label>
       <div class="stepper"><button type="button" onclick="stepQty('qc-restock',-1)">−</button>
       <input type="text" id="qc-restock" inputmode="text" value="${itemManual(it)?num(it.restock):''}" placeholder="例：20+30" style="flex:1;width:auto;text-align:left" oninput="qcEcho('qc-restock')" onchange="normQty('qc-restock')">
@@ -744,6 +759,7 @@ function saveQuickCount(itemId){
   it.restock = rs==='' ? null : evalQty(rs); // 手動要補，留空＝自動算
   it.remaining = evalQty(document.getElementById('qc-rem').value);
   it.usedAt = itemUsed(it); // 記住盤點當下的已用量，之後進度前進會從盤點數續扣
+  it.countAt = new Date().toISOString();
   logCount(it, prevRem, prevRestock);
   // 總需求量改成手動增減（存成與原計算的差），這樣換料/追加不會被重新匯出蓋掉。
   // 「加減」欄有填就在目前總數上加減；否則用「總需求量」欄當絕對值。
@@ -928,7 +944,7 @@ function renderCount(){
     const bigGap = used>0 && Math.abs(defVal-est) >= Math.max(5, 0.2*Math.max(defVal, est)); // 差很大→提醒重盤
     html += `<div class="card" style="padding:11px 13px;margin-bottom:8px;border-left:4px solid ${ctn.c}">
       <div style="font-weight:800;font-size:14px;color:${ctn.c}">${esc(m?m.name:'?')}</div>
-      <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 已送 ${num(it.delivered)}${esc(unit)}${used>0?(' · 已用 '+used+esc(unit)):''}</div>
+      <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 已送 ${num(it.delivered)}${esc(unit)}${used>0?(' · 已用 '+used+esc(unit)):''} · ${countAgeHTML(it)}</div>
       <div class="row">
         <div><label>現場剩餘・可用算式</label>
           <div class="stepper"><button type="button" onclick="stepQty('ct-rem-${it.id}',-1)">−</button>
@@ -967,7 +983,7 @@ function saveCount(){
   const p = cur.project; const room = document.getElementById('ct-room').value;
   D.items.filter(i=>i.project===p && i.room===room).forEach(it=>{
     const r=document.getElementById('ct-rem-'+it.id), n=document.getElementById('ct-need-'+it.id);
-    if(r){ const prevRem = itemRemaining(it); it.remaining = evalQty(r.value); it.usedAt = itemUsed(it); logCount(it, prevRem, it.restock); } // 記住盤點當下已用量＋記流水帳
+    if(r){ const prevRem = itemRemaining(it); it.remaining = evalQty(r.value); it.usedAt = itemUsed(it); it.countAt = new Date().toISOString(); logCount(it, prevRem, it.restock); } // 記住盤點當下已用量＋記流水帳
     // 需求量編輯存成手動增減（相對依進度的還需要），不動原計算基準、也不會被重新匯出蓋掉
     if(n){ const adj = round(num(n.value) - baseNeed(it)); it.needAdj = adj===0 ? null : adj; }
   });
