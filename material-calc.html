@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v44</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v45</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v44</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v45</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1264,6 +1264,22 @@
             <label>規格（已含厚度）</label>
             <select id="p-fill-spec"></select>
           </div>
+        </div>
+
+        <hr class="divider">
+        <div class="section-title">手動加減（造型牆用，選填）</div>
+        <div style="font-size:12px;color:var(--text-3);margin-bottom:8px">公式算完後再加減，可填負數。例：斜牆多裁 +2 支骨架、開口扣 −1 片板。</div>
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>骨架 ±支</label><input type="number" id="p-adj-stud" inputmode="numeric" placeholder="0"></div>
+          <div class="field"><label>槽鐵 ±支</label><input type="number" id="p-adj-track" inputmode="numeric" placeholder="0"></div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>加強橫枝 ±支</label><input type="number" id="p-adj-brace" inputmode="numeric" placeholder="0"></div>
+          <div class="field"><label>板材 ±片</label><input type="number" id="p-adj-board" inputmode="numeric" placeholder="0"></div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>填塞物 ±（包/捲）</label><input type="number" id="p-adj-fill" inputmode="numeric" placeholder="0"></div>
+          <div class="field"></div>
         </div>
       </div>
 
@@ -2302,7 +2318,7 @@ function openZoneModal(zoneId, spaceId) {
   document.getElementById('rod-custom-fields').style.display = 'none';
   document.getElementById('c-main-custom-field').style.display = 'none';
   document.getElementById('c-sub-custom-field').style.display = 'none';
-  ['c-adj-main','c-adj-sub','c-adj-rod','c-adj-board','c-adj-trim'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  ['c-adj-main','c-adj-sub','c-adj-rod','c-adj-board','c-adj-trim','p-adj-stud','p-adj-track','p-adj-brace','p-adj-board','p-adj-fill'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
   setHangType('rod');
   populateHangBraceSelect();
   document.getElementById('c-hang-piece-len').value = '';
@@ -2350,6 +2366,11 @@ function openZoneModal(zoneId, spaceId) {
         document.getElementById('p-fill-type').value = zone.params.fillType;
         updateFillFields();
         if (zone.params.fillSpec) document.getElementById('p-fill-spec').value = zone.params.fillSpec;
+        document.getElementById('p-adj-stud').value = zone.params.adjStud || '';
+        document.getElementById('p-adj-track').value = zone.params.adjTrack || '';
+        document.getElementById('p-adj-brace').value = zone.params.adjBrace || '';
+        document.getElementById('p-adj-board').value = zone.params.adjBoard || '';
+        document.getElementById('p-adj-fill').value = zone.params.adjFill || '';
       }
       if (zone.type === 'ceiling') {
         const cp = zone.params;
@@ -2529,6 +2550,12 @@ function saveZone() {
       sides: state.sides,
       fillType: document.getElementById('p-fill-type').value,
       fillSpec: document.getElementById('p-fill-spec').value,
+      // 手動加減（造型牆）：公式算完後再加減，可負數
+      adjStud: parseInt(document.getElementById('p-adj-stud').value)||0,
+      adjTrack: parseInt(document.getElementById('p-adj-track').value)||0,
+      adjBrace: parseInt(document.getElementById('p-adj-brace').value)||0,
+      adjBoard: parseInt(document.getElementById('p-adj-board').value)||0,
+      adjFill: parseInt(document.getElementById('p-adj-fill').value)||0,
     };
     zoneData.result = calcPartition(zoneData.params);
   }
@@ -2727,12 +2754,15 @@ function renderZonesHTML(spaceId) {
       const bdRaw = r.boardsRawNum!=null ? r.boardsRawNum.toFixed(2) : r.boards;
       const brRaw = r.rawBraceCm ? (r.rawBraceCm/r.braceLen).toFixed(2) : 0;
       const flRaw = r.fill ? (r.fill.rawPieces!=null ? (r.fill.rawPieces/r.fill.perPack) : (r.fill.rawM2!=null ? r.fill.rawM2/r.fill.rollArea : r.fill.qty)).toFixed(2) : 0;
+      const pAdjTag = (k)=>{ const v=parseInt(z.params[k])||0; return v? `<em style="font-style:normal;color:#b45309;font-weight:700">(${v>0?'+':''}${v})</em>`:''; };
+      const pHasAdj = ['adjStud','adjTrack','adjBrace','adjBoard','adjFill'].some(k=>parseInt(z.params[k])||0);
       summary = `<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--text-2);">
-        <span>骨架 <strong>${r.studs}</strong> 支${r.studStock?`（下料${r.studStock}cm・${r.studPerStickText}）`:''}</span>
-        <span>槽鐵 <strong>${tkRaw}</strong> 支</span>
-        ${r.braces > 0 ? `<span>加強橫枝 <strong>${brRaw}</strong> 支</span>` : ''}
-        <span>板材 <strong>${bdRaw}</strong> 片</span>
-        ${r.fill ? `<span>填塞物 <strong>${flRaw}</strong> ${r.fill.unit}</span>` : ''}
+        ${pHasAdj?'<span style="background:#fef3c7;color:#b45309;font-weight:800;font-size:11px;padding:1px 7px;border-radius:6px">✏️ 含手動調整</span>':''}
+        <span>骨架 <strong>${r.studs}</strong> 支${pAdjTag('adjStud')}${r.studStock?`（下料${r.studStock}cm・${r.studPerStickText}）`:''}</span>
+        <span>槽鐵 <strong>${tkRaw}</strong> 支${pAdjTag('adjTrack')}</span>
+        ${r.braces > 0 ? `<span>加強橫枝 <strong>${brRaw}</strong> 支${pAdjTag('adjBrace')}</span>` : ''}
+        <span>板材 <strong>${bdRaw}</strong> 片${pAdjTag('adjBoard')}</span>
+        ${r.fill ? `<span>填塞物 <strong>${flRaw}</strong> ${r.fill.unit}${pAdjTag('adjFill')}</span>` : ''}
         ${r.totalPrice ? `<span style="color:var(--green)">估價 <strong>$${r.totalPrice.toLocaleString()}</strong></span>` : ''}
       </div>
       <div style="font-size:11px;color:var(--text-3);margin-top:2px">單牆為原始用量（可能帶小數）；實際採購看「結果」的全案彙總</div>`;
@@ -3192,15 +3222,16 @@ function calcPartition(p) {
   // 下料：一支下料長度可裁幾根（牆高 H）；不夠長則一根要接幾支
   const studStock = p.studStock || 300;
   const perStick = Math.floor(studStock / H);           // 一支下料可裁幾根立柱
-  const studs = perStick >= 1
+  const studs = Math.max(0, (perStick >= 1
     ? Math.ceil(studPosts / perStick)                   // 夠長：均分裁切，總支數
-    : studPosts * Math.ceil(H / studStock);             // 太短：每根要接數支
+    : studPosts * Math.ceil(H / studStock))             // 太短：每根要接數支
+    + (parseInt(p.adjStud)||0));                        // 含手動加減
   const studPerStickText = perStick >= 1 ? `一支裁 ${perStick} 根` : `每根接 ${Math.ceil(H/studStock)} 支`;
 
   // U槽鐵：上下兩條，總長 = 牆寬 × 2，可從整支裁切共用
   // 支數 = ceil(牆寬×2 / 支長)（預設 243cm＝8尺，可於表單改）
   const trackUnit = p.trackLength || 243; // 一支槽鐵長度 cm
-  const tracks = Math.ceil((W * 2) / trackUnit); // 上下共用整支，總長進位
+  const tracks = Math.max(0, Math.ceil((W * 2) / trackUnit) + (parseInt(p.adjTrack)||0)); // 上下共用整支，總長進位＋手動加減
 
   // U槽鐵損耗（由使用者判斷，這裡標示原始數量）
   const trackRaw = (W / 100 * 2).toFixed(2); // 實際需要幾公尺
@@ -3212,7 +3243,7 @@ function calcPartition(p) {
   let rawBraceCm = 0;
   if (p.braceType !== 'none' && p.braceType) {
     bracePerRow = Math.ceil(W / braceLen);
-    braces = bracePerRow * (p.braceRows || 1);
+    braces = Math.max(0, bracePerRow * (p.braceRows || 1) + (parseInt(p.adjBrace)||0)); // 含手動加減
     rawBraceCm = W * (p.braceRows || 1); // 原始總長（給全案合併用）
   }
 
@@ -3224,7 +3255,7 @@ function calcPartition(p) {
   const wallArea = W * H;
   const boardArea = boardW * boardH;
   const boardsRaw = (wallArea * sides) / boardArea;
-  const boards = Math.ceil(boardsRaw * 1.05); // +5% 損耗
+  const boards = Math.max(0, Math.ceil(boardsRaw * 1.05) + (parseInt(p.adjBoard)||0)); // +5% 損耗＋手動加減
 
   // 填塞物
   let fill = null;
@@ -3252,6 +3283,7 @@ function calcPartition(p) {
       fill = { label: gw.name, qty: rolls, unit: '捲', rawM2: wallAreaM2, rollArea };
     }
   }
+  if (fill) fill.qty = Math.max(0, fill.qty + (parseInt(p.adjFill)||0)); // 填充手動加減（包/捲）
 
   // 估價
   let totalPrice = 0;
@@ -3314,7 +3346,16 @@ function calcPartition(p) {
     }
   });
 
-  return { studs, studPosts, corners, cornerPosts, studLen: H, studStock, studPerStickText, tracks, trackRaw, trackUnit, rawTrackCm: W * 2, boards, boardsRaw: boardsRaw.toFixed(2), boardsRawNum: boardsRaw, fill, braces, bracePerRow, braceLen, rawBraceCm, reinf, totalPrice: totalPrice || 0, priceDetail };
+  // 手動加減也要反映到「原始量」（全案彙總走 raw pool 合併），換算：支數×單支長、片數÷1.05（總表會再×1.05）
+  const rawTrackAdj = Math.max(0, W * 2 + (parseInt(p.adjTrack)||0) * trackUnit);
+  if (braces > 0) rawBraceCm = Math.max(0, rawBraceCm + (parseInt(p.adjBrace)||0) * braceLen);
+  const boardsRawAdj = Math.max(0, boardsRaw + (parseInt(p.adjBoard)||0) / 1.05);
+  if (fill) {
+    const af = parseInt(p.adjFill)||0;
+    if (af && fill.rawPieces != null) fill.rawPieces = Math.max(0, fill.rawPieces + af * (fill.perPack||1));
+    if (af && fill.rawM2 != null) fill.rawM2 = Math.max(0, fill.rawM2 + af * (fill.rollArea||1));
+  }
+  return { studs, studPosts, corners, cornerPosts, studLen: H, studStock, studPerStickText, tracks, trackRaw, trackUnit, rawTrackCm: rawTrackAdj, boards, boardsRaw: boardsRawAdj.toFixed(2), boardsRawNum: boardsRawAdj, fill, braces, bracePerRow, braceLen, rawBraceCm, reinf, totalPrice: totalPrice || 0, priceDetail };
 }
 
 // ════════════════════════════════════
