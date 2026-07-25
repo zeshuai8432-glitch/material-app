@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v45</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v46</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v45</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v46</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1521,6 +1521,7 @@ let state = {
   spaces: {},     // projectId -> []
   zones: {},      // spaceId -> []
   reinf: {},      // spaceId -> [{id,use,type,qty}] 補強鋼板（獨立清單，掛在房型底下）
+  extras: {},     // projectId -> [{id,name,qty,unit}] 用量結果的自訂材料（公式沒算的，手動加）
   editingProject: null,
   editingSpace: null,
   editingZone: null,
@@ -1832,6 +1833,7 @@ function loadUserData(data) {
   state.spaces = data.spaces || {};
   state.zones = data.zones || {};
   state.reinf = data.reinf || {};
+  state.extras = data.extras || {};
   state.materials = data.materials || JSON.parse(JSON.stringify(DEFAULT_MATERIALS));
   migrateMaterials();
   migrateSpaceSys();
@@ -1846,7 +1848,7 @@ let saveStatusHideTimer = null;
 // ── 本機備份（離線保險）：每次存檔同步寫一份到 localStorage，重整時若本機比雲端新就用本機 ──
 function localCacheKey() { return 'mc_cache_' + (state.user || ''); }
 function snapshotData() {
-  return { projects: state.projects, spaces: state.spaces, zones: state.zones, reinf: state.reinf, materials: state.materials, savedAt: Date.now() };
+  return { projects: state.projects, spaces: state.spaces, zones: state.zones, reinf: state.reinf, extras: state.extras || {}, materials: state.materials, savedAt: Date.now() };
 }
 function cacheLocal(data) { try { if (state.user) localStorage.setItem(localCacheKey(), JSON.stringify(data)); } catch (e) {} }
 
@@ -3575,6 +3577,31 @@ function totalsTableHTML(totals) {
   }</tbody></table>`;
 }
 
+// ── 用量結果的自訂材料（公式沒算的） ──
+function addExtra(){
+  const pid = state.activeProjectId; if(!pid) return;
+  const name = (document.getElementById('ex-name').value||'').trim();
+  const qty = parseFloat(document.getElementById('ex-qty').value)||0;
+  const unit = (document.getElementById('ex-unit').value||'').trim()||'個';
+  if(!name){ toast('請填材料名稱','error'); return; }
+  if(qty<=0){ toast('數量要大於 0','error'); return; }
+  (state.extras[pid]=state.extras[pid]||[]).push({id:'ex_'+Date.now(), name, qty, unit});
+  saveNow(); renderResults(); toast('已加入自訂材料');
+}
+function editExtra(id){
+  const pid = state.activeProjectId; const list = (state.extras[pid]||[]);
+  const x = list.find(e=>e.id===id); if(!x) return;
+  const name = prompt('材料名稱', x.name); if(name===null) return;
+  const qty = prompt('數量', x.qty); if(qty===null) return;
+  const unit = prompt('單位', x.unit); if(unit===null) return;
+  x.name=(name.trim()||x.name); x.qty=parseFloat(qty)||x.qty; x.unit=(unit.trim()||x.unit);
+  saveNow(); renderResults(); toast('已更新');
+}
+function delExtra(id){
+  const pid = state.activeProjectId;
+  state.extras[pid]=(state.extras[pid]||[]).filter(e=>e.id!==id);
+  saveNow(); renderResults(); toast('已刪除');
+}
 function renderResults() {
   const el = document.getElementById('results-main');
   if (!state.activeProjectId) {
@@ -3628,9 +3655,29 @@ function renderResults() {
   };
 
   // 1) 全案彙總（× 各空間間數），隔間/天花分開
+  const extras = (state.extras && state.extras[state.activeProjectId]) || [];
+  const extrasRows = extras.map(x=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border,#eef2f6);font-size:13px">
+      <div style="flex:1;min-width:0;font-weight:600">${esc(x.name)}</div>
+      <div style="font-weight:800;color:#1d4ed8;white-space:nowrap">${x.qty} ${esc(x.unit)}</div>
+      <button class="btn-icon" onclick="editExtra('${x.id}')">✏️</button>
+      <button class="btn-icon" onclick="delExtra('${x.id}')">🗑️</button>
+    </div>`).join('');
+  html += `<details style="border:1px solid var(--border,#e3e8ef);border-radius:10px;margin-bottom:8px;background:var(--card,#fff)" ${extras.length?'open':''}>
+    <summary style="cursor:pointer;font-weight:700;padding:11px 14px">➕ 自訂材料（公式沒算的，手動加）<span style="color:var(--text-3);font-weight:400;font-size:12px">・${extras.length} 筆・會列入全案彙總與列印</span></summary>
+    <div style="padding:0 14px 12px">
+      ${extrasRows||'<div style="color:#999;font-size:13px;padding:4px 0">例：自攻牙、矽利康、AB膠…計算公式沒涵蓋的，加在這裡一起叫料。</div>'}
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <input type="text" id="ex-name" placeholder="材料名稱" style="flex:2;min-width:120px">
+        <input type="number" id="ex-qty" placeholder="數量" style="flex:1;min-width:70px">
+        <input type="text" id="ex-unit" placeholder="單位(支/盒/條)" style="flex:1;min-width:80px">
+        <button class="btn btn-primary btn-sm" onclick="addExtra()">＋ 加入</button>
+      </div>
+    </div></details>`;
   html += `<details style="border:1px solid var(--border,#e3e8ef);border-radius:10px;margin-bottom:8px;background:var(--card,#fff)">
     <summary style="cursor:pointer;font-weight:700;padding:11px 14px">📊 全案材料彙總 <span style="color:var(--text-3);font-weight:400;font-size:12px">・隔間／天花分開（點開）</span></summary>
-    <div style="padding:0 14px 12px">${splitTotalsHTML((agg, type) => { spaces.forEach(s => { const m = spaceTotalCount(s); zonesOf(s).forEach(z => { if (z.type === type) aggregateZone(z, m, agg); }); if (type === 'partition') aggregateReinf(s.id, m, agg); }); })}</div></details>`;
+    <div style="padding:0 14px 12px">${splitTotalsHTML((agg, type) => { spaces.forEach(s => { const m = spaceTotalCount(s); zonesOf(s).forEach(z => { if (z.type === type) aggregateZone(z, m, agg); }); if (type === 'partition') aggregateReinf(s.id, m, agg); }); })}
+    ${extras.length?`<div style="font-weight:700;font-size:13px;color:#b45309;margin:12px 0 4px">➕ 自訂材料</div><table class="totals-table" style="width:100%"><tbody>${extras.map(x=>`<tr><td>${esc(x.name)}</td><td style="text-align:right;font-weight:700">${x.qty} ${esc(x.unit)}</td></tr>`).join('')}</tbody></table>`:''}
+    </div></details>`;
 
   // 2) 依樓層（母）→ 空間（子）
   const floorList = [];
@@ -4076,6 +4123,9 @@ function printResults() {
   });
 
   finalizePool(); // 可裁切材料合併零頭後才進位
+
+  // 自訂材料（公式沒算的）一起進彙總表
+  ((state.extras && state.extras[state.activeProjectId]) || []).forEach(x => addT('extra_'+x.id, x.name+'（自訂）', x.qty, x.unit));
 
   // 全案彙總表
   let totalTable = '';
