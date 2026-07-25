@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v58</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v59</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1408,8 +1408,9 @@ function floorCuts(p, floor){
         if(need<=0 || c.amt<=0) return;
         const q=Math.min(c.amt, need);
         const mode = c.len>short.len ? 'cut' : (c.len<short.len ? 'join' : 'same');
-        cuts.push({floor, fromMatId:c.matId, toMatId:short.matId, qty:q, cut:c.len>short.len, mode});
         c.amt-=q; need-=q;
+        // fromLeft/stillLack：這筆套用後，來源還溢多少、目標還缺多少（給建議列預告結果）
+        cuts.push({floor, fromMatId:c.matId, toMatId:short.matId, qty:q, cut:c.len>short.len, mode, fromLeft:round(c.amt), stillLack:round(need)});
       });
     });
   });
@@ -1492,8 +1493,12 @@ function openAllocSheet(){
     const cross = fs!==ts && fs!=='共用' && ts!=='共用';
     const sysBadge = cross ? `<span style="display:inline-block;background:var(--amber-bg);color:var(--amber);font-size:11px;font-weight:800;padding:1px 7px;border-radius:6px;margin-left:4px">${fs==='隔間'?'🧱隔間 → ⬜天花':'⬜天花 → 🧱隔間'}</span>` : '';
     const crossNote = cross ? `<br><span style="color:var(--amber);font-size:12px;font-weight:700">↑ ${fs}的料拿去${ts}用，同型號 1 支＝1 支</span>` : '';
+    // 裁完的結果預告：目標補滿了沒、來源還剩多少溢
+    const after = `${verb}完 → ${c.stillLack>0
+        ? `<span class="lack" style="font-weight:800">${esc(mat(c.toMatId)?.name||'')} 仍缺 ${c.stillLack}</span>`
+        : `<span class="ok" style="font-weight:800">${esc(mat(c.toMatId)?.name||'')} 補滿 ✅</span>`}　·　來源${c.fromLeft>0?`還溢 <b>${c.fromLeft}</b> 支`:'剛好用完'}`;
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;${cross?'background:var(--amber-bg);border-radius:8px;padding:6px 8px':''}">
-      <div style="flex:1;min-width:0;font-size:13px">🏢 ${esc(c.floor)}${sysBadge}：<b>${esc(mat(c.fromMatId)?.name||'')}</b> ${verb} <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(mat(c.toMatId)?.name||'')}</b>${crossNote}<br><span style="color:var(--text2);font-size:12px">這料自己還要 ${reserve} 支已先留著，只用多的${note}</span></div>
+      <div style="flex:1;min-width:0;font-size:13px">🏢 ${esc(c.floor)}${sysBadge}：<b>${esc(mat(c.fromMatId)?.name||'')}</b> ${verb} <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(mat(c.toMatId)?.name||'')}</b>${crossNote}<br><span style="font-size:12px">${after}</span><br><span style="color:var(--text2);font-size:12px">這料自己還要 ${reserve} 支已先留著，只用多的${note}</span></div>
       <button class="btn mini" style="flex:0 0 auto" onclick="applyCut('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">${verb}</button>
     </div>`;
   }).join('');
