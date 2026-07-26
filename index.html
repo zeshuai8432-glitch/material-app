@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v70</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v71</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -241,7 +241,7 @@
 </div>
 
 <div id="toast"></div>
-<div class="ov" id="ov" onclick="if(event.target===this)closeSheet()"><div class="sheet" id="sheet"></div></div>
+<div class="ov" id="ov"><div class="sheet" id="sheet"></div></div>
 
 <!-- 列印預覽（app 內，可關閉不用退出程式） -->
 <div id="printov">
@@ -1879,6 +1879,25 @@ function forceCloudRestore(){
 // ── shared ui ──
 function stepQty(id,d){ const el=document.getElementById(id); el.value = round(Math.max(evalQty(el.value)+d,0)); if(id.startsWith('ct-rem-'))liveCount(id.slice(7)); }
 function openSheet(html){ document.getElementById('sheet').innerHTML=html; document.getElementById('ov').classList.add('show'); }
+// 背景關閉：只有「在背景按下、幾乎沒滑動、也在背景放開」才算點背景關閉
+// （手指在表單上滑動後放開時落到背景，不該關掉輸入到一半的視窗）
+(function(){
+  const ov = document.getElementById('ov');
+  let sx=0, sy=0, startedOnOv=false, wasTyping=false;
+  ov.addEventListener('pointerdown', e=>{
+    startedOnOv = (e.target===ov); sx=e.clientX; sy=e.clientY;
+    const el = document.activeElement; // 按下的當下就記住有沒有在打字（之後會失焦）
+    wasTyping = !!(el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+  });
+  ov.addEventListener('pointerup', e=>{
+    const started=startedOnOv, typing=wasTyping;
+    startedOnOv=false; wasTyping=false;
+    if(!started || e.target!==ov) return;
+    if(Math.abs(e.clientX-sx) > 8 || Math.abs(e.clientY-sy) > 8) return; // 有滑動 → 不關
+    if(typing) return;                                                   // 剛在輸入 → 只收鍵盤，不關
+    closeSheet();
+  });
+})();
 function closeSheet(){ document.getElementById('ov').classList.remove('show'); }
 let toastT;
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),1900); }
