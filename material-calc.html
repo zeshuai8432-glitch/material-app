@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v59</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v60</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v59</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v60</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1712,7 +1712,8 @@ async function doLogin() {
         const localHas = local && local.projects && local.projects.length;
         if (localHas && !cloudHas) { userData = local; repush = true; }
         else if (localHas && cloudHas && (local.savedAt || 0) > (userData.savedAt || 0)) {
-          if (confirm('這台裝置的本機備份（'+fmtT(local.savedAt)+'）比雲端資料（'+fmtT(userData.savedAt)+'）新。\n\n【確定】用本機備份（並存回雲端）\n【取消】用雲端資料（例如你剛在雲端硬碟還原了版本，就選這個）')) { userData = local; repush = true; }
+          const cnt = d => (d.projects||[]).length + ' 案場・' + Object.values(d.zones||{}).reduce((a,z)=>a+(z||[]).length,0) + ' 區塊';
+          if (confirm('本機備份和雲端不同步，要用哪份？\n\n本機（較新）：'+cnt(local)+'（'+fmtT(local.savedAt)+'）\n雲端：'+cnt(userData)+'（'+fmtT(userData.savedAt)+'）\n\n【確定】用本機備份（剛在這台做的工作選這個）\n【取消】用雲端資料（剛在雲端硬碟還原過版本才選這個）')) { userData = local; repush = true; }
         }
       }
     } catch (e) {}
@@ -1813,8 +1814,15 @@ function showLoginError(msg) {
   el.style.display = 'block';
 }
 
-function doLogout() {
+async function doLogout() {
   clearTimeout(saveTimer);
+  // 還沒存成功就登出 → 先真的存一次；再失敗就問，避免帶著未儲存資料離開
+  if (cloudSaveState === 'pending' || cloudSaveState === 'saving' || cloudSaveState === 'error') {
+    await doCloudSave();
+    if (cloudSaveState !== 'saved') {
+      if (!confirm('雲端還沒存成功（本機有備份）。確定要登出？')) return;
+    }
+  }
   flushSaveBeacon();
   cloudSaveState = 'idle';
   const ss = document.getElementById('save-status'); if (ss) ss.className = 'save-status';
@@ -1921,7 +1929,7 @@ function migrateSpaceSys() {
 // 舊版標籤疊字遷移：「C41 骨架 骨架（…」→「C41 骨架（…」。
 // 直接輸入區塊與自訂材料的名稱是存起來的字串，改標籤演算法洗不到，這裡一次洗掉
 function migrateDedupNames(){
-  const nd = s => String(s||'').replace(/(\S+) \1/g, '$1');
+  const nd = s => String(s||'').replace(/(骨架|槽鐵|加強橫枝|主架|副架|螺桿|收邊) \1/g, '$1');
   Object.values(state.zones || {}).forEach(zs => (zs || []).forEach(z => {
     if (z && z.type === 'manual' && z.params && Array.isArray(z.params.items)) {
       z.params.items.forEach(it => { it.name = nd(it.name); });
@@ -1962,21 +1970,42 @@ let saveStatusHideTimer = null;
 // ── 本機備份（離線保險）：每次存檔同步寫一份到 localStorage，重整時若本機比雲端新就用本機 ──
 function localCacheKey() { return 'mc_cache_' + (state.user || ''); }
 function snapshotData() {
-  return { projects: state.projects, spaces: state.spaces, zones: state.zones, reinf: state.reinf, extras: state.extras || {}, fixes: state.fixes || {}, ffixes: state.ffixes || {}, materials: state.materials, savedAt: Date.now() };
+  // 區塊的 result 可由 params 重算，不存檔（體積省數倍，避免本機備份因空間不足默默失效）
+  const zones = {};
+  Object.entries(state.zones || {}).forEach(([sid, zs]) => { zones[sid] = (zs || []).map(z => { const c = Object.assign({}, z); delete c.result; return c; }); });
+  return { projects: state.projects, spaces: state.spaces, zones, reinf: state.reinf, extras: state.extras || {}, fixes: state.fixes || {}, ffixes: state.ffixes || {}, materials: state.materials, savedAt: Date.now() };
 }
+let _myCacheStamp = 0; // 這個分頁最後寫入本機備份的時間戳（跨分頁偵測用）
 function cacheLocal(data) {
-  try { if (state.user) localStorage.setItem(localCacheKey(), JSON.stringify(data)); } catch (e) {}
-  // 自動快照：有實質內容時，每 30 分鐘最多留一份、共留 5 份（防「被清空覆蓋」再發生）
+  try { if (state.user) { _myCacheStamp = data.savedAt || Date.now(); localStorage.setItem(localCacheKey(), JSON.stringify(data)); } } catch (e) { setSaveStatus('error', '⚠ 本機備份寫入失敗（空間不足）'); }
+  // 自動快照：有實質內容時，每 30 分鐘最多留一份、共留 5 份；空間不足自動減量保底
   try {
     if (state.user && data && data.projects && data.projects.length) {
       const hk = 'mc_hist_' + state.user;
       let hist = []; try { hist = JSON.parse(localStorage.getItem(hk)) || []; } catch(e) {}
       if (!hist.length || (Date.now() - (hist[0].at || 0)) > 30*60*1000) {
         hist.unshift({ at: Date.now(), data });
-        localStorage.setItem(hk, JSON.stringify(hist.slice(0, 5)));
+        for (const keep of [5, 3, 1]) {
+          try { localStorage.setItem(hk, JSON.stringify(hist.slice(0, keep))); break; }
+          catch (e) { if (keep === 1) { /* 連一份都放不下，放棄快照但保留主備份 */ } }
+        }
       }
     }
   } catch (e) {}
+}
+// 跨分頁/裝置互蓋偵測：別的分頁寫了本機備份（storage 事件只來自其他分頁）→ 掛紅色警告
+window.addEventListener('storage', ev => {
+  if (!state.user || !ev.key || ev.key !== localCacheKey()) return;
+  let other = null; try { other = JSON.parse(ev.newValue || 'null'); } catch(e) {}
+  if (other && other.savedAt && other.savedAt !== _myCacheStamp) showConflictBanner();
+});
+function showConflictBanner(){
+  if (document.getElementById('mc-conflict-banner')) return;
+  const d = document.createElement('div');
+  d.id = 'mc-conflict-banner';
+  d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#dc2626;color:#fff;font-weight:800;font-size:14px;padding:10px 14px;text-align:center';
+  d.innerHTML = '⚠️ 偵測到「另一個分頁」也開著材料計算，兩邊會互相覆蓋資料！請關掉其他分頁，只留這一個。 <a onclick="this.parentElement.remove()" style="color:#fff;text-decoration:underline;cursor:pointer;margin-left:8px">我關好了</a>';
+  document.body.appendChild(d);
 }
 // 💾 手動備份檔：下載一份 JSON 到自己手上（雲端/本機全掛也救得回）
 function exportBackupFile() {
@@ -2022,26 +2051,33 @@ function saveNow() {
   return doCloudSave();
 }
 
+let saveRetryTimer = null, saveRetryN = 0;
 async function doCloudSave() {
   if (!state.user || !state.password) return;
-  clearTimeout(saveTimer);
+  clearTimeout(saveTimer); clearTimeout(saveRetryTimer);
   cloudSaveState = 'saving';
   setSaveStatus('saving', '☁ 儲存中…');
   const data = snapshotData();
   cacheLocal(data);
+  let ok = false;
   try {
     const res = await gasCall('saveData', { username: state.user, password: state.password, data });
-    if (res && res.ok) { cloudSaveState = 'saved'; setSaveStatus('saved', '✓ 已儲存', true); }
-    else { cloudSaveState = 'error'; setSaveStatus('error', '⚠ 儲存失敗（已存本機，連上網會補存）'); }
-  } catch(e) {
-    cloudSaveState = 'error';
-    setSaveStatus('error', '⚠ 儲存失敗（已存本機，連上網會補存）');
-  }
+    ok = !!(res && res.ok);
+  } catch(e) { ok = false; }
+  if (ok) { cloudSaveState = 'saved'; saveRetryN = 0; setSaveStatus('saved', '✓ 已儲存', true); return; }
+  // 失敗：本機已備份，自動退避重試（2s→5s→15s→60s…），狀態列可點立即重試
+  cloudSaveState = 'error';
+  const delay = [2000, 5000, 15000, 60000][Math.min(saveRetryN, 3)];
+  saveRetryN++;
+  setSaveStatus('error', '⚠ 雲端儲存失敗（本機已備份，' + Math.round(delay/1000) + ' 秒後自動重試，點我立即重試）');
+  saveRetryTimer = setTimeout(doCloudSave, delay);
 }
 
 function setSaveStatus(cls, text, autoHide) {
   const el = document.getElementById('save-status');
   if (!el) return;
+  el.onclick = (cls === 'error') ? retrySave : null;
+  el.style.cursor = (cls === 'error') ? 'pointer' : '';
   clearTimeout(saveStatusHideTimer);
   el.className = 'save-status show ' + cls;
   el.textContent = text;
