@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v57</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v58</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v57</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v58</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1905,6 +1905,19 @@ function migrateSpaceSys() {
   });
 }
 
+// 舊版標籤疊字遷移：「C41 骨架 骨架（…」→「C41 骨架（…」。
+// 直接輸入區塊與自訂材料的名稱是存起來的字串，改標籤演算法洗不到，這裡一次洗掉
+function migrateDedupNames(){
+  const nd = s => String(s||'').replace(/(\S+) \1/g, '$1');
+  Object.values(state.zones || {}).forEach(zs => (zs || []).forEach(z => {
+    if (z && z.type === 'manual' && z.params && Array.isArray(z.params.items)) {
+      z.params.items.forEach(it => { it.name = nd(it.name); });
+      if (z.result && Array.isArray(z.result.items)) z.result.items.forEach(it => { it.name = nd(it.name); });
+    }
+  }));
+  Object.values(state.extras || {}).forEach(list => (list || []).forEach(x => { x.name = nd(x.name); }));
+}
+
 // 設定玻璃棉的捲寬／捲長，面積(rollSize)自動 = 寬 × 長
 function setGwDim(idx, field, val) {
   const g = (state.materials.glasswool || [])[idx]; if (!g) return;
@@ -1924,6 +1937,7 @@ function loadUserData(data) {
   state.materials = data.materials || JSON.parse(JSON.stringify(DEFAULT_MATERIALS));
   migrateMaterials();
   migrateSpaceSys();
+  migrateDedupNames();
   renderProjects();
   renderMaterials();
 }
