@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v52</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v53</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v52</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v53</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1680,15 +1680,21 @@ async function doLogin() {
     }
     userData = dataRes.data || { projects: [], spaces: {}, zones: {}, reinf: {}, materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)) };
 
-    // 2b. 本機備份若比雲端新（上次存雲端可能沒成功），改用本機的，並在載入後補存回雲端
+    // 2b. 本機備份 vs 雲端：
+    //  - 雲端是空的、本機有料 → 自動用本機（防雲端被清空）
+    //  - 兩邊都有料、但本機時間較新 → 「問使用者」要用哪份，不再自動蓋（避免把剛在雲端硬碟還原好的版本又蓋掉）
     let repush = false;
     try {
       const raw = localStorage.getItem('mc_cache_' + name);
       if (raw) {
         const local = JSON.parse(raw);
-        if (local && (local.savedAt || 0) > (userData.savedAt || 0)) { userData = local; repush = true; }
-        // 安全網：雲端回來是「空的」但本機備份有資料 → 一律用本機的（不管時間戳），並補存回雲端
-        else if (local && local.projects && local.projects.length && (!userData.projects || !userData.projects.length)) { userData = local; repush = true; }
+        const fmtT = t => t ? new Date(t).toLocaleString('zh-TW') : '（無時間）';
+        const cloudHas = userData.projects && userData.projects.length;
+        const localHas = local && local.projects && local.projects.length;
+        if (localHas && !cloudHas) { userData = local; repush = true; }
+        else if (localHas && cloudHas && (local.savedAt || 0) > (userData.savedAt || 0)) {
+          if (confirm('這台裝置的本機備份（'+fmtT(local.savedAt)+'）比雲端資料（'+fmtT(userData.savedAt)+'）新。\n\n【確定】用本機備份（並存回雲端）\n【取消】用雲端資料（例如你剛在雲端硬碟還原了版本，就選這個）')) { userData = local; repush = true; }
+        }
       }
     } catch (e) {}
 
