@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v48</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v49</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v48</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v49</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1093,13 +1093,23 @@
     </div>
     <div class="modal-body">
 
-      <!-- 類型選擇（空間已分系統時隱藏，直接鎖定該空間的系統） -->
+      <!-- 類型選擇（空間已分系統時只剩「該系統／直接輸入」兩個選項） -->
       <div class="field" id="zone-type-field">
         <label>區塊類型</label>
         <div class="toggle-group">
           <button class="toggle-btn active" id="zone-type-partition" onclick="setZoneType('partition')">🧱 隔間系統</button>
           <button class="toggle-btn" id="zone-type-ceiling" onclick="setZoneType('ceiling')">⬜ 天花板系統</button>
+          <button class="toggle-btn" id="zone-type-manual" onclick="setZoneType('manual')">✍️ 直接輸入</button>
         </div>
+      </div>
+
+      <!-- ── 直接輸入（不用尺寸，材料＋數量） ── -->
+      <div id="zone-manual-fields" style="display:none;">
+        <hr class="divider">
+        <div class="section-title">材料清單（一間份的量，會自動 × 間數）</div>
+        <div style="font-size:12px;color:var(--text-3);margin-bottom:8px">不用輸入尺寸，直接寫材料和數量。名稱寫清楚（例：C41 骨架、石膏板 12mm 3x6尺），會自動歸類、可匯出到材料管理。</div>
+        <div id="manual-rows"></div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="addManualRow()">＋ 加一行</button>
       </div>
 
       <div class="form-grid form-grid-2">
@@ -2303,13 +2313,15 @@ function openZoneModal(zoneId, spaceId) {
   state.editingZone = zoneId || null;
   state.editingZoneSpace = spaceId;
   document.getElementById('modal-zone-title').textContent = zoneId ? '編輯計算區塊' : '新增計算區塊';
-  // 空間已分系統 → 鎖定該空間的系統，隱藏類型切換
+  // 空間已分系統 → 只剩「該系統／✍️直接輸入」兩個選項（直接輸入不分系統）
   const sp = (state.spaces[state.activeProjectId] || []).find(x => x.id === spaceId);
   const lockSys = sp && (sp.sys === 'ceiling' || sp.sys === 'partition') ? sp.sys : null;
-  const ztf = document.getElementById('zone-type-field'); if (ztf) ztf.style.display = lockSys ? 'none' : '';
+  document.getElementById('zone-type-partition').style.display = (lockSys === 'ceiling') ? 'none' : '';
+  document.getElementById('zone-type-ceiling').style.display = (lockSys === 'partition') ? 'none' : '';
 
   // reset
   setZoneType(lockSys || 'partition');
+  renderManualRows([]);
   setSides('single');
   ceilingSys = 'centipede';
   ceilingDir = 'length';
@@ -2351,6 +2363,7 @@ function openZoneModal(zoneId, spaceId) {
       document.getElementById('zone-name-input').value = zone.name;
       document.getElementById('zone-group-input').value = zone.group || '';
       setZoneType(zone.type);
+      if (zone.type === 'manual') renderManualRows((zone.params && zone.params.items) || []);
       if (zone.type === 'partition') {
         document.getElementById('p-width').value = zone.params.width;
         document.getElementById('p-height').value = zone.params.height;
@@ -2450,8 +2463,31 @@ function setZoneType(type) {
   state.zoneType = type;
   document.getElementById('zone-type-partition').classList.toggle('active', type === 'partition');
   document.getElementById('zone-type-ceiling').classList.toggle('active', type === 'ceiling');
+  const mb = document.getElementById('zone-type-manual'); if (mb) mb.classList.toggle('active', type === 'manual');
   document.getElementById('zone-partition-fields').style.display = type === 'partition' ? '' : 'none';
   document.getElementById('zone-ceiling-fields').style.display = type === 'ceiling' ? '' : 'none';
+  const mf = document.getElementById('zone-manual-fields'); if (mf) mf.style.display = type === 'manual' ? '' : 'none';
+}
+// ── 直接輸入區塊：材料列編輯 ──
+function manualRowHTML(it){
+  it = it || {name:'', qty:'', unit:'支'};
+  return `<div class="manual-row" style="display:flex;gap:6px;margin-bottom:6px">
+    <input type="text" class="mr-name" placeholder="材料名稱" value="${esc(it.name)}" style="flex:2;min-width:110px">
+    <input type="number" class="mr-qty" placeholder="數量" value="${it.qty}" style="flex:1;min-width:60px">
+    <input type="text" class="mr-unit" placeholder="單位" value="${esc(it.unit||'支')}" style="flex:0 0 70px">
+    <button type="button" class="btn-icon" onclick="this.parentElement.remove()">🗑️</button>
+  </div>`;
+}
+function renderManualRows(items){
+  document.getElementById('manual-rows').innerHTML = (items && items.length ? items : [null]).map(manualRowHTML).join('');
+}
+function addManualRow(){ document.getElementById('manual-rows').insertAdjacentHTML('beforeend', manualRowHTML()); }
+function collectManualRows(){
+  return [...document.querySelectorAll('#manual-rows .manual-row')].map(row=>({
+    name: row.querySelector('.mr-name').value.trim(),
+    qty: parseFloat(row.querySelector('.mr-qty').value)||0,
+    unit: row.querySelector('.mr-unit').value.trim()||'支'
+  })).filter(x=>x.name && x.qty>0);
 }
 
 function setSides(v) {
@@ -2616,6 +2652,13 @@ function saveZone() {
     zoneData.result = calcCeiling(zoneData.params);
   }
 
+  if (state.zoneType === 'manual') {
+    const items = collectManualRows();
+    if (!items.length) { toast('至少填一筆材料（名稱＋數量）','error'); return; }
+    zoneData.params = { items };
+    zoneData.result = { items };
+  }
+
   if (state.editingZone) {
     const idx = state.zones[spaceId].findIndex(z => z.id === state.editingZone);
     state.zones[spaceId][idx] = zoneData;
@@ -2743,7 +2786,7 @@ function renderZonesHTML(spaceId) {
   const allZones = state.zones[spaceId] || [];
   allZones.forEach(recalcZone); // 用最新算法重算，卡片顯示才會有原始用量欄位
   const csys = state.calcSys || 'all';
-  const zones = csys === 'all' ? allZones : allZones.filter(z => z.type === csys);
+  const zones = csys === 'all' ? allZones : allZones.filter(z => z.type === csys || z.type === 'manual');
   if (!allZones.length) {
     return '<div style="text-align:center;padding:20px;color:var(--text-3);font-size:13px;">尚無計算區塊，點擊「新增區塊」開始計算</div>';
   }
@@ -2751,10 +2794,16 @@ function renderZonesHTML(spaceId) {
     return `<div style="text-align:center;padding:16px;color:var(--text-3);font-size:12px;">此空間沒有${csys === 'partition' ? '隔間' : '天花板'}區塊</div>`;
   }
   const zoneCardHTML = z => {
-    const typeLabel = z.type === 'partition' ? '隔間系統' : '天花板系統';
+    const typeLabel = z.type === 'partition' ? '隔間系統' : z.type === 'ceiling' ? '天花板系統' : '✍️ 直接輸入';
     const typeBadge = z.type === 'partition' ? 'badge-partition' : 'badge-ceiling';
     const r = z.result;
     let summary = '';
+    if (r && z.type === 'manual') {
+      summary = `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--text-2);">
+        ${(r.items||[]).map(x=>`<span>${esc(x.name)} <strong>${x.qty}</strong> ${esc(x.unit||'支')}</span>`).join('')}
+      </div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:2px">一間份的量，會自動 × 間數進彙總/匯出</div>`;
+    }
     if (r && z.type === 'partition') {
       const tkRaw = r.rawTrackCm!=null ? (r.rawTrackCm/r.trackUnit).toFixed(2) : r.tracks;
       const bdRaw = r.boardsRawNum!=null ? r.boardsRawNum.toFixed(2) : r.boards;
@@ -3372,6 +3421,7 @@ function recalcZone(z){
   if (!z || !z.params || !z.type) return;
   if (z.type === 'partition') z.result = calcPartition(z.params);
   else if (z.type === 'ceiling') z.result = calcCeiling(z.params);
+  else if (z.type === 'manual') z.result = { items: z.params.items || [] };
 }
 function recalcActiveProject(){
   const spaces = state.spaces[state.activeProjectId] || [];
@@ -3476,6 +3526,9 @@ function aggregateZone(z, mult, agg) {
   const r = z.result, params = z.params; if (!r) return;
   const AT = (k, l, q, u) => agg.addTotal(k, l, q * mult, u);
   const AP = (k, l, u, kind, raw, div) => agg.addPool(k, l, u, kind, raw * mult, div);
+  if (z.type === 'manual') {
+    (r.items || []).forEach(x => AT('man_' + x.name, x.name, x.qty, x.unit || '支'));
+  }
   if (z.type === 'partition') {
     AT(params.studType + '_' + r.studStock, matName('studs', params.studType) + ' 骨架（下料 ' + r.studStock + 'cm）', r.studs, '支');
     AP(params.trackType + '_' + r.trackUnit, matName('tracks', params.trackType).replace(/ ?槽鐵$/, '') + ' 槽鐵 ' + r.trackUnit + 'cm', '支', 'stick', r.rawTrackCm, r.trackUnit);
@@ -3527,6 +3580,13 @@ function aggregateZone(z, mult, agg) {
 // 單間明細表（一個區塊）
 function zoneDetailHTML(z) {
   const r = z.result, params = z.params; if (!r) return '';
+  if (z.type === 'manual') {
+    return `<div style="margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:600;margin-bottom:4px;">✍️ ${esc(z.name)}（直接輸入）</div>
+      <table class="result-table"><thead><tr><th>材料</th><th>數量</th><th>單位</th></tr></thead><tbody>
+        ${(r.items||[]).map(x=>`<tr><td>${esc(x.name)}</td><td class="qty">${x.qty}</td><td class="unit-cell">${esc(x.unit||'支')}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
   if (z.type === 'partition') {
     return `
       <div style="margin-bottom:12px;">
@@ -4111,6 +4171,14 @@ function printResults() {
     body += `<h3 style="margin:16px 0 8px;font-size:14px;border-bottom:1px solid #ccc;padding-bottom:4px;">▌ ${s.name}${sfx}</h3>`;
     zones.forEach(z => {
       const r = z.result; const params = z.params;
+      if (z.type === 'manual') {
+        body += `<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;margin-bottom:4px;">✍️ ${z.name}（直接輸入）</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <tr style="background:#f0f0f0;"><th style="border:1px solid #ccc;padding:4px 8px;text-align:left;">材料</th><th style="border:1px solid #ccc;padding:4px 8px;">數量</th></tr>
+          ${(r.items||[]).map(x=>`<tr><td style="border:1px solid #ccc;padding:4px 8px;">${esc(x.name)}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${x.qty} ${esc(x.unit||'支')}</td></tr>`).join('')}
+        </table></div>`;
+        (r.items||[]).forEach(x=>addT('man_'+x.name, x.name, x.qty, x.unit||'支'));
+      }
       if (z.type === 'partition') {
         body += `<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;margin-bottom:4px;">🧱 ${z.name}（${params.width}×${params.height}cm）</div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
