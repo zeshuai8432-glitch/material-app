@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v61</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v62</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v61</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v62</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1710,10 +1710,18 @@ async function doLogin() {
         const fmtT = t => t ? new Date(t).toLocaleString('zh-TW') : '（無時間）';
         const cloudHas = userData.projects && userData.projects.length;
         const localHas = local && local.projects && local.projects.length;
+        const sig = d => { const c = Object.assign({}, d); delete c.savedAt; try { return JSON.stringify(c); } catch(e) { return ''; } };
         if (localHas && !cloudHas) { userData = local; repush = true; }
-        else if (localHas && cloudHas && (local.savedAt || 0) > (userData.savedAt || 0)) {
+        else if (localHas && cloudHas && (local.savedAt || 0) > (userData.savedAt || 0) && sig(local) !== sig(userData)) {
+          // 內容真的不一樣才問；問之前把「兩份都」寫進自動快照，選錯也救得回來
+          try {
+            const hk = 'mc_hist_' + name;
+            let hist = []; try { hist = JSON.parse(localStorage.getItem(hk)) || []; } catch(e) {}
+            hist.unshift({ at: Date.now(), data: local }, { at: (userData.savedAt || Date.now()-1), data: userData });
+            localStorage.setItem(hk, JSON.stringify(hist.slice(0, 6)));
+          } catch(e) {}
           const cnt = d => (d.projects||[]).length + ' 案場・' + Object.values(d.zones||{}).reduce((a,z)=>a+(z||[]).length,0) + ' 區塊';
-          if (confirm('本機備份和雲端不同步，要用哪份？\n\n本機（較新）：'+cnt(local)+'（'+fmtT(local.savedAt)+'）\n雲端：'+cnt(userData)+'（'+fmtT(userData.savedAt)+'）\n\n【確定】用本機備份（剛在這台做的工作選這個）\n【取消】用雲端資料（剛在雲端硬碟還原過版本才選這個）')) { userData = local; repush = true; }
+          if (confirm('本機備份和雲端內容不同，要用哪份？（兩份都已存進快照，選錯可從登入畫面🔍還原）\n\n本機（較新）：'+cnt(local)+'（'+fmtT(local.savedAt)+'）\n雲端：'+cnt(userData)+'（'+fmtT(userData.savedAt)+'）\n\n【確定】用本機備份（剛在這台做的工作選這個）\n【取消】用雲端資料')) { userData = local; repush = true; }
         }
       }
     } catch (e) {}
@@ -2064,7 +2072,7 @@ async function doCloudSave() {
     const res = await gasCall('saveData', { username: state.user, password: state.password, data });
     ok = !!(res && res.ok);
   } catch(e) { ok = false; }
-  if (ok) { cloudSaveState = 'saved'; saveRetryN = 0; setSaveStatus('saved', '✓ 已儲存', true); return; }
+  if (ok) { cloudSaveState = 'saved'; saveRetryN = 0; _lastSavedAt = data.savedAt; setSaveStatus('saved', '✓ 已儲存', true); return; }
   // 失敗：本機已備份，自動退避重試（2s→5s→15s→60s…），狀態列可點立即重試
   cloudSaveState = 'error';
   const delay = [2000, 5000, 15000, 60000][Math.min(saveRetryN, 3)];
@@ -2088,9 +2096,12 @@ function retrySave() {
   if (cloudSaveState === 'error') doCloudSave();
 }
 
+let _lastSavedAt = 0; // 最後一次「雲端存成功」的時間戳
 function flushSaveBeacon() {
   if (!state.user || !state.password) return;
   const data = snapshotData();
+  // 已經存上雲端了 → 沿用當時的時間戳，別用新的（不然下次登入會誤判「本機比雲端新」而每次都問）
+  if (cloudSaveState === 'saved' && _lastSavedAt) data.savedAt = _lastSavedAt;
   cacheLocal(data); // 一律先寫本機
   if (cloudSaveState !== 'pending' && cloudSaveState !== 'error' && cloudSaveState !== 'saving') return;
   try { navigator.sendBeacon(GAS_URL, JSON.stringify({ action: 'saveData', payload: { username: state.user, password: state.password, data } })); } catch(e) {}
