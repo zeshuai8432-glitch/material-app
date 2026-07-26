@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v54</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v55</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v54</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v55</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -949,6 +949,7 @@
           <p style="font-size:13px;color:var(--text-2);">管理所有工程案場及空間</p>
         </div>
         <button class="btn btn-primary" onclick="openProjectModal()">＋ 新增案場</button>
+        <button class="btn btn-secondary" onclick="rebuildFromFieldApp()">🧩 從材料管理重建</button>
       </div>
 
       <div id="project-list" class="project-list">
@@ -2105,6 +2106,54 @@ function selectProject(id) {
   renderCalcTab();
 }
 
+// 🧩 反向重建：讀「材料管理」(同網域) 的牆用量食譜，重建成 直接輸入 區塊
+// 食譜 = 每樓層 → 房型(間數) → 牆 → 材料{label,unit,kind,raw,div}；raw 為一間份原始量
+function rebuildFromFieldApp(){
+  let FD; try{ FD = JSON.parse(localStorage.getItem('fieldmat_v1')); }catch(e){}
+  const recs = (FD && FD.recipes) || {};
+  const projNames = Object.keys(recs).filter(p=>Array.isArray(recs[p]) && recs[p].length);
+  if(!projNames.length){ toast('這個瀏覽器讀不到材料管理的施工資料（要在有現場材料資料的同一台瀏覽器上操作）','error'); return; }
+  let pick = projNames[0];
+  if(projNames.length>1){
+    const ans = prompt('要重建哪個案場？\n'+projNames.map((n,i)=>(i+1)+'. '+n).join('\n'), '1');
+    if(ans===null) return;
+    pick = projNames[parseInt(ans,10)-1]; if(!pick){ toast('編號不對','error'); return; }
+  }
+  const floors = recs[pick];
+  // 房型合併：type → { floors:{floor:count}, walls(第一次出現的定義) }
+  const types = {}; const typeOrder = [];
+  floors.forEach(f=>{ (f.rooms||[]).forEach(room=>{
+    if(!types[room.type]){ types[room.type] = { floors:{}, walls: room.walls||[] }; typeOrder.push(room.type); }
+    types[room.type].floors[f.floor] = num2(room.count);
+  }); });
+  if(!typeOrder.length){ toast('食譜裡沒有房型資料','error'); return; }
+  if(!confirm('從材料管理重建「'+pick+'」：\n'+typeOrder.map(t=>'・'+t+'（'+Object.keys(types[t].floors).length+' 層）').join('\n')+'\n\n會建立新案場「'+pick+'（重建）」，數量=上次匯出時的量。牆的尺寸參數無法還原（用「直接輸入」呈現）。繼續？')) return;
+  const pid = 'proj_' + Date.now();
+  state.projects.push({ id: pid, name: pick + '（重建）', note: '從材料管理反向重建', createdAt: new Date().toLocaleDateString('zh-TW') });
+  state.spaces[pid] = [];
+  let nZones = 0;
+  typeOrder.forEach((t, ti)=>{
+    const sid = 'sp_' + Date.now() + '_' + ti;
+    state.spaces[pid].push({ id: sid, name: t, note: '', sys: 'partition',
+      floors: Object.entries(types[t].floors).map(([fl,c])=>({ floor: fl, count: c })) });
+    state.zones[sid] = (types[t].walls||[]).map((wall, wi)=>{
+      const items = (wall.mats||[]).map(mt=>{
+        // stick/pack/roll 的 raw 是 cm/片/m²，換回「支/包/捲」= raw/div；board 補回 5% 損耗；total 直接用
+        let q;
+        if (mt.kind === 'board') q = mt.raw * 1.05;
+        else if (mt.kind && mt.kind !== 'total' && mt.div) q = mt.raw / mt.div;
+        else q = mt.raw;
+        return { name: mt.label, qty: Math.round(q*100)/100, unit: mt.unit || '支' };
+      }).filter(x=>x.name && x.qty>0);
+      return { id: 'zone_'+Date.now()+'_'+ti+'_'+wi, name: wall.name||('牆'+(wi+1)), group:'', type:'manual', params:{ items }, result:{ items } };
+    });
+    nZones += state.zones[sid].length;
+  });
+  state.activeProjectId = pid;
+  saveNow(); renderProjects(); renderCalcTab(); renderResults();
+  toast('✅ 已重建「'+pick+'」：'+typeOrder.length+' 個房型・'+nZones+' 道牆。補強鋼板不在牆食譜，需另外在房型裡補', 'success', 5200);
+}
+function num2(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
 function renderProjects() {
   const el = document.getElementById('project-list');
   if (!state.projects.length) {
