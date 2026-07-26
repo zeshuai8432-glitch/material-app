@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v63</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v64</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -157,6 +157,7 @@
       </div>
       <button class="btn" onclick="addDelivery()">✅ 登記送料</button>
     </div>
+    <div id="dv-orders"></div>
     <div class="card">
       <h2>📜 送料紀錄</h2>
       <div id="dv-log"></div>
@@ -299,7 +300,7 @@ function clearNeedCache(){ _needCache = {}; }
 function saveLocalOnly(){ clearNeedCache(); try{ localStorage.setItem('fieldmat_v1', JSON.stringify(D)); }catch(e){} }
 function save(){ D.updatedAt = new Date().toISOString(); saveLocalOnly(); schedulePush(); }
 function normalize(x){
-  ['projects','archived','rooms','cats','mats','items','deliveries','transfers','counts'].forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; });
+  ['projects','archived','rooms','cats','mats','items','deliveries','transfers','counts','orders'].forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; });
   ['recipes','progress'].forEach(k=>{ if(!x[k] || typeof x[k]!=='object' || Array.isArray(x[k])) x[k]={}; });
   if(!x.cats.length) x.cats = DEFAULT_CATS.slice();
   x.items.forEach(it=>{ if(it.demand==null){ it.demand = it.stillNeed!=null ? num(it.stillNeed) : num(it.plan||0); } delete it.plan; delete it.stillNeed; });
@@ -786,6 +787,7 @@ function renderDeliver(){
   document.getElementById('dv-date').value = document.getElementById('dv-date').value || todayStr();
   fillRoomSel('dv-room');
   fillMatSel('dv-mat');
+  renderOrders();
   renderDeliverLog();
 }
 function fillRoomSel(id){
@@ -1385,8 +1387,53 @@ function confirmRefillPDF(){
   if(!ids.size){ toast('⚠️ 至少留一項'); return; }
   const qtyMap = {}; // 手改的「補」數量（湊整用，只影響這張單）
   document.querySelectorAll('.rf-qty').forEach(inp=>{ const v=round(num(inp.value)); if(v>0) qtyMap[inp.dataset.id]=v; });
+  // 同時存成「待到貨清單」：料到了在送料頁一鍵入帳，不用逐筆登記
+  const lines = projItems(cur.project).filter(it=>ids.has(it.id)).map(it=>({ room: it.room, matId: it.matId, qty: (qtyMap[it.id]!=null? qtyMap[it.id] : itemLack(it)) })).filter(l=>l.qty>0);
+  if(lines.length){ D.orders.push({ id: uid(), date: todayStr(), project: cur.project, lines }); save(); }
   closeSheet();
   exportRefillPDF(null, null, ids, qtyMap);
+}
+// ── 待到貨補料單：到貨一鍵入帳成送料 ──
+function renderOrders(){
+  const el = document.getElementById('dv-orders'); if(!el) return;
+  const list = (D.orders||[]).filter(o=>o.project===cur.project);
+  if(!list.length){ el.innerHTML=''; return; }
+  el.innerHTML = `<div class="card"><h2>📦 待到貨補料單 <span class="muted" style="font-weight:400">(${list.length})</span></h2>
+    <div class="hint">匯出補料單時自動建立。料到了按「到貨入帳」，整張單自動登記成送料（已送/現場剩餘一起加）。</div>
+    ${list.map(o=>{
+      const byFl={}; o.lines.forEach(l=>{ const f=roomFloor(o.project,l.room); byFl[f]=(byFl[f]||0)+1; });
+      const sum = o.lines.slice(0,4).map(l=>{ const m=mat(l.matId); return esc(m?m.name:'?')+'×'+l.qty; }).join('、') + (o.lines.length>4?` …共${o.lines.length}項`:'');
+      return `<div class="listitem" style="align-items:stretch;gap:10px">
+        <div class="li-m" style="min-width:0">
+          <div class="li-t" style="font-size:13px">${esc(o.date)}　${Object.keys(byFl).sort(cmpFloor).map(esc).join('、')}</div>
+          <div class="li-s" style="word-break:break-all">${sum}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;flex:0 0 auto;justify-content:center">
+          <button class="btn mini" onclick="applyOrder('${o.id}')">✅ 到貨入帳</button>
+          <button class="btn mini gray" onclick="delOrder('${o.id}')">刪</button>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+}
+function applyOrder(id){
+  const o = (D.orders||[]).find(x=>x.id===id); if(!o) return;
+  if(!confirm('這張補料單（'+o.lines.length+' 項）已到貨？\n會全部登記成今天的送料，已送/現場剩餘跟著加。')) return;
+  const today = todayStr();
+  o.lines.forEach(l=>{
+    let it = D.items.find(i=>i.project===o.project && i.room===l.room && i.matId===l.matId);
+    if(!it){ it={id:uid(),project:o.project,room:l.room,matId:l.matId,demand:0,remaining:0,delivered:0}; D.items.push(it); }
+    it.delivered = round(num(it.delivered)+l.qty);
+    it.remaining = round(num(it.remaining)+l.qty);
+    D.deliveries.push({id:uid(), date:today, project:o.project, room:l.room, matId:l.matId, qty:l.qty});
+  });
+  D.orders = D.orders.filter(x=>x.id!==id);
+  save(); renderAll(); renderOrders(); renderDeliverLog();
+  toast('✅ 已入帳 '+o.lines.length+' 項送料');
+}
+function delOrder(id){
+  if(!confirm('刪除這張待到貨清單？（不會動任何庫存）')) return;
+  D.orders = D.orders.filter(x=>x.id!==id);
+  save(); renderOrders(); toast('已刪除');
 }
 function exportRefillPDF(flSet, catSet, idSet, qtyMap){
   const p = cur.project;
