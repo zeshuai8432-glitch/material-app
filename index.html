@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v64</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v65</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1914,7 +1914,14 @@ function applyCalcImport(pl){
       const cat = m.cat || '其他';
       if(!D.cats.includes(cat)) D.cats.push(cat);
       let mt = D.mats.find(x=>x.name===m.name);
-      if(!mt){ mt = {id:uid(), cat, name:m.name, spec:'', thick:'', unit:m.unit||'支'}; D.mats.push(mt); }
+      if(!mt){
+        // 名稱去重複遷移：舊版標籤「C41 骨架 骨架（…」「N38 加強橫枝 加強橫枝 …」＝新版去重後同一個材料
+        // → 直接改名沿用（送料/盤點/需求歷史全跟著），不生幽靈
+        const normDup = s=>String(s).replace(/(\S+) \1/g,'$1');
+        const oldMt = D.mats.find(x=>normDup(x.name)===normDup(m.name));
+        if(oldMt){ oldMt.name = m.name; mt = oldMt; }
+        else { mt = {id:uid(), cat, name:m.name, spec:'', thick:'', unit:m.unit||'支'}; D.mats.push(mt); }
+      }
       let it = D.items.find(i=>i.project===project && i.room===floorName && i.matId===mt.id);
       if(!it){ it = {id:uid(), project, room:floorName, matId:mt.id, demand:0, remaining:0, delivered:0}; D.items.push(it); }
       it.demand = round(num(m.qty)); // 全做完的量（無施工資料時的後備）
