@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v66</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v67</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1794,13 +1794,23 @@ function checkPendingImport(){
   const vanished = importGhosts(pl);
   const vSurplus = vanished.filter(it=> num(it.delivered)>0 || num(it.remaining)>0 || (it.restock!=null && it.restock!=='') || needAdj(it)!==0).length;
   const vRemove = vanished.length - vSurplus;
+  const vRow = it=>{ const m=mat(it.matId); const u=m?m.unit:'';
+    const phys = num(it.delivered)>0 || num(it.remaining)>0 || (it.restock!=null && it.restock!=='') || needAdj(it)!==0;
+    return `<div class="listitem" style="padding:6px 10px">
+      <div class="li-m" style="min-width:0"><div class="li-t" style="font-size:12px">${esc(m?m.name:'?')}</div>
+      <div class="li-s">${esc(it.room)}・總需 ${itemTotal(it)}${esc(u)}・送 ${num(it.delivered)}${esc(u)}・剩 ${itemRemaining(it)}${esc(u)}</div></div>
+      <span class="tag ${phys?'over-bg':'lack-bg'}" style="font-size:10px;padding:1px 7px;flex:0 0 auto">${phys?'轉溢料':'移除'}</span>
+    </div>`; };
   const reconHtml = vanished.length ? `<div class="divider"></div>
     <div style="font-weight:800;font-size:13px;color:var(--amber);margin-bottom:4px">🔄 以計算為準：${vanished.length} 項計算已移除</div>
     <div class="muted" style="font-size:12px;line-height:1.6">
       ${vSurplus?`· <b>${vSurplus}</b> 項有送過料 → 需求歸 0、保留成「溢料」（現場那批還看得到）<br>`:''}
       ${vRemove?`· <b>${vRemove}</b> 項沒送過料 → 直接移除<br>`:''}
       · 現場手動「換料／追加」<b>保留</b>，疊在新需求上（追加紀錄可查可清）
-    </div>` : '';
+    </div>
+    <details style="margin-top:6px"><summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--blue)">📋 點開看全部 ${vanished.length} 項名單</summary>
+      <div style="max-height:280px;overflow-y:auto;margin-top:6px">${vanished.slice().sort((a,b)=>cmpFloor(a.room,b.room)||String(mat(a.matId)?.name).localeCompare(String(mat(b.matId)?.name),'zh-Hant',{numeric:true})).map(vRow).join('')}</div>
+    </details>` : '';
   openSheet(`<h3>📥 匯入計算結果<span class="x" onclick="dismissCalcImport()">✕</span></h3>
     <div class="hint">以「材料計算」為準覆蓋各樓層需求量。<b>送料、現場剩餘、施工進度都會保留</b>（計算不動這些）。</div>
     <div class="listitem"><div class="li-m"><div class="li-t">${esc(pl.project)}</div><div class="li-s">${pl.floors.length} 個樓層 · ${matCount} 項材料</div></div></div>
