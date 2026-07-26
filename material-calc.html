@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v53</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v54</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,11 +920,14 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v53</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v54</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
       <span class="user-badge" id="user-badge">—</span>
+      <button class="btn btn-ghost btn-sm" onclick="exportBackupFile()">💾 備份</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('mc-restore-file').click()">↩ 還原</button>
+      <input type="file" id="mc-restore-file" accept="application/json,.json" style="display:none" onchange="importBackupFile(this.files[0])">
       <button class="btn btn-ghost btn-sm" onclick="doLogout()">登出</button>
     </div>
   </div>
@@ -1738,12 +1741,38 @@ function scanLocalBackups(){
     const nZone = Object.values(d.zones||{}).reduce((a,z)=>a+(z||[]).length,0);
     rows.push({ user:k.slice(9), nProj, nZone, at: d.savedAt? new Date(d.savedAt).toLocaleString('zh-TW') : '（無時間）', key:k });
   }
+  // 自動快照（mc_hist_*）也列出來，每份都能還原
+  const snaps = [];
+  for(let i=0;i<localStorage.length;i++){
+    const k = localStorage.key(i);
+    if(!k || !k.startsWith('mc_hist_')) continue;
+    let h; try{ h = JSON.parse(localStorage.getItem(k)); }catch(e){ continue; }
+    (h||[]).forEach((s,idx)=>{ if(s && s.data && (s.data.projects||[]).length) snaps.push({ user:k.slice(8), idx,
+      nProj:(s.data.projects||[]).length, nZone:Object.values(s.data.zones||{}).reduce((a,z)=>a+(z||[]).length,0),
+      at:new Date(s.at).toLocaleString('zh-TW'), key:k }); });
+  }
   el.style.display='block';
-  if(!rows.length){ el.innerHTML = '<div style="color:#b91c1c">這台裝置沒有本機備份。去你用過材料計算的「其他裝置」開登入畫面按同一顆按鈕找。</div>'; return; }
+  if(!rows.length && !snaps.length){ el.innerHTML = '<div style="color:#b91c1c">這台裝置沒有本機備份。去你用過材料計算的「其他裝置」開登入畫面按同一顆按鈕找。</div>'; return; }
   el.innerHTML = rows.map(r=>`<div style="border:1px solid #e3e8ef;border-radius:8px;padding:8px 10px;margin-bottom:6px">
     <b>${esc(r.user)}</b>　案場 ${r.nProj} 個・區塊 ${r.nZone} 個<br><span style="color:#667">存於 ${esc(r.at)}</span><br>
     ${r.nProj>0?`<a onclick="restoreBackupTo('${esc(r.key)}')" style="color:#1d4ed8;cursor:pointer;font-weight:700">⬆ 用上面輸入的帳號密碼登入並還原這份</a>`:'<span style="color:#999">（空的，沒東西可還原）</span>'}
-  </div>`).join('');
+  </div>`).join('')
+  + (snaps.length?`<div style="font-weight:800;margin:8px 0 4px">🕒 自動快照（每30分鐘留一份）</div>`+snaps.map(s=>`<div style="border:1px solid #e3e8ef;border-radius:8px;padding:8px 10px;margin-bottom:6px">
+    <b>${esc(s.user)}</b>　案場 ${s.nProj} 個・區塊 ${s.nZone} 個<br><span style="color:#667">${esc(s.at)}</span><br>
+    <a onclick="restoreSnapTo('${esc(s.key)}',${s.idx})" style="color:#1d4ed8;cursor:pointer;font-weight:700">⬆ 用上面輸入的帳號密碼登入並還原這份</a>
+  </div>`).join(''):'');
+}
+async function restoreSnapTo(histKey, idx){
+  const name = document.getElementById('login-name').value.trim();
+  const pwd = document.getElementById('login-pwd').value.trim();
+  if(!name||!pwd){ showLoginError('先在上面輸入帳號密碼，再按還原'); return; }
+  let h; try{ h = JSON.parse(localStorage.getItem(histKey)); }catch(e){}
+  const s = h && h[idx];
+  if(!s || !s.data || !(s.data.projects||[]).length){ showLoginError('這份快照是空的'); return; }
+  if(!confirm('用帳號「'+name+'」登入，並還原這份快照（'+(s.data.projects||[]).length+' 個案場・'+new Date(s.at).toLocaleString('zh-TW')+'）？')) return;
+  const d = s.data; d.savedAt = Date.now();
+  try{ localStorage.setItem('mc_cache_'+name, JSON.stringify(d)); }catch(e){ showLoginError('寫入失敗：'+e.message); return; }
+  await doLogin();
 }
 async function restoreBackupTo(cacheKey){
   const name = document.getElementById('login-name').value.trim();
@@ -1907,7 +1936,45 @@ function localCacheKey() { return 'mc_cache_' + (state.user || ''); }
 function snapshotData() {
   return { projects: state.projects, spaces: state.spaces, zones: state.zones, reinf: state.reinf, extras: state.extras || {}, fixes: state.fixes || {}, ffixes: state.ffixes || {}, materials: state.materials, savedAt: Date.now() };
 }
-function cacheLocal(data) { try { if (state.user) localStorage.setItem(localCacheKey(), JSON.stringify(data)); } catch (e) {} }
+function cacheLocal(data) {
+  try { if (state.user) localStorage.setItem(localCacheKey(), JSON.stringify(data)); } catch (e) {}
+  // 自動快照：有實質內容時，每 30 分鐘最多留一份、共留 5 份（防「被清空覆蓋」再發生）
+  try {
+    if (state.user && data && data.projects && data.projects.length) {
+      const hk = 'mc_hist_' + state.user;
+      let hist = []; try { hist = JSON.parse(localStorage.getItem(hk)) || []; } catch(e) {}
+      if (!hist.length || (Date.now() - (hist[0].at || 0)) > 30*60*1000) {
+        hist.unshift({ at: Date.now(), data });
+        localStorage.setItem(hk, JSON.stringify(hist.slice(0, 5)));
+      }
+    }
+  } catch (e) {}
+}
+// 💾 手動備份檔：下載一份 JSON 到自己手上（雲端/本機全掛也救得回）
+function exportBackupFile() {
+  const data = snapshotData();
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const d = new Date();
+  a.download = '材料計算備份_' + (state.user||'') + '_' + d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0') + '_' + String(d.getHours()).padStart(2,'0') + String(d.getMinutes()).padStart(2,'0') + '.json';
+  a.click(); URL.revokeObjectURL(a.href);
+  toast('已下載備份檔，收好它');
+}
+function importBackupFile(file) {
+  if (!file) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    let d; try { d = JSON.parse(rd.result); } catch(e) { toast('檔案格式不對','error'); return; }
+    if (!d || !Array.isArray(d.projects)) { toast('不是材料計算的備份檔','error'); return; }
+    if (!confirm('用備份檔（' + d.projects.length + ' 個案場）覆蓋目前資料並存回雲端？')) return;
+    d.savedAt = Date.now();
+    loadUserData(d); saveNow(); renderCalcTab(); renderResults();
+    toast('✅ 已從備份檔還原 ' + d.projects.length + ' 個案場');
+  };
+  rd.readAsText(file);
+  document.getElementById('mc-restore-file').value = '';
+}
 
 function saveUserData() {
   if (!state.user || !state.password) return;
