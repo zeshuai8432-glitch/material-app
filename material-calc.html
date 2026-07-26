@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v58</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v59</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v58</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v59</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1684,6 +1684,21 @@ async function doLogin() {
     }
     userData = dataRes.data || { projects: [], spaces: {}, zones: {}, reinf: {}, materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)) };
 
+    // 2a. 救援強制還原：使用者在登入畫面指定了要還原的備份/快照 → 直接用它，不比對、不詢問
+    if (window._forceRestoreData) {
+      const fd = window._forceRestoreData; window._forceRestoreData = null;
+      fd.savedAt = Date.now();
+      loadUserData(fd);
+      try { localStorage.setItem('mc_cache_' + name, JSON.stringify(fd)); } catch (e) {}
+      localStorage.setItem('mc_session', JSON.stringify({ user: name, password: pwd }));
+      saveNow(); // 立刻推回雲端
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('app').style.display = 'flex';
+      document.getElementById('user-badge').textContent = state.user;
+      btn.textContent = '登入';
+      toast('✅ 已強制還原：' + (fd.projects||[]).length + ' 個案場，並存回雲端');
+      return;
+    }
     // 2b. 本機備份 vs 雲端：
     //  - 雲端是空的、本機有料 → 自動用本機（防雲端被清空）
     //  - 兩邊都有料、但本機時間較新 → 「問使用者」要用哪份，不再自動蓋（避免把剛在雲端硬碟還原好的版本又蓋掉）
@@ -1770,9 +1785,8 @@ async function restoreSnapTo(histKey, idx){
   let h; try{ h = JSON.parse(localStorage.getItem(histKey)); }catch(e){}
   const s = h && h[idx];
   if(!s || !s.data || !(s.data.projects||[]).length){ showLoginError('這份快照是空的'); return; }
-  if(!confirm('用帳號「'+name+'」登入，並還原這份快照（'+(s.data.projects||[]).length+' 個案場・'+new Date(s.at).toLocaleString('zh-TW')+'）？')) return;
-  const d = s.data; d.savedAt = Date.now();
-  try{ localStorage.setItem('mc_cache_'+name, JSON.stringify(d)); }catch(e){ showLoginError('寫入失敗：'+e.message); return; }
+  if(!confirm('用帳號「'+name+'」登入，並「強制」還原這份快照（'+(s.data.projects||[]).length+' 個案場・'+new Date(s.at).toLocaleString('zh-TW')+'）？\n會直接覆蓋目前資料並存回雲端。')) return;
+  window._forceRestoreData = JSON.parse(JSON.stringify(s.data)); // 強制路徑：不比對、不詢問
   await doLogin();
 }
 async function restoreBackupTo(cacheKey){
@@ -1781,9 +1795,8 @@ async function restoreBackupTo(cacheKey){
   if(!name||!pwd){ showLoginError('先在上面輸入帳號密碼，再按還原'); return; }
   let d; try{ d = JSON.parse(localStorage.getItem(cacheKey)); }catch(e){}
   if(!d || !(d.projects||[]).length){ showLoginError('這份備份是空的'); return; }
-  if(!confirm('用帳號「'+name+'」登入，並把備份（'+(d.projects||[]).length+' 個案場）還原成目前資料、存回雲端？')) return;
-  d.savedAt = Date.now(); // 標成最新，登入的安全網就會選它並補存回雲端
-  try{ localStorage.setItem('mc_cache_'+name, JSON.stringify(d)); }catch(e){ showLoginError('寫入失敗：'+e.message); return; }
+  if(!confirm('用帳號「'+name+'」登入，並「強制」把備份（'+(d.projects||[]).length+' 個案場）還原成目前資料、存回雲端？')) return;
+  window._forceRestoreData = JSON.parse(JSON.stringify(d)); // 強制路徑：不比對、不詢問
   await doLogin();
 }
 async function gasCall(action, payload) {
