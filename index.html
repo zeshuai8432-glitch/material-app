@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v65</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v66</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1809,14 +1809,16 @@ function checkPendingImport(){
     <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="dismissCalcImport()">稍後再說</button>`);
 }
 // 找出「案場現有、但新匯入的材料清單裡沒有」的品項＝幽靈殘影
+// 比對用「去疊字後的名稱」：舊名「C41 骨架 骨架（…」＝新名「C41 骨架（…」，匯入會自動改名接軌，不算移除
 function importGhosts(pl){
   const proj = pl.project;
+  const nd = s=>String(s||'').replace(/(\S+) \1/g,'$1');
   const names = new Set();
-  (pl.floors||[]).forEach(f=>(f.materials||[]).forEach(m=>names.add(m.name)));
+  (pl.floors||[]).forEach(f=>(f.materials||[]).forEach(m=>names.add(f.floor+'||'+nd(m.name))));
   return D.items.filter(it=>{
     if(it.project!==proj) return false;
     const m = mat(it.matId); if(!m) return false;
-    return !names.has(m.name);
+    return !names.has(it.room+'||'+nd(m.name));
   });
 }
 // 最近一次匯入的牆食譜裡，出現過的材料名稱（用來判斷殘影）
