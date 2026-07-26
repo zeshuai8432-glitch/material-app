@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v71</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v72</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1425,6 +1425,7 @@ function openRefillPreview(flSet, catSet){
         <div class="li-m" style="min-width:0">
           <div class="li-t" style="font-size:13px">${esc(m?m.name:'?')}</div>
           <div class="li-s">剩 ${itemRemaining(it)}${esc(u)}・需 ${itemNeed(it)}${esc(u)}・缺 ${itemLack(it)}${esc(u)}</div>
+          ${noteHTML(it)}
         </div>
         <div style="flex:0 0 auto;display:flex;align-items:center;gap:4px;white-space:nowrap">
           <span style="font-weight:800;color:var(--red)">補</span>
@@ -1517,9 +1518,10 @@ function exportRefillPDF(flSet, catSet, idSet, qtyMap){
       const m=mat(it.matId); const u=m?m.unit:'';
       const fillQty = (qtyMap && qtyMap[it.id]!=null) ? qtyMap[it.id] : itemLack(it); // 手改湊整優先
       const adj = fillQty !== itemLack(it);
-      rows.push(`<tr><td>${esc(m?m.cat:'')}</td><td>${esc(m?m.name:'?')}</td><td>${esc((m&&m.spec)||'')}</td><td>${esc((m&&m.thick)||'')}</td>${multi?`<td>${esc(rn)}</td>`:''}<td class="q">剩 ${itemRemaining(it)}${u}</td><td class="q">需 ${itemNeed(it)}${u}</td><td class="q lack">補 ${fillQty}${u}${adj?'＊':''}</td></tr>`);
+      const noteTd = `<td style="font-size:11px;color:#555">${it.note?esc(it.note)+(it.noteDate?('（'+esc(it.noteDate)+'）'):''):''}</td>`;
+      rows.push(`<tr><td>${esc(m?m.cat:'')}</td><td>${esc(m?m.name:'?')}</td><td>${esc((m&&m.spec)||'')}</td><td>${esc((m&&m.thick)||'')}</td>${multi?`<td>${esc(rn)}</td>`:''}<td class="q">剩 ${itemRemaining(it)}${u}</td><td class="q">需 ${itemNeed(it)}${u}</td><td class="q lack">補 ${fillQty}${u}${adj?'＊':''}</td>${noteTd}</tr>`);
     }); });
-    body += `<table><thead><tr><th>分類</th><th>材料</th><th>規格</th><th>厚度</th>${multi?'<th>房間</th>':''}<th>現場剩餘</th><th>需求量</th><th>要補</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+    body += `<table><thead><tr><th>分類</th><th>材料</th><th>規格</th><th>厚度</th>${multi?'<th>房間</th>':''}<th>現場剩餘</th><th>需求量</th><th>要補</th><th>備註</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
   });
   printHTML('補料單 '+p, body);
 }
