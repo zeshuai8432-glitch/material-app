@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v51</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v52</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -911,6 +911,8 @@
     </button>
     <div class="login-divider"><hr><span>首次使用？直接登入即自動建立帳號</span><hr></div>
     <p style="font-size:12px;color:var(--text-3);text-align:center;">資料各自獨立，僅限本人查看</p>
+    <p style="font-size:12px;text-align:center;margin-top:8px"><a onclick="scanLocalBackups()" style="color:#1d4ed8;cursor:pointer;font-weight:700">🔍 資料不見了？看這台裝置有沒有備份</a></p>
+    <div id="backup-scan" style="display:none;margin-top:10px;font-size:13px;"></div>
   </div>
 </div>
 
@@ -918,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v51</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v52</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1717,6 +1719,37 @@ async function doLogin() {
   btn.textContent = '登入';
 }
 
+// 🔍 掃描這台裝置的本機備份（mc_cache_*），列出每份的帳號/案場數/時間，可一鍵還原到目前帳號
+function scanLocalBackups(){
+  const el = document.getElementById('backup-scan');
+  const rows = [];
+  for(let i=0;i<localStorage.length;i++){
+    const k = localStorage.key(i);
+    if(!k || !k.startsWith('mc_cache_')) continue;
+    let d; try{ d = JSON.parse(localStorage.getItem(k)); }catch(e){ continue; }
+    if(!d) continue;
+    const nProj = (d.projects||[]).length;
+    const nZone = Object.values(d.zones||{}).reduce((a,z)=>a+(z||[]).length,0);
+    rows.push({ user:k.slice(9), nProj, nZone, at: d.savedAt? new Date(d.savedAt).toLocaleString('zh-TW') : '（無時間）', key:k });
+  }
+  el.style.display='block';
+  if(!rows.length){ el.innerHTML = '<div style="color:#b91c1c">這台裝置沒有本機備份。去你用過材料計算的「其他裝置」開登入畫面按同一顆按鈕找。</div>'; return; }
+  el.innerHTML = rows.map(r=>`<div style="border:1px solid #e3e8ef;border-radius:8px;padding:8px 10px;margin-bottom:6px">
+    <b>${esc(r.user)}</b>　案場 ${r.nProj} 個・區塊 ${r.nZone} 個<br><span style="color:#667">存於 ${esc(r.at)}</span><br>
+    ${r.nProj>0?`<a onclick="restoreBackupTo('${esc(r.key)}')" style="color:#1d4ed8;cursor:pointer;font-weight:700">⬆ 用上面輸入的帳號密碼登入並還原這份</a>`:'<span style="color:#999">（空的，沒東西可還原）</span>'}
+  </div>`).join('');
+}
+async function restoreBackupTo(cacheKey){
+  const name = document.getElementById('login-name').value.trim();
+  const pwd = document.getElementById('login-pwd').value.trim();
+  if(!name||!pwd){ showLoginError('先在上面輸入帳號密碼，再按還原'); return; }
+  let d; try{ d = JSON.parse(localStorage.getItem(cacheKey)); }catch(e){}
+  if(!d || !(d.projects||[]).length){ showLoginError('這份備份是空的'); return; }
+  if(!confirm('用帳號「'+name+'」登入，並把備份（'+(d.projects||[]).length+' 個案場）還原成目前資料、存回雲端？')) return;
+  d.savedAt = Date.now(); // 標成最新，登入的安全網就會選它並補存回雲端
+  try{ localStorage.setItem('mc_cache_'+name, JSON.stringify(d)); }catch(e){ showLoginError('寫入失敗：'+e.message); return; }
+  await doLogin();
+}
 async function gasCall(action, payload) {
   const res = await fetch(GAS_URL, {
     method: 'POST',
