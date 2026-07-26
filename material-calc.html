@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v50</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v51</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v50</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v51</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1668,14 +1668,15 @@ async function doLogin() {
     state.user = name;
     state.password = pwd; // 保存用於後續 API 呼叫
 
-    // 2. 載入雲端資料
+    // 2. 載入雲端資料。讀取「失敗」必須中止登入，不能默默當成空資料（否則會像資料全消失，甚至把空的存回去）
     const dataRes = await gasCall('loadData', { username: name, password: pwd });
     let userData;
-    if (dataRes.ok && dataRes.data) {
-      userData = dataRes.data;
-    } else {
-      userData = { projects: [], spaces: {}, zones: {}, reinf: {}, materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)) };
+    if (!dataRes || !dataRes.ok) {
+      showLoginError('雲端資料讀取失敗，請再登入一次（你的資料還在雲端，沒有不見）');
+      btn.textContent = '登入';
+      return;
     }
+    userData = dataRes.data || { projects: [], spaces: {}, zones: {}, reinf: {}, materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)) };
 
     // 2b. 本機備份若比雲端新（上次存雲端可能沒成功），改用本機的，並在載入後補存回雲端
     let repush = false;
@@ -1684,6 +1685,8 @@ async function doLogin() {
       if (raw) {
         const local = JSON.parse(raw);
         if (local && (local.savedAt || 0) > (userData.savedAt || 0)) { userData = local; repush = true; }
+        // 安全網：雲端回來是「空的」但本機備份有資料 → 一律用本機的（不管時間戳），並補存回雲端
+        else if (local && local.projects && local.projects.length && (!userData.projects || !userData.projects.length)) { userData = local; repush = true; }
       }
     } catch (e) {}
 
