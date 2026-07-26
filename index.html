@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v67</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v68</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -208,6 +208,7 @@
         <button class="btn ghost sm" onclick="openCatSheet()">＋ 分類</button>
         <button class="btn ghost sm" onclick="openMatSheet()">＋ 材料</button>
         <button class="btn ghost sm" onclick="openCleanupSheet()">🧹 清理幽靈</button>
+        <button class="btn ghost sm" onclick="mergeDupMats()">🔗 合併重複材料</button>
       </div>
     </div>
     <div class="card">
@@ -1752,6 +1753,45 @@ function restorePreImport(){
   D = normalize(bk.data);
   cur.project = D.projects.includes(cur.project) ? cur.project : (D.projects[0]||null);
   clearNeedCache(); save(); renderAll(); toast('✅ 已還原到匯入前');
+}
+// 🔗 合併重複材料：同名材料自動併成一筆，送料/盤點/需求/調撥全部改掛到保留的那筆
+function mergeDupMats(){
+  const groups={};
+  D.mats.forEach(m=>{ const k=String(m.name||'').trim(); (groups[k]=groups[k]||[]).push(m); });
+  const dups=Object.values(groups).filter(g=>g.length>1);
+  if(!dups.length){ toast('沒有同名的重複材料'); return; }
+  const lines = dups.map(g=>'・'+g[0].name+'（'+g.length+' 筆）').join('\n');
+  if(!confirm('發現 '+dups.length+' 組同名材料：\n'+lines+'\n\n自動合併成一筆？送料/盤點/需求/調撥歷史全部保留併入，可用「還原匯入前」退回。')) return;
+  try{ localStorage.setItem('fieldmat_preimport', JSON.stringify({at:new Date().toISOString(), data:JSON.parse(JSON.stringify(D))})); }catch(e){}
+  let n=0;
+  dups.forEach(g=>{
+    // 保留「被用最多」的那筆（需求列×10＋送料＋盤點紀錄）
+    const score=m=> D.items.filter(i=>i.matId===m.id).length*10 + D.deliveries.filter(d=>d.matId===m.id).length + (D.counts||[]).filter(c=>c.matId===m.id).length;
+    g.sort((a,b)=>score(b)-score(a));
+    const keep=g[0];
+    g.slice(1).forEach(dead=>{
+      D.deliveries.forEach(d=>{ if(d.matId===dead.id) d.matId=keep.id; });
+      (D.transfers||[]).forEach(t=>{ if(t.matId===dead.id) t.matId=keep.id; if(t.fromMatId===dead.id) t.fromMatId=keep.id; if(t.toMatId===dead.id) t.toMatId=keep.id; });
+      (D.counts||[]).forEach(c=>{ if(c.matId===dead.id) c.matId=keep.id; });
+      (D.orders||[]).forEach(o=>(o.lines||[]).forEach(l=>{ if(l.matId===dead.id) l.matId=keep.id; }));
+      D.items.filter(i=>i.matId===dead.id).forEach(di=>{
+        const ki=D.items.find(i=>i.matId===keep.id && i.project===di.project && i.room===di.room);
+        if(!ki){ di.matId=keep.id; return; }
+        // 同樓層兩筆 → 實體量相加、需求取大、手動加減相加
+        ki.delivered = round(num(ki.delivered)+num(di.delivered));
+        ki.remaining = round(num(ki.remaining)+num(di.remaining));
+        ki.demand    = Math.max(num(ki.demand), num(di.demand));
+        const adj = num(ki.needAdj)+num(di.needAdj); ki.needAdj = adj||null;
+        ki.restock=null; ki.usedAt=null;
+        ki.countAt = (ki.countAt||'') > (di.countAt||'') ? ki.countAt : di.countAt;
+        D.items = D.items.filter(x=>x!==di);
+      });
+      D.mats = D.mats.filter(m=>m.id!==dead.id);
+      n++;
+    });
+  });
+  clearNeedCache(); save(); renderAll(); renderSettings();
+  toast('✅ 已合併 '+n+' 筆重複材料（可用「還原匯入前」退回）');
 }
 // 誤刪救援：直接把雲端的資料抓回來覆蓋本機（不管新舊）。先顯示雲端有幾筆，再確認。
 function forceCloudRestore(){
