@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v49</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v50</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -918,7 +918,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v49</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v50</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1109,6 +1109,7 @@
         <div class="section-title">材料清單（一間份的量，會自動 × 間數）</div>
         <div style="font-size:12px;color:var(--text-3);margin-bottom:8px">不用輸入尺寸，直接寫材料和數量。名稱寫清楚（例：C41 骨架、石膏板 12mm 3x6尺），會自動歸類、可匯出到材料管理。</div>
         <div id="manual-rows"></div>
+        <datalist id="matlib-datalist"></datalist>
         <button type="button" class="btn btn-secondary btn-sm" onclick="addManualRow()">＋ 加一行</button>
       </div>
 
@@ -2469,16 +2470,33 @@ function setZoneType(type) {
   const mf = document.getElementById('zone-manual-fields'); if (mf) mf.style.display = type === 'manual' ? '' : 'none';
 }
 // ── 直接輸入區塊：材料列編輯 ──
+// 材料庫全部名稱（給下拉建議＋自動帶單位）
+function matLibIndex(){
+  const idx = {};
+  ['studs','tracks','braces','reinfPlates','mainFrames','subFrames','rods','hardware','boards','rockwool','glasswool','trims'].forEach(k=>{
+    ((state.materials||{})[k]||[]).forEach(m=>{ if(m && m.name) idx[m.name] = m.unit || (k==='boards'?'片':k==='rockwool'?'包':k==='glasswool'?'捲':k==='hardware'?'個':'支'); });
+  });
+  return idx;
+}
+function fillMatDatalist(){
+  const dl = document.getElementById('matlib-datalist'); if(!dl) return;
+  dl.innerHTML = Object.keys(matLibIndex()).map(n=>`<option value="${esc(n)}">`).join('');
+}
+function mrAutoUnit(inp){ // 名稱選中材料庫項目時自動帶單位
+  const u = matLibIndex()[inp.value];
+  if(u){ const row = inp.closest('.manual-row'); if(row) row.querySelector('.mr-unit').value = u; }
+}
 function manualRowHTML(it){
   it = it || {name:'', qty:'', unit:'支'};
   return `<div class="manual-row" style="display:flex;gap:6px;margin-bottom:6px">
-    <input type="text" class="mr-name" placeholder="材料名稱" value="${esc(it.name)}" style="flex:2;min-width:110px">
+    <input type="text" class="mr-name" list="matlib-datalist" placeholder="材料名稱（可下拉選材料庫）" value="${esc(it.name)}" oninput="mrAutoUnit(this)" onchange="mrAutoUnit(this)" style="flex:2;min-width:110px">
     <input type="number" class="mr-qty" placeholder="數量" value="${it.qty}" style="flex:1;min-width:60px">
     <input type="text" class="mr-unit" placeholder="單位" value="${esc(it.unit||'支')}" style="flex:0 0 70px">
     <button type="button" class="btn-icon" onclick="this.parentElement.remove()">🗑️</button>
   </div>`;
 }
 function renderManualRows(items){
+  fillMatDatalist();
   document.getElementById('manual-rows').innerHTML = (items && items.length ? items : [null]).map(manualRowHTML).join('');
 }
 function addManualRow(){ document.getElementById('manual-rows').insertAdjacentHTML('beforeend', manualRowHTML()); }
