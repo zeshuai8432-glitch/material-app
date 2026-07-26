@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v55</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v56</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v55</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v56</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2452,14 +2452,16 @@ function renderSpaces() {
       </div>`;
   };
   const groupHdr = (t) => `<div style="font-size:13px;font-weight:800;color:var(--text-2);margin:10px 0 8px">${t}</div>`;
+  const byName = (a,b)=>String(a.name).localeCompare(String(b.name),'zh-Hant',{numeric:true}); // 房型智慧排序（數字自然排）
   let listHtml;
   if (csys === 'all') {
-    const parts = spaces.filter(s => sysOf(s) === 'partition');
-    const ceils = spaces.filter(s => sysOf(s) === 'ceiling');
+    const parts = spaces.filter(s => sysOf(s) === 'partition').sort(byName);
+    const ceils = spaces.filter(s => sysOf(s) === 'ceiling').sort(byName);
     listHtml = (parts.length ? groupHdr('🧱 隔間房型') + parts.map(spaceCard).join('') : '')
              + (ceils.length ? groupHdr('⬜ 天花板配置') + ceils.map(spaceCard).join('') : '');
   } else {
-    listHtml = shown.length ? shown.map(spaceCard).join('')
+    const sorted = shown.slice().sort(byName);
+    listHtml = sorted.length ? sorted.map(spaceCard).join('')
       : `<div class="empty-state" style="padding:26px"><div class="icon">${csys === 'ceiling' ? '⬜' : '🧱'}</div><p>還沒有${csys === 'ceiling' ? '天花板配置' : '隔間房型'}，按上面「＋ 新增空間」建一個</p></div>`;
   }
   el.innerHTML = sysToggle + overview + listHtml;
@@ -3037,9 +3039,14 @@ function renderZonesHTML(spaceId) {
       </div>`;
   };
   // 依「子區域」分組；全部未分區時就平鋪不加標題
+  // 智慧排序：子區域名稱自然排（未分區在最前）；組內先隔間→天花→直接輸入，再照區塊名稱自然排
+  const zOrder = z => z.type === 'partition' ? 0 : z.type === 'ceiling' ? 1 : 2;
+  const zSort = (a,b) => zOrder(a)-zOrder(b) || String(a.name).localeCompare(String(b.name),'zh-Hant',{numeric:true});
   const groups = {}; const order = [];
   zones.forEach(z => { const g = z.group || ''; if (!(g in groups)) { groups[g] = []; order.push(g); } groups[g].push(z); });
-  if (order.length === 1 && order[0] === '') return `<div class="zone-list">${zones.map(zoneCardHTML).join('')}</div>`;
+  order.sort((a,b)=> (a==='')-(b==='') ? (a===''?-1:1) : String(a).localeCompare(String(b),'zh-Hant',{numeric:true}));
+  Object.values(groups).forEach(arr=>arr.sort(zSort));
+  if (order.length === 1 && order[0] === '') return `<div class="zone-list">${groups[''].map(zoneCardHTML).join('')}</div>`;
   return order.map(g => {
     const gEsc = String(g).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const header = `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;padding:6px 4px;border-bottom:1px dashed var(--border,#e3e8ef)">
