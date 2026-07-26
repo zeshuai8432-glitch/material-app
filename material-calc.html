@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v60</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v61</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v60</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v61</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -3389,12 +3389,17 @@ function calcCeiling(p) {
   } else {
     rodResult = { isStandard: false, hangPoints: hangPointsTotal, customLen: p.rodCustomLen, rods: hangPointsTotal, needHitNail: false };
   }
-  rodResult.rods = Math.max(0, rodResult.rods + (parseInt(p.adjRod)||0)); // 含手動加減
+  // 手動加減螺桿 → 換算成吊點數的變化，五金（螺母/擊釘片/吊勾具）跟著扣或加
+  const adjRodN = parseInt(p.adjRod)||0;
+  rodResult.rods = Math.max(0, rodResult.rods + adjRodN);
+  const perRod = Math.max(1, rodResult.pointsPerRod || 1);   // 一支螺桿服務幾個吊點
+  const effPoints = Math.max(0, hangPointsTotal + adjRodN * perRod);
+  rodResult.effPoints = effPoints;                            // 五金依據的有效吊點數
 
   // 螺母：每吊點2個（橫枝吊筋不用）
-  const nuts = rodResult.isBrace ? 0 : hangPointsTotal * 2;
+  const nuts = rodResult.isBrace ? 0 : effPoints * 2;
   // 擊釘片：標準品螺桿才需要，數量 = 吊點數
-  const hitNails = rodResult.needHitNail ? hangPointsTotal : 0;
+  const hitNails = rodResult.needHitNail ? effPoints : 0;
   // 副架（百葉）與主架「交錯（垂直）」：
   //  - 沿著「主架長度方向(mainSpan)」每 30.5 排一條（第一條離牆30.5、末條離牆≤30.5、不排到牆外）
   //  - 每條副架垂直橫跨另一個方向(mainCount_dim)，長度靠這邊算
@@ -3413,7 +3418,7 @@ function calcCeiling(p) {
   // 四齒夾 = 副架條數 × 每條跟幾支主架交叉
   const clipsTotal = p.sys === 'n38' ? subCount * mainRows : 0;
   // 吊勾具 = N38 吊點數（橫枝吊筋直接鎖，不用吊勾）
-  const hooksTotal = (p.sys === 'n38' && !rodResult.isBrace) ? hangPointsTotal : 0;
+  const hooksTotal = (p.sys === 'n38' && !rodResult.isBrace) ? effPoints : 0; // 含螺桿手動加減換算
 
   // 板材
   const bs = BOARD_SIZES[p.boardSize];
