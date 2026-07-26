@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v68</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v69</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1756,8 +1756,10 @@ function restorePreImport(){
 }
 // 🔗 合併重複材料：同名材料自動併成一筆，送料/盤點/需求/調撥全部改掛到保留的那筆
 function mergeDupMats(){
+  // 同名判定：先去疊字、再拿掉「所有空格」（含全形），一個空格之差也算同一筆
+  const normKey = s => String(s||'').replace(/(\S+) \1/g,'$1').replace(/\s+/g,'');
   const groups={};
-  D.mats.forEach(m=>{ const k=String(m.name||'').trim(); (groups[k]=groups[k]||[]).push(m); });
+  D.mats.forEach(m=>{ const k=normKey(m.name); (groups[k]=groups[k]||[]).push(m); });
   const dups=Object.values(groups).filter(g=>g.length>1);
   if(!dups.length){ toast('沒有同名的重複材料'); return; }
   const lines = dups.map(g=>'・'+g[0].name+'（'+g.length+' 筆）').join('\n');
@@ -1769,6 +1771,8 @@ function mergeDupMats(){
     const score=m=> D.items.filter(i=>i.matId===m.id).length*10 + D.deliveries.filter(d=>d.matId===m.id).length + (D.counts||[]).filter(c=>c.matId===m.id).length;
     g.sort((a,b)=>score(b)-score(a));
     const keep=g[0];
+    // 名字用「最乾淨」的版本（空格最少的那個），之後匯入才對得上、不會再生雙胞胎
+    keep.name = g.map(m=>m.name).sort((a,b)=>a.length-b.length)[0];
     g.slice(1).forEach(dead=>{
       D.deliveries.forEach(d=>{ if(d.matId===dead.id) d.matId=keep.id; });
       (D.transfers||[]).forEach(t=>{ if(t.matId===dead.id) t.matId=keep.id; if(t.fromMatId===dead.id) t.fromMatId=keep.id; if(t.toMatId===dead.id) t.toMatId=keep.id; });
@@ -1862,7 +1866,7 @@ function checkPendingImport(){
 // 比對用「去疊字後的名稱」：舊名「C41 骨架 骨架（…」＝新名「C41 骨架（…」，匯入會自動改名接軌，不算移除
 function importGhosts(pl){
   const proj = pl.project;
-  const nd = s=>String(s||'').replace(/(\S+) \1/g,'$1');
+  const nd = s=>String(s||'').replace(/(\S+) \1/g,'$1').replace(/\s+/g,'');
   const names = new Set();
   (pl.floors||[]).forEach(f=>(f.materials||[]).forEach(m=>names.add(f.floor+'||'+nd(m.name))));
   return D.items.filter(it=>{
@@ -1967,9 +1971,9 @@ function applyCalcImport(pl){
       if(!D.cats.includes(cat)) D.cats.push(cat);
       let mt = D.mats.find(x=>x.name===m.name);
       if(!mt){
-        // 名稱去重複遷移：舊版標籤「C41 骨架 骨架（…」「N38 加強橫枝 加強橫枝 …」＝新版去重後同一個材料
+        // 名稱遷移：去疊字＋無視所有空格後相同＝同一個材料（涵蓋手動刪字留下的空格差）
         // → 直接改名沿用（送料/盤點/需求歷史全跟著），不生幽靈
-        const normDup = s=>String(s).replace(/(\S+) \1/g,'$1');
+        const normDup = s=>String(s).replace(/(\S+) \1/g,'$1').replace(/\s+/g,'');
         const oldMt = D.mats.find(x=>normDup(x.name)===normDup(m.name));
         if(oldMt){ oldMt.name = m.name; mt = oldMt; }
         else { mt = {id:uid(), cat, name:m.name, spec:'', thick:'', unit:m.unit||'支'}; D.mats.push(mt); }
