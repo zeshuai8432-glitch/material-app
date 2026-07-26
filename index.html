@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v69</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v70</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -460,6 +460,16 @@ function itemTransferNet(it){ // 這材料在此樓層的調撥進出（含裁�
   });
   return { tin: round(tin), tout: round(tout), net: round(tin-tout) };
 }
+// 📌 材料備註／提醒：到期(今天或更早)變紅、未到期灰藍；顯示在總覽材料下面
+function noteHTML(it){
+  if(!it.note) return '';
+  const d = it.noteDate || '';
+  let due = false, soon = false;
+  if(d){ const t = todayStr(); due = d <= t; soon = !due && d <= new Date(Date.now()+3*86400000).toISOString().slice(0,10); }
+  const c = due ? 'var(--red)' : (soon ? 'var(--amber)' : 'var(--blue)');
+  const bg = due ? '#fee2e2' : (soon ? '#fef3c7' : '#eef2ff');
+  return `<div style="margin-top:4px;font-size:12px;font-weight:600;color:${c};background:${bg};border-radius:7px;padding:3px 8px;display:inline-block;max-width:100%;word-break:break-all">📌 ${esc(it.note)}${d?`　<span style="font-weight:800">${due?'⏰ ':''}${esc(d)}</span>`:''}</div>`;
+}
 function lastCountAt(it){ // 上次盤點時間：新資料存 countAt，舊資料從盤點紀錄回推
   if(it.countAt) return it.countAt;
   let best=null; (D.counts||[]).forEach(c=>{ if(c.project===it.project&&c.room===it.room&&c.matId===it.matId&&(!best||c.at>best)) best=c.at; });
@@ -556,6 +566,9 @@ function renderBoard(){
   let totLack = 0, lackRooms = new Set();
   items.forEach(it=>{ const l=itemLack(it); if(l>0){ totLack+=l; lackRooms.add(it.room); } });
   const adjCount = allItems.filter(it=>round(needAdj(it))!==0).length; // 有手動追加/換料的材料數（全案）
+  const noteItems = allItems.filter(it=>it.note);                      // 有備註/提醒的材料
+  const noteCount = noteItems.length;
+  const noteDue = noteItems.some(it=>it.noteDate && it.noteDate <= todayStr()); // 有到期的 → 紅色徽章
   const sysBtn = (f,lbl)=>`<button class="segbtn ${(cur.sysFilter||'全部')===f?'on':''}" onclick="setSysFilter('${f}')">${lbl}</button>`;
   let html = `<div class="card" style="padding:13px 15px">
     <div style="display:flex;gap:10px;align-items:center">
@@ -568,6 +581,7 @@ function renderBoard(){
         <button class="btn sm gray" onclick="openRefillSheet()">📄 補料單</button>
         <button class="btn sm gray" onclick="openAdjLog()">📝 追加紀錄${adjCount?` <span style="background:var(--amber);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${adjCount}</span>`:''}</button>
         <button class="btn sm gray" onclick="openTransferLog()">🚚 調撥紀錄</button>
+        <button class="btn sm gray" onclick="openNoteList()">📌 備註提醒${noteCount?` <span style="background:${noteDue?'var(--red)':'var(--blue)'};color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${noteCount}</span>`:''}</button>
       </div>
     </div>
     <div class="seg" style="margin-top:11px">${sysBtn('全部','全部')}${sysBtn('隔間','🧱 隔間')}${sysBtn('天花','🔲 天花')}</div>
@@ -607,6 +621,7 @@ function renderBoard(){
             <div class="mn" style="color:${tn.c}">${esc(m?m.name:'?')}</div>
             <div class="ms">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''}</div>
             <div class="nums">總需 ${total}${esc(unit)}　送 ${num(it.delivered)}${esc(unit)}${tTag}　剩 ${rem}${esc(unit)}　${countAgeHTML(it)}</div>
+            ${noteHTML(it)}
           </div>
           <div class="val">
             <div class="big ${lack>0?'lack':(over>0?'over':'ok')}">${lack>0?('缺'+lack):(over>0?('溢'+over):'✅')}</div>
@@ -621,6 +636,32 @@ function renderBoard(){
 }
 function toggleGrp(id){ if(collapsed.has(id))collapsed.delete(id); else collapsed.add(id); renderBoard(); }
 function setSysFilter(f){ cur.sysFilter = f; save(); renderBoard(); }
+// 📌 備註提醒總覽：全案有備註的材料，到期的排最前
+function openNoteList(){
+  const p = cur.project;
+  const list = projItems(p).filter(it=>it.note);
+  if(!list.length){
+    openSheet(`<h3>📌 備註提醒<span class="x" onclick="closeSheet()">✕</span></h3>
+      <div class="muted" style="padding:10px 0">還沒有備註。在總覽點任何材料，最下面「📌 備註／提醒」就能寫，可加提醒日期。</div>`);
+    return;
+  }
+  const t = todayStr();
+  list.sort((a,b)=>{
+    const ad=a.noteDate||'9999', bd=b.noteDate||'9999';
+    return ad.localeCompare(bd) || cmpFloor(a.room,b.room);
+  });
+  const rows = list.map(it=>{ const m=mat(it.matId); const due = it.noteDate && it.noteDate<=t;
+    return `<div class="listitem" style="padding:8px 11px;cursor:pointer${due?';border-left:4px solid var(--red)':''}" onclick="closeSheet();quickCount('${it.id}')">
+      <div class="li-m" style="min-width:0">
+        <div class="li-t" style="font-size:13px">${esc(m?m.name:'?')}<span class="muted" style="font-weight:400">・${esc(it.room)}</span></div>
+        <div class="li-s" style="word-break:break-all;color:${due?'var(--red)':'var(--text2)'};font-weight:600">📌 ${esc(it.note)}${it.noteDate?`　${due?'⏰ ':''}${esc(it.noteDate)}`:''}</div>
+      </div>
+      <span class="btn mini gray" style="flex:0 0 auto">開啟</span>
+    </div>`; }).join('');
+  openSheet(`<h3>📌 備註提醒<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="muted" style="margin-bottom:6px">共 ${list.length} 筆，有日期的排前面（⏰＝已到期）。點一筆可直接開啟編輯。</div>
+    ${rows}`);
+}
 // 🚚 調撥紀錄：全部調撥/裁切流水帳，依日期分組
 function openTransferLog(){
   const p = cur.project;
@@ -743,6 +784,17 @@ function quickCount(itemId){
       ${needAdj(it)?`<div class="muted" style="margin-top:4px">已手動調整 ${needAdj(it)>0?'+':''}${needAdj(it)}${esc(unit)}（原計算 ${round(num(it.demand))}）</div>`:''}</div>
     <div class="fg"><label>換料／追加加減（${esc(unit)}）· 填了就在上面總數上加減</label>
       <input type="text" id="qc-needdelta" inputmode="text" placeholder="例：36 追加、-12 減少" style="text-align:left"></div>
+    <div class="divider"></div>
+    <div class="fg"><label>📌 備註／提醒 · 會顯示在總覽這筆材料下面</label>
+      <input type="text" id="qc-note" inputmode="text" value="${esc(it.note||'')}" placeholder="例：等廠商回覆、這批要留給12F" style="text-align:left">
+      <div class="row" style="margin-top:6px">
+        <div><label style="font-size:11px">提醒日期（選填）</label>
+          <input type="date" id="qc-notedate" value="${esc(it.noteDate||'')}"></div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="btn gray sm" style="width:100%" onclick="document.getElementById('qc-note').value='';document.getElementById('qc-notedate').value='';">清除備註</button></div>
+      </div>
+      ${it.noteAt?`<div class="muted" style="margin-top:4px;font-size:11px">上次編輯：${esc(String(it.noteAt).slice(0,16).replace('T',' '))}</div>`:''}
+    </div>
     <button class="btn" onclick="saveQuickCount('${it.id}')">儲存</button>`);
 }
 // 算式即時回顯「＝ N」（只有含運算符才顯示）
@@ -777,6 +829,14 @@ function saveQuickCount(itemId){
                                  : round(num(document.getElementById('qc-need').value));
   const adj = round(newTotal - round(num(it.demand)));
   it.needAdj = adj===0 ? null : adj;
+  // 📌 備註／提醒（含提醒日期）
+  const noteEl = document.getElementById('qc-note'), ndEl = document.getElementById('qc-notedate');
+  if(noteEl){
+    const nv = noteEl.value.trim(), dv = ndEl ? ndEl.value : '';
+    if(nv !== (it.note||'') || dv !== (it.noteDate||'')) it.noteAt = new Date().toISOString();
+    it.note = nv || null; it.noteDate = dv || null;
+    if(!nv) { it.noteDate = null; it.noteAt = null; }
+  }
   save(); closeSheet(); renderBoard(); toast('✅ 已更新');
 }
 
