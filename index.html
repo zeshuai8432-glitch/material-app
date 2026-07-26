@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v62</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v63</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1357,18 +1357,24 @@ function openRefillPreview(flSet, catSet){
     body+=`<div style="font-size:12px;font-weight:800;color:var(--text2);padding:8px 2px 4px">🏢 ${esc(fl)}</div>`;
     byFl[fl].sort((a,b)=>catOrder(mat(a.matId)?.cat)-catOrder(mat(b.matId)?.cat)).forEach(it=>{
       const m=mat(it.matId); const u=m?m.unit:'';
-      body+=`<label class="listitem" style="cursor:pointer;gap:10px;padding:8px 11px">
+      body+=`<div class="listitem" style="gap:10px;padding:8px 11px">
         <input type="checkbox" class="rf-it" value="${it.id}" checked style="width:20px;height:20px;flex:0 0 auto">
         <div class="li-m" style="min-width:0">
           <div class="li-t" style="font-size:13px">${esc(m?m.name:'?')}</div>
-          <div class="li-s">剩 ${itemRemaining(it)}${esc(u)}・需 ${itemNeed(it)}${esc(u)}</div>
+          <div class="li-s">剩 ${itemRemaining(it)}${esc(u)}・需 ${itemNeed(it)}${esc(u)}・缺 ${itemLack(it)}${esc(u)}</div>
         </div>
-        <div style="flex:0 0 auto;font-weight:800;color:var(--red);white-space:nowrap">補 ${itemLack(it)}${esc(u)}</div>
-      </label>`;
+        <div style="flex:0 0 auto;display:flex;align-items:center;gap:4px;white-space:nowrap">
+          <span style="font-weight:800;color:var(--red)">補</span>
+          <input type="number" class="rf-qty" data-id="${it.id}" value="${itemLack(it)}" inputmode="decimal"
+            style="width:64px;text-align:center;font-weight:800;padding:6px 4px"
+            onchange="this.style.background=(num(this.value)!==${itemLack(it)})?'#fef3c7':''">
+          <span style="font-size:12px;color:var(--text2)">${esc(u)}</span>
+        </div>
+      </div>`;
     });
   });
   openSheet(`<h3>補料單・確認品項<span class="x" onclick="closeSheet()">✕</span></h3>
-    <div class="muted" style="margin-bottom:6px">共 ${items.length} 項。知道現場其實不缺的（例如某層會多），把勾拿掉再匯出。</div>
+    <div class="muted" style="margin-bottom:6px">共 ${items.length} 項。不想補的把勾拿掉；「補」的數量可直接改（湊整），改過會變琥珀色，只影響這張單子。</div>
     ${body}
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:8px 0;cursor:pointer"><input type="checkbox" checked onclick="document.querySelectorAll('.rf-it').forEach(c=>c.checked=this.checked)" style="width:18px;height:18px"> 全選</label>
     <button class="btn" onclick="confirmRefillPDF()">📄 匯出 PDF</button>
@@ -1377,10 +1383,12 @@ function openRefillPreview(flSet, catSet){
 function confirmRefillPDF(){
   const ids = new Set([...document.querySelectorAll('.rf-it:checked')].map(x=>x.value));
   if(!ids.size){ toast('⚠️ 至少留一項'); return; }
+  const qtyMap = {}; // 手改的「補」數量（湊整用，只影響這張單）
+  document.querySelectorAll('.rf-qty').forEach(inp=>{ const v=round(num(inp.value)); if(v>0) qtyMap[inp.dataset.id]=v; });
   closeSheet();
-  exportRefillPDF(null, null, ids);
+  exportRefillPDF(null, null, ids, qtyMap);
 }
-function exportRefillPDF(flSet, catSet, idSet){
+function exportRefillPDF(flSet, catSet, idSet, qtyMap){
   const p = cur.project;
   let items = projItems(p).filter(it=>itemLack(it)>0);
   if(flSet) items = items.filter(it=> flSet.has(roomFloor(p,it.room)));
@@ -1390,7 +1398,8 @@ function exportRefillPDF(flSet, catSet, idSet){
   const floors = {};
   items.forEach(it=>{ const fl=roomFloor(p,it.room); ((floors[fl]=floors[fl]||{})[it.room]=(floors[fl][it.room]||[])).push(it); });
   const catNote = (catSet && catSet.size) ? '　類別：'+[...catSet].join('、') : '';
-  let body = `<h1>補料需求單</h1><div class="meta">案場：${esc(p)}　日期：${todayStr()}${esc(catNote)}</div>`;
+  const hasAdj = qtyMap && items.some(it=> qtyMap[it.id]!=null && qtyMap[it.id]!==itemLack(it));
+  let body = `<h1>補料需求單</h1><div class="meta">案場：${esc(p)}　日期：${todayStr()}${esc(catNote)}${hasAdj?'　＊=手動調整（湊整）':''}</div>`;
   Object.keys(floors).sort(cmpFloor).forEach(fl=>{
     const rooms = floors[fl]; const roomNames = Object.keys(rooms).sort(cmpFloor);
     const multi = roomNames.length>1 || roomNames[0]!==fl;
@@ -1398,7 +1407,9 @@ function exportRefillPDF(flSet, catSet, idSet){
     const rows = [];
     roomNames.forEach(rn=>{ rooms[rn].sort((a,b)=>catOrder(mat(a.matId)?.cat)-catOrder(mat(b.matId)?.cat)).forEach(it=>{
       const m=mat(it.matId); const u=m?m.unit:'';
-      rows.push(`<tr><td>${esc(m?m.cat:'')}</td><td>${esc(m?m.name:'?')}</td><td>${esc((m&&m.spec)||'')}</td><td>${esc((m&&m.thick)||'')}</td>${multi?`<td>${esc(rn)}</td>`:''}<td class="q">剩 ${itemRemaining(it)}${u}</td><td class="q">需 ${itemNeed(it)}${u}</td><td class="q lack">補 ${itemLack(it)}${u}</td></tr>`);
+      const fillQty = (qtyMap && qtyMap[it.id]!=null) ? qtyMap[it.id] : itemLack(it); // 手改湊整優先
+      const adj = fillQty !== itemLack(it);
+      rows.push(`<tr><td>${esc(m?m.cat:'')}</td><td>${esc(m?m.name:'?')}</td><td>${esc((m&&m.spec)||'')}</td><td>${esc((m&&m.thick)||'')}</td>${multi?`<td>${esc(rn)}</td>`:''}<td class="q">剩 ${itemRemaining(it)}${u}</td><td class="q">需 ${itemNeed(it)}${u}</td><td class="q lack">補 ${fillQty}${u}${adj?'＊':''}</td></tr>`);
     }); });
     body += `<table><thead><tr><th>分類</th><th>材料</th><th>規格</th><th>厚度</th>${multi?'<th>房間</th>':''}<th>現場剩餘</th><th>需求量</th><th>要補</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
   });
