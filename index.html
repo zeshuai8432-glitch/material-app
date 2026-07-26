@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v72</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v73</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1418,7 +1418,12 @@ function openRefillPreview(flSet, catSet){
   let body='';
   Object.keys(byFl).sort(cmpFloor).forEach(fl=>{
     body+=`<div style="font-size:12px;font-weight:800;color:var(--text2);padding:8px 2px 4px">🏢 ${esc(fl)}</div>`;
-    byFl[fl].sort((a,b)=>catOrder(mat(a.matId)?.cat)-catOrder(mat(b.matId)?.cat)).forEach(it=>{
+    // 與總覽/盤點同一套智慧排序：先系統分組（C41+U43=41系統），再類別，再名稱自然排
+    byFl[fl].sort((a,b)=>{
+      const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
+      return ga.sort-gb.sort || ga.label.localeCompare(gb.label)
+        || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''});
+    }).forEach(it=>{
       const m=mat(it.matId); const u=m?m.unit:'';
       body+=`<div class="listitem" style="gap:10px;padding:8px 11px">
         <input type="checkbox" class="rf-it" value="${it.id}" checked style="width:20px;height:20px;flex:0 0 auto">
@@ -1514,7 +1519,11 @@ function exportRefillPDF(flSet, catSet, idSet, qtyMap){
     const multi = roomNames.length>1 || roomNames[0]!==fl;
     body += `<div class="fl">🏢 ${esc(fl)}${multi?`　<span class="sub">${roomNames.map(esc).join('＋')}</span>`:''}</div>`;
     const rows = [];
-    roomNames.forEach(rn=>{ rooms[rn].sort((a,b)=>catOrder(mat(a.matId)?.cat)-catOrder(mat(b.matId)?.cat)).forEach(it=>{
+    roomNames.forEach(rn=>{ rooms[rn].sort((a,b)=>{
+      const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
+      return ga.sort-gb.sort || ga.label.localeCompare(gb.label)
+        || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''});
+    }).forEach(it=>{
       const m=mat(it.matId); const u=m?m.unit:'';
       const fillQty = (qtyMap && qtyMap[it.id]!=null) ? qtyMap[it.id] : itemLack(it); // 手改湊整優先
       const adj = fillQty !== itemLack(it);
