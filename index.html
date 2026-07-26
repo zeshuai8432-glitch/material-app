@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v73</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v74</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -582,6 +582,7 @@ function renderBoard(){
         <button class="btn sm gray" onclick="openAdjLog()">📝 追加紀錄${adjCount?` <span style="background:var(--amber);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${adjCount}</span>`:''}</button>
         <button class="btn sm gray" onclick="openTransferLog()">🚚 調撥紀錄</button>
         <button class="btn sm gray" onclick="openNoteList()">📌 備註提醒${noteCount?` <span style="background:${noteDue?'var(--red)':'var(--blue)'};color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${noteCount}</span>`:''}</button>
+        <button class="btn sm gray" onclick="openMatSearch()">🔍 查材料</button>
       </div>
     </div>
     <div class="seg" style="margin-top:11px">${sysBtn('全部','全部')}${sysBtn('隔間','🧱 隔間')}${sysBtn('天花','🔲 天花')}</div>
@@ -636,6 +637,59 @@ function renderBoard(){
 }
 function toggleGrp(id){ if(collapsed.has(id))collapsed.delete(id); else collapsed.add(id); renderBoard(); }
 function setSysFilter(f){ cur.sysFilter = f; save(); renderBoard(); }
+// 🔍 查材料：一種材料在全案各樓層的狀況（需求/送/剩/缺溢）＋總計
+let _msKeep = '';
+function openMatSearch(kw){
+  const p = cur.project;
+  _msKeep = kw!=null ? kw : _msKeep;
+  const q = String(_msKeep||'').trim();
+  const mats = [...new Set(projItems(p).map(i=>i.matId))].map(id=>mat(id)).filter(Boolean)
+    .sort((a,b)=>catOrder(a.cat)-catOrder(b.cat)||matLabel(a).localeCompare(matLabel(b),'zh-Hant',{numeric:true}));
+  const hit = q ? mats.filter(m=>String(matLabel(m)).toLowerCase().includes(q.toLowerCase())) : [];
+  let body = '';
+  if(!q){
+    body = `<div class="muted" style="padding:6px 0">輸入材料名稱（例：C41、石膏板、U43）就會列出它在每個樓層的狀況。</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${mats.slice(0,14).map(m=>`<a onclick="openMatSearch('${esc(matLabel(m)).replace(/'/g,"\\'")}')" style="font-size:12px;font-weight:700;color:var(--blue);border:1px solid var(--line);border-radius:8px;padding:4px 9px;cursor:pointer">${esc(m.name)}</a>`).join('')}</div>`;
+  } else if(!hit.length){
+    body = `<div class="muted" style="padding:8px 0">找不到含「${esc(q)}」的材料。</div>`;
+  } else {
+    body = hit.slice(0,6).map(m=>{
+      const its = projItems(p).filter(i=>i.matId===m.id)
+        .sort((a,b)=>cmpFloor(roomFloor(p,a.room), roomFloor(p,b.room))||cmpFloor(a.room,b.room));
+      const u = m.unit||''; const tn = nameTone(m.name);
+      let tTot=0,dTot=0,rTot=0,lTot=0,oTot=0;
+      const rows = its.map(it=>{
+        const need=itemNeed(it), rem=itemRemaining(it), lack=itemLack(it), tot=itemTotal(it);
+        const over=(!itemManual(it)&&lack<0)?round(rem-need):0;
+        tTot+=tot; dTot+=num(it.delivered); rTot+=rem; lTot+=Math.max(lack,0); oTot+=over;
+        return `<div class="listitem" style="padding:6px 10px;cursor:pointer" onclick="closeSheet();quickCount('${it.id}')">
+          <div class="li-m" style="min-width:0">
+            <div class="li-t" style="font-size:13px">🏢 ${esc(it.room)}</div>
+            <div class="li-s">總需 ${tot}${esc(u)}・送 ${num(it.delivered)}${esc(u)}・剩 ${rem}${esc(u)}</div>
+            ${it.note?noteHTML(it):''}
+          </div>
+          <div style="flex:0 0 auto;text-align:right;white-space:nowrap">
+            <div class="big ${lack>0?'lack':(over>0?'over':'ok')}" style="font-size:15px;font-weight:900">${lack>0?('缺'+lack):(over>0?('溢'+over):'✅')}</div>
+          </div>
+        </div>`;
+      }).join('');
+      return `<div class="card" style="padding:11px 13px;border-left:4px solid ${tn.c}">
+        <div style="font-weight:900;color:${tn.c};font-size:14px">${esc(m.name)}<span class="muted" style="font-weight:400">・${esc(m.cat||'')}</span></div>
+        <div style="font-size:13px;font-weight:800;margin:4px 0 6px">全案：總需 ${round(tTot)}${esc(u)}　送 ${round(dTot)}${esc(u)}　剩 ${round(rTot)}${esc(u)}
+          ${lTot>0?`　<span class="lack">缺 ${round(lTot)}${esc(u)}</span>`:''}${oTot>0?`　<span class="over">溢 ${round(oTot)}${esc(u)}</span>`:''}</div>
+        <div class="muted" style="font-size:11px;margin-bottom:4px">${its.length} 個樓層（點一列可盤點/寫備註）</div>
+        ${rows}
+      </div>`;
+    }).join('') + (hit.length>6?`<div class="muted" style="padding:6px 0">符合的材料超過 6 種，打更完整的名稱可縮小範圍。</div>`:'');
+  }
+  openSheet(`<h3>🔍 查材料<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="fg"><input type="text" id="ms-kw" inputmode="search" value="${esc(q)}" placeholder="輸入材料名稱，例：C41" style="text-align:left" oninput="msDebounce(this.value)"></div>
+    ${body}`);
+  const el = document.getElementById('ms-kw');
+  if(el && q){ el.focus(); el.setSelectionRange(q.length,q.length); }
+}
+let _msTimer;
+function msDebounce(v){ clearTimeout(_msTimer); _msTimer=setTimeout(()=>openMatSearch(v), 260); }
 // 📌 備註提醒總覽：全案有備註的材料，到期的排最前
 function openNoteList(){
   const p = cur.project;
