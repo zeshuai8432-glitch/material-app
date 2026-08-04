@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v63</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v64</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,11 +920,12 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v63</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v64</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
       <span class="user-badge" id="user-badge">—</span>
+      <button class="btn btn-ghost btn-sm" onclick="openCloudRevs()">☁ 版本</button>
       <button class="btn btn-ghost btn-sm" onclick="exportBackupFile()">💾 備份</button>
       <button class="btn btn-ghost btn-sm" onclick="document.getElementById('mc-restore-file').click()">↩ 還原</button>
       <input type="file" id="mc-restore-file" accept="application/json,.json" style="display:none" onchange="importBackupFile(this.files[0])">
@@ -1541,6 +1542,7 @@ let state = {
   extras: {},     // projectId -> [{id,name,qty,unit}] 用量結果的自訂材料（公式沒算的，手動加）
   fixes: {},      // projectId -> { aggKey: 改後總數 } 全案彙總的手改總數（列印/匯出跟著用）
   ffixes: {},     // projectId -> { floor -> { aggKey: 改後數量 } } 依樓層的手改數量（匯出跟著用）
+  rev: 0,         // 雲端版本號（存檔時附上，伺服器用來擋掉過期覆蓋）
   editingProject: null,
   editingSpace: null,
   editingZone: null,
@@ -1683,14 +1685,17 @@ async function doLogin() {
       return;
     }
     userData = dataRes.data || { projects: [], spaces: {}, zones: {}, reinf: {}, materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)) };
+    state.rev = dataRes.rev || 0; // 雲端版本號（新後端才有；舊後端為 0＝不啟用版本控管）
 
     // 2a. 救援強制還原：使用者在登入畫面指定了要還原的備份/快照 → 直接用它，不比對、不詢問
     if (window._forceRestoreData) {
       const fd = window._forceRestoreData; window._forceRestoreData = null;
       fd.savedAt = Date.now();
       loadUserData(fd);
+      state.rev = dataRes.rev || 0;
       try { localStorage.setItem('mc_cache_' + name, JSON.stringify(fd)); } catch (e) {}
       localStorage.setItem('mc_session', JSON.stringify({ user: name, password: pwd }));
+      _forceNextSave = true; // 救援還原：允許覆蓋（雲端會留版本歷史）
       saveNow(); // 立刻推回雲端
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('app').style.display = 'flex';
@@ -2048,6 +2053,30 @@ function showConflictBanner(){
   d.innerHTML = '⚠️ 偵測到「另一個分頁」也開著材料計算，兩邊會互相覆蓋資料！請關掉其他分頁，只留這一個。 <a onclick="this.parentElement.remove()" style="color:#fff;text-decoration:underline;cursor:pointer;margin-left:8px">我關好了</a>';
   document.body.appendChild(d);
 }
+// ☁ 雲端版本歷史：列出後端保留的版本，可直接還原（需新版 GAS 後端）
+async function openCloudRevs(){
+  if(!state.user){ toast('請先登入','error'); return; }
+  toast('讀取雲端版本…');
+  let res=null; try{ res = await gasCall('listRevs', { username: state.user, password: state.password }); }catch(e){}
+  if(!res || !res.ok){ alert('讀不到雲端版本歷史。\n可能是後端還沒更新到 v2（gas_calc.gs）。'); return; }
+  const revs = res.revs || [];
+  if(!revs.length){ alert('雲端還沒有版本歷史（更新後端後，之後每次儲存都會留一版）。'); return; }
+  const lines = revs.slice(0,20).map(r=>'rev '+r.rev+'　'+String(r.at).slice(0,16).replace('T',' ')+'　'+r.projects+' 案場・'+r.zones+' 區塊').join('\n');
+  const ans = prompt('☁ 雲端版本歷史（越上面越新）：\n\n'+lines+'\n\n要還原哪一版？輸入 rev 編號（取消＝不動）', String(revs[0].rev));
+  if(ans===null) return;
+  const rev = parseInt(ans,10); if(isNaN(rev)){ toast('編號不對','error'); return; }
+  let g=null; try{ g = await gasCall('getRev', { username: state.user, password: state.password, rev }); }catch(e){}
+  if(!g || !g.ok || !g.data){ alert('取不到那一版'); return; }
+  const cz = d=>Object.values((d&&d.zones)||{}).reduce((a,z)=>a+(z||[]).length,0);
+  if(!confirm('用 rev '+rev+'（'+((g.data.projects)||[]).length+' 案場・'+cz(g.data)+' 區塊）覆蓋目前資料？\n目前這份會先存進本機快照。')) return;
+  try { const hk='mc_hist_'+state.user; let h=[]; try{h=JSON.parse(localStorage.getItem(hk))||[];}catch(e){}
+    h.unshift({at:Date.now(), data:snapshotData()}); localStorage.setItem(hk, JSON.stringify(h.slice(0,6))); } catch(e){}
+  loadUserData(g.data);
+  _forceNextSave = true; saveNow();
+  renderProjects(); renderCalcTab(); renderResults();
+  toast('✅ 已還原 rev '+rev+' 並存回雲端');
+}
+
 // 💾 手動備份檔：下載一份 JSON 到自己手上（雲端/本機全掛也救得回）
 function exportBackupFile() {
   const data = snapshotData();
@@ -2100,12 +2129,33 @@ async function doCloudSave() {
   setSaveStatus('saving', '☁ 儲存中…');
   const data = snapshotData();
   cacheLocal(data);
-  let ok = false;
+  let ok = false, res = null;
   try {
-    const res = await gasCall('saveData', { username: state.user, password: state.password, data });
+    res = await gasCall('saveData', { username: state.user, password: state.password, data, baseRev: state.rev || 0, force: !!_forceNextSave });
     ok = !!(res && res.ok);
   } catch(e) { ok = false; }
-  if (ok) { cloudSaveState = 'saved'; saveRetryN = 0; _lastSavedAt = data.savedAt; setSaveStatus('saved', '✓ 已儲存', true); return; }
+  _forceNextSave = false;
+  if (ok) {
+    cloudSaveState = 'saved'; saveRetryN = 0; _lastSavedAt = data.savedAt;
+    if (res && res.rev != null) state.rev = res.rev;
+    setSaveStatus('saved', '✓ 已儲存', true); return;
+  }
+  // 版本衝突：雲端已被別的分頁/裝置更新 → 不覆蓋，讓使用者決定（本機資料完好）
+  if (res && res.conflict) {
+    cloudSaveState = 'error';
+    setSaveStatus('error', '⚠ 雲端有更新版本，未覆蓋（點我處理）');
+    const el = document.getElementById('save-status'); if (el) el.onclick = () => handleConflict(res);
+    return;
+  }
+  // 縮水保護：資料量暴減被伺服器擋下
+  if (res && res.shrink) {
+    cloudSaveState = 'error';
+    setSaveStatus('error', '⚠ 資料量暴減已被擋下（點我處理）');
+    const el = document.getElementById('save-status'); if (el) el.onclick = () => {
+      if (confirm('伺服器擋下這次儲存：雲端有 '+res.was.zones+' 個區塊，這次只有 '+res.now.zones+' 個。\n\n【確定】我確定要用現在這份覆蓋雲端\n【取消】先不要存（建議去登入畫面🔍或雲端版本還原）')) { _forceNextSave = true; doCloudSave(); }
+    };
+    return;
+  }
   // 失敗：本機已備份，自動退避重試（2s→5s→15s→60s…），狀態列可點立即重試
   cloudSaveState = 'error';
   const delay = [2000, 5000, 15000, 60000][Math.min(saveRetryN, 3)];
@@ -2125,6 +2175,31 @@ function setSaveStatus(cls, text, autoHide) {
   if (autoHide) saveStatusHideTimer = setTimeout(() => { el.className = 'save-status'; }, 2200);
 }
 
+let _forceNextSave = false;
+async function handleConflict(res){
+  const cz = d => Object.values((d&&d.zones)||{}).reduce((a,z)=>a+(z||[]).length,0);
+  const mine = cz(state), theirs = cz(res.data||{});
+  const msg = '雲端已被「其他分頁或裝置」更新，為了不蓋掉它，這次沒有存。\n\n'
+    + '這台目前：'+ (state.projects||[]).length +' 案場・'+ mine +' 區塊\n'
+    + '雲端最新：'+ ((res.data&&res.data.projects)||[]).length +' 案場・'+ theirs +' 區塊（'+(res.updatedAt||'')+'）\n\n'
+    + '【確定】用「這台這份」覆蓋雲端（雲端那版會存進雲端版本歷史，可還原）\n'
+    + '【取消】改用「雲端那份」（這台現在的內容會先存進本機快照）';
+  if (confirm(msg)) {
+    state.rev = res.rev;      // 以雲端最新版為基準，強制覆蓋
+    _forceNextSave = true;
+    await doCloudSave();
+  } else {
+    try { // 先把本機這份收進快照，避免被雲端蓋掉後找不回來
+      const hk='mc_hist_'+state.user; let h=[]; try{h=JSON.parse(localStorage.getItem(hk))||[];}catch(e){}
+      h.unshift({at:Date.now(), data:snapshotData()}); localStorage.setItem(hk, JSON.stringify(h.slice(0,6)));
+    } catch(e) {}
+    state.rev = res.rev;
+    loadUserData(res.data || {});
+    renderProjects(); renderCalcTab(); renderResults();
+    cloudSaveState = 'saved';
+    setSaveStatus('saved', '✓ 已改用雲端版本', true);
+  }
+}
 function retrySave() {
   if (cloudSaveState === 'error') doCloudSave();
 }
