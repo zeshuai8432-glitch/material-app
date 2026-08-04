@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v62</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v63</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v62</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v63</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1734,7 +1734,18 @@ async function doLogin() {
     if (!userData.materials.rods) userData.materials.rods = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.rods));
     if (!userData.materials.hardware) userData.materials.hardware = JSON.parse(JSON.stringify(DEFAULT_MATERIALS.hardware));
 
+    // 載入前先記住「本機備份」的量，載入後若明顯變少 → 掛紅色橫幅讓使用者一鍵拉回（防倒退）
+    let _localForCheck = null;
+    try { _localForCheck = JSON.parse(localStorage.getItem('mc_cache_' + name) || 'null'); } catch(e) {}
     loadUserData(userData);
+    try {
+      const cz = d => Object.values((d&&d.zones)||{}).reduce((a,z)=>a+(z||[]).length,0);
+      const loadedN = cz(userData), localN = cz(_localForCheck);
+      if (_localForCheck && localN > loadedN) {
+        window._rollbackCandidate = _localForCheck;
+        setTimeout(()=>showRollbackBanner(localN, loadedN), 400);
+      }
+    } catch(e) {}
     // 讓本機備份 == 目前載入的資料（避免下次重整又拿舊本機蓋掉）
     try { localStorage.setItem('mc_cache_' + name, JSON.stringify(userData)); } catch (e) {}
     if (repush) saveNow(); // 把本機較新的資料補存回雲端
@@ -2007,6 +2018,28 @@ window.addEventListener('storage', ev => {
   let other = null; try { other = JSON.parse(ev.newValue || 'null'); } catch(e) {}
   if (other && other.savedAt && other.savedAt !== _myCacheStamp) showConflictBanner();
 });
+// 偵測到載入的資料比本機備份少 → 紅色橫幅，一鍵用本機備份覆蓋並存回雲端
+function showRollbackBanner(localN, loadedN){
+  if (document.getElementById('mc-rollback-banner')) return;
+  const d = document.createElement('div');
+  d.id = 'mc-rollback-banner';
+  d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#b45309;color:#fff;font-weight:800;font-size:14px;padding:10px 14px;text-align:center;line-height:1.7';
+  d.innerHTML = '⚠️ 這次載入的資料比這台的本機備份少（載入 '+loadedN+' 個區塊，本機備份有 '+localN+' 個）。'
+    + ' <a onclick="applyRollback()" style="color:#fff;text-decoration:underline;cursor:pointer;font-weight:900">用本機備份救回來</a>'
+    + ' <a onclick="this.parentElement.remove()" style="color:#fff;text-decoration:underline;cursor:pointer;margin-left:10px;font-weight:400">這是對的，關掉</a>';
+  document.body.appendChild(d);
+}
+function applyRollback(){
+  const d = window._rollbackCandidate;
+  if (!d) { toast('沒有可還原的本機備份','error'); return; }
+  const cz = x => Object.values((x&&x.zones)||{}).reduce((a,z)=>a+(z||[]).length,0);
+  if (!confirm('用本機備份覆蓋目前資料並存回雲端？\n（'+(d.projects||[]).length+' 個案場・'+cz(d)+' 個區塊）')) return;
+  d.savedAt = Date.now();
+  loadUserData(d); saveNow();
+  renderProjects(); renderCalcTab(); renderResults();
+  const el = document.getElementById('mc-rollback-banner'); if (el) el.remove();
+  toast('✅ 已用本機備份還原並存回雲端');
+}
 function showConflictBanner(){
   if (document.getElementById('mc-conflict-banner')) return;
   const d = document.createElement('div');
