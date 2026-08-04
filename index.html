@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v74</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v75</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1523,18 +1523,47 @@ function renderOrders(){
     <div class="hint">匯出補料單時自動建立。料到了按「到貨入帳」，整張單自動登記成送料（已送/現場剩餘一起加）。</div>
     ${list.map(o=>{
       const byFl={}; o.lines.forEach(l=>{ const f=roomFloor(o.project,l.room); byFl[f]=(byFl[f]||0)+1; });
-      const sum = o.lines.slice(0,4).map(l=>{ const m=mat(l.matId); return esc(m?m.name:'?')+'×'+l.qty; }).join('、') + (o.lines.length>4?` …共${o.lines.length}項`:'');
-      return `<div class="listitem" style="align-items:stretch;gap:10px">
-        <div class="li-m" style="min-width:0">
-          <div class="li-t" style="font-size:13px">${esc(o.date)}　${Object.keys(byFl).sort(cmpFloor).map(esc).join('、')}</div>
-          <div class="li-s" style="word-break:break-all">${sum}</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px;flex:0 0 auto;justify-content:center">
-          <button class="btn mini" onclick="applyOrder('${o.id}')">✅ 到貨入帳</button>
-          <button class="btn mini gray" onclick="delOrder('${o.id}')">刪</button>
-        </div>
-      </div>`;
+      const total = o.lines.reduce((a,l)=>a+num(l.qty),0);
+      // 明細：依樓層分組，每項可改數量、可刪
+      const groups={}; o.lines.forEach((l,idx)=>{ (groups[l.room]=groups[l.room]||[]).push({l,idx}); });
+      const detail = Object.keys(groups).sort(cmpFloor).map(rm=>`
+        <div style="font-size:12px;font-weight:800;color:var(--text2);padding:8px 2px 2px">🏢 ${esc(rm)}</div>
+        ${groups[rm].map(({l,idx})=>{ const m=mat(l.matId); const u=m?m.unit:'';
+          return `<div class="listitem" style="padding:6px 10px;gap:8px">
+            <div class="li-m" style="min-width:0"><div class="li-t" style="font-size:13px">${esc(m?m.name:'?')}</div></div>
+            <div style="flex:0 0 auto;display:flex;align-items:center;gap:5px;white-space:nowrap">
+              <input type="number" inputmode="decimal" value="${l.qty}" style="width:64px;text-align:center;font-weight:800;padding:5px 4px"
+                onchange="editOrderLine('${o.id}',${idx},this.value)">
+              <span style="font-size:12px;color:var(--text2)">${esc(u)}</span>
+              <button class="btn mini gray" onclick="delOrderLine('${o.id}',${idx})">刪</button>
+            </div>
+          </div>`; }).join('')}`).join('');
+      return `<details class="listitem" style="display:block;padding:8px 11px">
+        <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px">
+          <div class="li-m" style="min-width:0;flex:1">
+            <div class="li-t" style="font-size:13px">▸ ${esc(o.date)}　${Object.keys(byFl).sort(cmpFloor).map(esc).join('、')}</div>
+            <div class="li-s">${o.lines.length} 項・合計 ${round(total)}（點開看明細／改數量）</div>
+          </div>
+          <span class="btn mini" onclick="event.preventDefault();event.stopPropagation();applyOrder('${o.id}')">✅ 到貨入帳</span>
+          <span class="btn mini gray" onclick="event.preventDefault();event.stopPropagation();delOrder('${o.id}')">刪</span>
+        </summary>
+        <div style="margin-top:4px">${detail}</div>
+      </details>`;
     }).join('')}</div>`;
+}
+function editOrderLine(id, idx, v){
+  const o=(D.orders||[]).find(x=>x.id===id); if(!o||!o.lines[idx]) return;
+  const q=round(num(v));
+  if(q<=0){ delOrderLine(id, idx); return; }
+  o.lines[idx].qty=q; save(); renderOrders(); toast('已更新數量');
+}
+function delOrderLine(id, idx){
+  const o=(D.orders||[]).find(x=>x.id===id); if(!o||!o.lines[idx]) return;
+  const m=mat(o.lines[idx].matId);
+  if(!confirm('從這張待到貨清單移除「'+(m?m.name:'?')+'」？')) { renderOrders(); return; }
+  o.lines.splice(idx,1);
+  if(!o.lines.length) D.orders=D.orders.filter(x=>x.id!==id);
+  save(); renderOrders(); toast('已移除');
 }
 function applyOrder(id){
   const o = (D.orders||[]).find(x=>x.id===id); if(!o) return;
