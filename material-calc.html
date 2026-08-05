@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v65</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v66</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v65</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v66</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -2202,8 +2202,23 @@ function showRollbackBanner(localN, loadedN){
   d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#b45309;color:#fff;font-weight:800;font-size:14px;padding:10px 14px;text-align:center;line-height:1.7';
   d.innerHTML = '⚠️ 這次載入的資料比這台的本機備份少（載入 '+loadedN+' 個區塊，本機備份有 '+localN+' 個）。'
     + ' <a onclick="applyRollback()" style="color:#fff;text-decoration:underline;cursor:pointer;font-weight:900">用本機備份救回來</a>'
-    + ' <a onclick="this.parentElement.remove()" style="color:#fff;text-decoration:underline;cursor:pointer;margin-left:10px;font-weight:400">這是對的，關掉</a>';
+    + ' <a onclick="dismissRollback()" style="color:#fff;text-decoration:underline;cursor:pointer;margin-left:10px;font-weight:400">這是對的，不要再提醒</a>';
   document.body.appendChild(d);
+}
+// 使用者確認「載入的才是對的」→ 把本機備份同步成目前這份，之後不再提醒
+function dismissRollback(){
+  const d = window._rollbackCandidate;
+  const cz = x => Object.values((x&&x.zones)||{}).reduce((a,z)=>a+(z||[]).length,0);
+  if (!confirm('確定目前載入的這份才是對的？\n\n這台的舊本機備份（'+cz(d)+' 個區塊）會被目前這份取代，之後不再提醒。\n（舊的那份仍留在「🔍 自動快照」裡，還是救得回）')) return;
+  try {  // 先把舊備份塞進快照，才不會真的消失
+    const hk='mc_hist_'+state.user; let h=[]; try{h=JSON.parse(localStorage.getItem(hk))||[];}catch(e){}
+    if(d) h.unshift({at:Date.now(), data:d});
+    localStorage.setItem(hk, JSON.stringify(h.slice(0,6)));
+  } catch(e) {}
+  cacheLocal(snapshotData());
+  window._rollbackCandidate = null;
+  const el = document.getElementById('mc-rollback-banner'); if (el) el.remove();
+  toast('好，之後不再提醒');
 }
 function applyRollback(){
   const d = window._rollbackCandidate;
