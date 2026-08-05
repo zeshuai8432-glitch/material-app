@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v76</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v77</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1072,14 +1072,41 @@ function addDelivery(){
   if(!room){ toast('⚠️ 先建房間'); return; }
   if(!matId){ toast('⚠️ 先建材料'); return; }
   if(qty<=0){ toast('⚠️ 數量要大於 0'); return; }
-  D.deliveries.push({id:uid(), date:document.getElementById('dv-date').value||todayStr(), project:p, room, matId, qty});
-  // accumulate into item.delivered, create item if missing
-  let it = D.items.find(i=>i.project===p && i.room===room && i.matId===matId);
-  if(!it){ it = {id:uid(), project:p, room, matId, demand:0, remaining:0, delivered:0}; D.items.push(it); }
-  it.delivered = round(num(it.delivered)+qty);
-  it.remaining = round(num(it.remaining)+qty); // 送到現場 = 現場剩餘增加（盤點時再以實數覆蓋）
+  const dvDate = document.getElementById('dv-date').value || todayStr();
+  const future = dvDate > todayStr();          // 未來日期 → 先排程，時間到才入帳
+  D.deliveries.push({id:uid(), date:dvDate, project:p, room, matId, qty, pending:future||undefined});
+  if(!future){
+    let it = D.items.find(i=>i.project===p && i.room===room && i.matId===matId);
+    if(!it){ it = {id:uid(), project:p, room, matId, demand:0, remaining:0, delivered:0}; D.items.push(it); }
+    it.delivered = round(num(it.delivered)+qty);
+    it.remaining = round(num(it.remaining)+qty); // 送到現場 = 現場剩餘增加（盤點時再以實數覆蓋）
+  }
   document.getElementById('dv-qty').value='';
-  save(); renderDeliverLog(); toast('✅ 已送料 '+qty+'，現場剩餘 +'+qty);
+  save(); renderDeliverLog(); renderBoard();
+  toast(future ? ('📅 已排程 '+esc(dvDate)+' 送料 '+qty+'（當天才入帳）') : ('✅ 已送料 '+qty+'，現場剩餘 +'+qty));
+}
+// 預定送料：日期到了自動入帳（開機、切回前景時檢查）
+function applyDueDeliveries(){
+  const t = todayStr(); let n=0;
+  (D.deliveries||[]).forEach(d=>{
+    if(!d.pending || String(d.date) > t) return;
+    let it = D.items.find(i=>i.project===d.project && i.room===d.room && i.matId===d.matId);
+    if(!it){ it={id:uid(),project:d.project,room:d.room,matId:d.matId,demand:0,remaining:0,delivered:0}; D.items.push(it); }
+    it.delivered = round(num(it.delivered)+num(d.qty));
+    it.remaining = round(num(it.remaining)+num(d.qty));
+    delete d.pending; n++;
+  });
+  if(n){ save(); renderAll(); toast('📅 已自動入帳 '+n+' 筆預定送料'); }
+  return n;
+}
+function applyPendingNow(id){
+  const d = (D.deliveries||[]).find(x=>x.id===id); if(!d||!d.pending) return;
+  if(!confirm('提前入帳這筆（'+esc(d.date)+'）？已送/現場剩餘會馬上加上去。')) return;
+  let it = D.items.find(i=>i.project===d.project && i.room===d.room && i.matId===d.matId);
+  if(!it){ it={id:uid(),project:d.project,room:d.room,matId:d.matId,demand:0,remaining:0,delivered:0}; D.items.push(it); }
+  it.delivered = round(num(it.delivered)+num(d.qty));
+  it.remaining = round(num(it.remaining)+num(d.qty));
+  delete d.pending; save(); renderAll(); renderDeliverLog(); toast('✅ 已入帳');
 }
 // 送料紀錄先照「樓層」分頁（收合），層內再照「系統」分組（C41+U43=41系統）
 const delivClosed = new Set();
@@ -1105,11 +1132,52 @@ function delivRow(d){
     </div>
   </div>`;
 }
+let dvFrom = '', dvTo = '';   // 送料紀錄日期篩選
+function setDvRange(days){
+  const t = new Date();
+  if(days===0){ dvFrom=''; dvTo=''; }
+  else { const f=new Date(t.getTime()-(days-1)*86400000); dvFrom=f.toISOString().slice(0,10); dvTo=todayStr(); }
+  renderDeliverLog();
+}
+function dvFilterChanged(){
+  dvFrom = document.getElementById('dv-from').value || '';
+  dvTo   = document.getElementById('dv-to').value || '';
+  renderDeliverLog();
+}
 function renderDeliverLog(){
   const p = cur.project;
-  const logs = D.deliveries.filter(d=>d.project===p);
+  const all = D.deliveries.filter(d=>d.project===p);
   const el = document.getElementById('dv-log');
-  if(!logs.length){ el.innerHTML='<div class="muted">尚無送料紀錄</div>'; return; }
+  // 預定（未來日期，還沒入帳）另外一區，不受日期篩選影響
+  const pend = all.filter(d=>d.pending).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const pendHTML = pend.length ? `<div class="card" style="padding:10px 12px;border-left:4px solid var(--amber);margin-bottom:8px">
+    <div style="font-weight:800;font-size:13px;color:var(--amber)">📅 預定送料（${pend.length}）· 到日期才入帳</div>
+    ${pend.map(d=>{ const m=mat(d.matId); const u=m?m.unit:'';
+      return `<div class="listitem" style="padding:6px 9px">
+        <div class="li-m" style="min-width:0"><div class="li-t" style="font-size:13px">${esc(m?m.name:'?')}</div>
+        <div class="li-s">${esc(d.date)}・${esc(d.room)}</div></div>
+        <div style="flex:0 0 auto;display:flex;align-items:center;gap:6px;white-space:nowrap">
+          <b style="color:var(--amber)">${d.qty}${esc(u)}</b>
+          <button class="btn mini" onclick="applyPendingNow('${d.id}')">提前入帳</button>
+          <button class="btn mini gray" onclick="delDelivery('${d.id}')">刪</button></div>
+      </div>`; }).join('')}</div>` : '';
+  // 日期篩選列
+  const chip = (lbl,days,on)=>`<a onclick="setDvRange(${days})" style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:8px;border:1.5px solid ${on?'var(--blue)':'var(--line)'};color:${on?'var(--blue)':'var(--text2)'};cursor:pointer">${lbl}</a>`;
+  const noRange = !dvFrom && !dvTo;
+  const filterHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">
+      ${chip('全部',0,noRange)}${chip('近7天',7,dvFrom===new Date(Date.now()-6*86400000).toISOString().slice(0,10)&&dvTo===todayStr())}${chip('近30天',30,dvFrom===new Date(Date.now()-29*86400000).toISOString().slice(0,10)&&dvTo===todayStr())}
+      <input type="date" id="dv-from" value="${esc(dvFrom)}" onchange="dvFilterChanged()" style="width:auto;padding:5px 8px;font-size:12px">
+      <span style="color:var(--text2)">～</span>
+      <input type="date" id="dv-to" value="${esc(dvTo)}" onchange="dvFilterChanged()" style="width:auto;padding:5px 8px;font-size:12px">
+    </div>`;
+  const logs = all.filter(d=>!d.pending).filter(d=>{
+    const dt = String(d.date||'');
+    if(dvFrom && dt < dvFrom) return false;
+    if(dvTo && dt > dvTo) return false;
+    return true;
+  });
+  if(!logs.length){ el.innerHTML = pendHTML + filterHTML + '<div class="muted">'+(all.filter(d=>!d.pending).length?'這個日期範圍內沒有送料紀錄':'尚無送料紀錄')+'</div>'; return; }
+  const sumQty = logs.reduce((a,d)=>a+num(d.qty),0);
   // 第一層：樓層（房間）
   const floors={}, forder=[];
   logs.forEach(d=>{ const f=d.room||'(未指定)'; if(!floors[f]){ floors[f]=[]; forder.push(f); } floors[f].push(d); });
@@ -1136,10 +1204,13 @@ function renderDeliverLog(){
       <div class="grp-b ${open?'open':''}">${inner}</div>
     </div>`;
   }).join('');
+  el.innerHTML = pendHTML + filterHTML
+    + `<div class="muted" style="margin-bottom:6px;font-size:12px">共 ${logs.length} 筆・合計 ${round(sumQty)}</div>`
+    + el.innerHTML;
 }
 function delDelivery(id){
   const d = D.deliveries.find(x=>x.id===id); if(!d) return;
-  const it = D.items.find(i=>i.project===d.project && i.room===d.room && i.matId===d.matId);
+  const it = d.pending ? null : D.items.find(i=>i.project===d.project && i.room===d.room && i.matId===d.matId);
   if(it){ it.delivered = round(Math.max(num(it.delivered)-d.qty,0)); it.remaining = round(Math.max(num(it.remaining)-d.qty,0)); }
   D.deliveries = D.deliveries.filter(x=>x.id!==id);
   save(); renderDeliverLog(); toast('已刪除');
@@ -2344,8 +2415,9 @@ function dismissCalcImport(){
 // ── boot ──
 load(); fillProjSel(); go('board');
 fbInitField();                       // Firestore：拉回雲端 + 開即時同步
+applyDueDeliveries();                // 預定送料到期自動入帳
 checkPendingImport();
-document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ checkPendingImport(); } });
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ applyDueDeliveries(); checkPendingImport(); } });
 
 // ── service worker ──
 if('serviceWorker' in navigator){
