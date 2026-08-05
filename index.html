@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v75</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v76</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -253,6 +253,28 @@
   <iframe id="printframe" title="列印預覽"></iframe>
 </div>
 
+<script type="module">
+// ════════════════════════════════════
+// FIREBASE / FIRESTORE
+// ════════════════════════════════════
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, onSnapshot, deleteDoc, writeBatch,
+         enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+const app = initializeApp({
+  apiKey: "AIzaSyCOacgvvNrmZpl3eeuzTLWmzPibcHD354s",
+  authDomain: "material-e8355.firebaseapp.com",
+  projectId: "material-e8355",
+  storageBucket: "material-e8355.firebasestorage.app",
+  messagingSenderId: "52771514867",
+  appId: "1:52771514867:web:3d82b0a350f38a489f0a86"
+});
+const db = getFirestore(app);
+enableIndexedDbPersistence(db).catch(()=>{});
+window.FB = { db, doc, getDoc, setDoc, collection, getDocs, onSnapshot, deleteDoc, writeBatch };
+window.FB_READY = true;
+window.dispatchEvent(new Event('fb-ready'));
+</script>
 <script>
 // ════════════════════════════════════════════
 //  現場材料管理 v1  (single-file PWA, localStorage)
@@ -327,12 +349,128 @@ function load(){
   if(!cur.project) cur.project = D.projects[0] || null;
 }
 
+
+// ════════════════════════════════════
+// FIRESTORE 同步（依案場分片，改哪個案場只寫那份；大清單再切塊）
+//   field/_meta                     全域：案場清單、材料庫、分類
+//   field/{project}/parts/{key}     該案場的 items/deliveries/counts/transfers/orders/recipes/progress/rooms
+// ════════════════════════════════════
+const FB_GLOBAL = ['projects','archived','cats','mats'];
+const FB_PROJ   = ['rooms','items','deliveries','counts','transfers','orders'];
+const FB_PROJ_O = ['recipes','progress'];  // 物件型（以案場為 key）
+let _fbLast = {}, _fbUnsubs = [], _fbSelfAt = 0, _fbOn = false;
+
+function fbReady(){ return new Promise(r=>{ if(window.FB_READY) return r(); window.addEventListener('fb-ready',()=>r(),{once:true}); }); }
+function fbP(){ const {db,doc,collection}=window.FB; return {
+  meta: doc(db,'field','_meta'),
+  part: (p,k)=>doc(db,'field','proj_'+p,'parts',k),
+  parts: p=>collection(db,'field','proj_'+p,'parts'),
+}; }
+function fbSplitField(){
+  const out = { meta:{}, byProj:{} };
+  FB_GLOBAL.forEach(k=> out.meta[k] = D[k]||[]);
+  const projs = [...new Set([...(D.projects||[]), ...(D.items||[]).map(i=>i.project)])].filter(Boolean);
+  projs.forEach(p=>{
+    const o = {};
+    FB_PROJ.forEach(k=> o[k] = (D[k]||[]).filter(x=>x.project===p));
+    FB_PROJ_O.forEach(k=> o[k] = (D[k]||{})[p] || (k==='recipes'?[]:{}) );
+    out.byProj[p] = o;
+  });
+  return out;
+}
+async function fbPushField(){
+  if(!window.FB) return {ok:false};
+  const {writeBatch,db} = window.FB; const P = fbP();
+  const {meta, byProj} = fbSplitField();
+  const batch = writeBatch(db); let n=0;
+  const msig = JSON.stringify(meta);
+  if(_fbLast['meta']!==msig){ batch.set(P.meta, meta); _fbLast['meta']=msig; n++; }
+  Object.entries(byProj).forEach(([p,o])=>{
+    Object.entries(o).forEach(([k,v])=>{
+      const key='p:'+p+':'+k, sig=JSON.stringify(v);
+      if(_fbLast[key]!==sig){ batch.set(P.part(p,k), {v}); _fbLast[key]=sig; n++; }
+    });
+  });
+  if(!n) return {ok:true,skipped:true};
+  _fbSelfAt = Date.now();
+  await batch.commit();
+  return {ok:true,n};
+}
+async function fbPullField(){
+  const {getDoc,getDocs} = window.FB; const P = fbP();
+  const ms = await getDoc(P.meta);
+  if(!ms.exists()) return null;
+  const meta = ms.data()||{};
+  const out = {projects:meta.projects||[],archived:meta.archived||[],cats:meta.cats||[],mats:meta.mats||[],
+    rooms:[],items:[],deliveries:[],counts:[],transfers:[],orders:[],recipes:{},progress:{}};
+  _fbLast = { meta: JSON.stringify({projects:out.projects,archived:out.archived,cats:out.cats,mats:out.mats}) };
+  for(const p of out.projects){
+    const snap = await getDocs(P.parts(p));
+    snap.forEach(d=>{
+      const v = (d.data()||{}).v;
+      if(v===undefined) return;
+      _fbLast['p:'+p+':'+d.id] = JSON.stringify(v);
+      if(FB_PROJ.includes(d.id)) out[d.id] = out[d.id].concat(v||[]);
+      else if(FB_PROJ_O.includes(d.id)) out[d.id][p] = v;
+    });
+  }
+  return out;
+}
+function fbWatchField(){
+  const {onSnapshot} = window.FB; const P = fbP();
+  _fbUnsubs.forEach(u=>{try{u();}catch(e){}}); _fbUnsubs=[];
+  (D.projects||[]).forEach(p=>{
+    _fbUnsubs.push(onSnapshot(P.parts(p), snap=>{
+      if(Date.now()-_fbSelfAt < 1500) return;
+      let ch=0;
+      snap.docChanges().forEach(c=>{
+        const k=c.doc.id, v=(c.doc.data()||{}).v; if(v===undefined) return;
+        const key='p:'+p+':'+k, sig=JSON.stringify(v);
+        if(_fbLast[key]===sig) return;
+        _fbLast[key]=sig;
+        if(FB_PROJ.includes(k)){ D[k]=(D[k]||[]).filter(x=>x.project!==p).concat(v||[]); ch++; }
+        else if(FB_PROJ_O.includes(k)){ D[k]=D[k]||{}; D[k][p]=v; ch++; }
+      });
+      if(ch){ clearNeedCache(); saveLocalOnly(); renderAll(); setCloudStatus('☁ 已同步其他裝置','ok'); }
+    }, ()=>{}));
+  });
+}
+async function fbInitField(){
+  await fbReady();
+  try{
+    const remote = await fbPullField();
+    if(remote){
+      const localN=(D.items||[]).length, remoteN=(remote.items||[]).length;
+      if(remoteN>=localN || !localN){ D = normalize(Object.assign(D, remote)); }
+      else { await fbPushField(); }   // 本機比較完整 → 推上去
+    } else {
+      await fbPushField();            // 雲端還沒有 → 把現有資料搬上去
+    }
+    if(!cur.project) cur.project = D.projects[0]||null;
+    _fbOn = true;
+    clearNeedCache(); fillProjSel(); renderAll();
+    fbWatchField();
+    setCloudStatus('✅ 已同步 '+timeStr(),'ok');
+  }catch(e){ setCloudStatus('⚠ 雲端連線失敗','err'); }
+}
+
 // ── 雲端同步 (Google Apps Script) ──
 const DEFAULT_CLOUD = 'https://script.google.com/macros/s/AKfycbz1WSPdgyDviRXbB22vGWRBA9d-P40F3qMsPKP0tl8F2IJYHI5O_2TlNIu2GclzgRVRIQ/exec';
 let CLOUD_URL = localStorage.getItem('fieldmat_cloud') || DEFAULT_CLOUD;
 let pushTimer = null, pulling = false;
 function setCloudStatus(s, kind){ const el = document.getElementById('syncPill'); if(!el) return; el.textContent = s; el.className = 'syncpill' + (kind?(' '+kind):''); }
-function schedulePush(){ if(!CLOUD_URL) return; clearTimeout(pushTimer); pushTimer = setTimeout(cloudPush, 1200); }
+function schedulePush(){
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(async ()=>{
+    if(_fbOn && window.FB){
+      setCloudStatus('⏳ 上傳中…','busy');
+      try{ await fbPushField(); setCloudStatus('✅ 已同步 '+timeStr(),'ok'); }
+      catch(e){ setCloudStatus('⚠ 儲存失敗（已存本機，稍後重試）','err'); setTimeout(schedulePush, 8000); }
+      return;
+    }
+    if(CLOUD_URL) cloudPush();
+  }, 1200);
+}
 function cloudPush(manual){
   if(!CLOUD_URL){ if(manual)toast('⚠️ 尚未設定雲端'); return; }
   setCloudStatus('⏳ 上傳中…','busy');
@@ -1284,7 +1422,7 @@ function addProject(){
   if(!v){ toast('⚠️ 輸入名稱'); return; }
   if(D.projects.includes(v)){ toast('⚠️ 已存在'); return; }
   D.projects.push(v); cur.project=v; document.getElementById('np-name').value='';
-  save(); renderAll(); renderSettings(); toast('✅ 已新增案場');
+  save(); renderAll(); renderSettings(); if(_fbOn) fbWatchField(); toast('✅ 已新增案場');
 }
 function renameProject(old){
   const v = prompt('新案場名稱', old); if(!v||v.trim()===old) return; const nv=v.trim();
@@ -2205,9 +2343,9 @@ function dismissCalcImport(){
 
 // ── boot ──
 load(); fillProjSel(); go('board');
-if(CLOUD_URL){ cloudPull(); }
+fbInitField();                       // Firestore：拉回雲端 + 開即時同步
 checkPendingImport();
-document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ if(CLOUD_URL) cloudPull(); checkPendingImport(); } });
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ checkPendingImport(); } });
 
 // ── service worker ──
 if('serviceWorker' in navigator){
