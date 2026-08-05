@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v64</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v65</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v64</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v65</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1522,6 +1522,32 @@
 
 <div id="toast-wrap"></div>
 
+<script type="module">
+// ════════════════════════════════════
+// FIREBASE / FIRESTORE（分文件儲存，兩台同時開也不會互相蓋掉）
+// ════════════════════════════════════
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, onSnapshot, deleteDoc, writeBatch,
+         enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCOacgvvNrmZpl3eeuzTLWmzPibcHD354s",
+  authDomain: "material-e8355.firebaseapp.com",
+  projectId: "material-e8355",
+  storageBucket: "material-e8355.firebasestorage.app",
+  messagingSenderId: "52771514867",
+  appId: "1:52771514867:web:3d82b0a350f38a489f0a86"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+// 離線也能用，回線自動補存
+enableIndexedDbPersistence(db).catch(()=>{});
+
+window.FB = { db, doc, getDoc, setDoc, collection, getDocs, onSnapshot, deleteDoc, writeBatch };
+window.FB_READY = true;
+window.dispatchEvent(new Event('fb-ready'));
+</script>
 <script>
 // ════════════════════════════════════
 // GAS BACKEND
@@ -1669,23 +1695,38 @@ async function doLogin() {
   btn.innerHTML = '<span class="loader"></span>';
 
   try {
-    // 1. 登入/註冊
-    const loginRes = await gasCall('login', { username: name, password: pwd });
-    if (!loginRes.ok) { showLoginError(loginRes.error || '登入失敗'); btn.textContent = '登入'; return; }
+    // 1. 登入/註冊（Firestore）
+    await fbReady();
+    const { getDoc, setDoc } = window.FB;
+    const P = fbPaths(name);
+    const pwHash = await sha256Hex(pwd);
+    let metaSnap = null;
+    try { metaSnap = await getDoc(P.meta); }
+    catch (e) { showLoginError('連不上雲端，請檢查網路後再登入'); btn.textContent = '登入'; return; }
+    let isNewUser = false;
+    if (metaSnap.exists()) {
+      const meta = metaSnap.data() || {};
+      if (meta.pwHash && meta.pwHash !== pwHash) { showLoginError('密碼錯誤'); btn.textContent = '登入'; return; }
+      if (!meta.pwHash) await setDoc(P.meta, { pwHash, at: new Date().toISOString() }, { merge: true });
+    } else {
+      isNewUser = true;
+    }
 
     state.user = name;
-    state.password = pwd; // 保存用於後續 API 呼叫
+    state.password = pwd;
 
-    // 2. 載入雲端資料。讀取「失敗」必須中止登入，不能默默當成空資料（否則會像資料全消失，甚至把空的存回去）
-    const dataRes = await gasCall('loadData', { username: name, password: pwd });
-    let userData;
-    if (!dataRes || !dataRes.ok) {
-      showLoginError('雲端資料讀取失敗，請再登入一次（你的資料還在雲端，沒有不見）');
-      btn.textContent = '登入';
-      return;
+    // 2. 載入：先讀 Firestore；沒有的話從舊雲端(GAS)搬過來（一次性）
+    let userData = null, migrated = false;
+    try { userData = await fbLoad(name); }
+    catch (e) { showLoginError('雲端讀取失敗，請再登入一次'); btn.textContent = '登入'; return; }
+    if (!userData) {
+      let legacy = null;
+      try { const r = await gasCall('loadData', { username: name, password: pwd }); if (r && r.ok) legacy = r.data; } catch (e) {}
+      if (legacy && (legacy.projects || []).length) { userData = legacy; migrated = true; }
+      else userData = { projects: [], spaces: {}, zones: {}, reinf: {}, materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)) };
     }
-    userData = dataRes.data || { projects: [], spaces: {}, zones: {}, reinf: {}, materials: JSON.parse(JSON.stringify(DEFAULT_MATERIALS)) };
-    state.rev = dataRes.rev || 0; // 雲端版本號（新後端才有；舊後端為 0＝不啟用版本控管）
+    if (isNewUser) { try { await setDoc(P.meta, { pwHash, at: new Date().toISOString() }); } catch (e) {} }
+    state.rev = 0;
 
     // 2a. 救援強制還原：使用者在登入畫面指定了要還原的備份/快照 → 直接用它，不比對、不詢問
     if (window._forceRestoreData) {
@@ -1695,8 +1736,9 @@ async function doLogin() {
       state.rev = dataRes.rev || 0;
       try { localStorage.setItem('mc_cache_' + name, JSON.stringify(fd)); } catch (e) {}
       localStorage.setItem('mc_session', JSON.stringify({ user: name, password: pwd }));
-      _forceNextSave = true; // 救援還原：允許覆蓋（雲端會留版本歷史）
-      saveNow(); // 立刻推回雲端
+      _fbLastWrite = {};     // 救援還原：整份重寫回雲端
+      fbWatch(name);
+      saveNow();
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('app').style.display = 'flex';
       document.getElementById('user-badge').textContent = state.user;
@@ -1760,7 +1802,9 @@ async function doLogin() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
     document.getElementById('user-badge').textContent = state.user;
-    if (loginRes.isNew) {
+    fbWatch(name);                       // 即時同步其他裝置的變更
+    if (migrated) { _fbLastWrite = {}; await fbSave(); toast('✅ 資料已搬到新雲端（Firebase）', 'success', 3600); }
+    if (isNewUser) {
       setTimeout(() => toast('歡迎！帳號已建立，資料會自動儲存到雲端','info',3200), 300);
     }
   } catch(e) {
@@ -1824,6 +1868,131 @@ async function restoreBackupTo(cacheKey){
   window._forceRestoreData = JSON.parse(JSON.stringify(d)); // 強制路徑：不比對、不詢問
   await doLogin();
 }
+
+// ════════════════════════════════════
+// FIRESTORE 資料層（一個房型一份文件 → 改哪筆存哪筆，不整包覆蓋）
+//   calc/{user}                 meta：密碼雜湊
+//   calc/{user}/parts/projects  案場清單
+//   calc/{user}/parts/materials 材料庫
+//   calc/{user}/parts/misc      補強鋼板/自訂材料/手改總數
+//   calc/{user}/spaces/{id}     一個房型（含它的區塊）
+// ════════════════════════════════════
+let _fbUnsub = null;              // 即時同步監聽
+let _fbLastWrite = {};            // 這台最後寫出的每份內容（用來判斷哪份要寫、哪份是別台改的）
+let _fbSelfWriteAt = 0;
+
+function fbReady(){ return new Promise(r=>{ if(window.FB_READY) return r(); window.addEventListener('fb-ready', ()=>r(), {once:true}); }); }
+async function sha256Hex(str){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function fbPaths(u){
+  const { db, doc, collection } = window.FB;
+  return {
+    meta: doc(db, 'calc', u),
+    part: k => doc(db, 'calc', u, 'parts', k),
+    spaces: collection(db, 'calc', u, 'spaces'),
+    space: id => doc(db, 'calc', u, 'spaces', id),
+  };
+}
+// 把 state 拆成「要存的幾份」
+function fbSplit(){
+  const parts = {
+    projects: { projects: state.projects || [] },
+    materials: { materials: state.materials || null },
+    misc: { reinf: state.reinf||{}, extras: state.extras||{}, fixes: state.fixes||{}, ffixes: state.ffixes||{} },
+  };
+  const spaces = {};
+  Object.entries(state.spaces || {}).forEach(([pid, arr]) => (arr||[]).forEach(sp => {
+    const zs = (state.zones[sp.id] || []).map(z => { const c = Object.assign({}, z); delete c.result; return c; });
+    spaces[sp.id] = { project: pid, space: sp, zones: zs };
+  }));
+  return { parts, spaces };
+}
+// 只寫「跟上次不一樣」的那幾份
+async function fbSave(){
+  if (!state.user || !window.FB) return { ok:false, error:'未就緒' };
+  const { setDoc, writeBatch, db, deleteDoc } = window.FB;
+  const P = fbPaths(state.user);
+  const { parts, spaces } = fbSplit();
+  const batch = writeBatch(db);
+  let n = 0;
+  Object.entries(parts).forEach(([k, v]) => {
+    const sig = JSON.stringify(v);
+    if (_fbLastWrite['part:'+k] !== sig) { batch.set(P.part(k), v); _fbLastWrite['part:'+k] = sig; n++; }
+  });
+  Object.entries(spaces).forEach(([id, v]) => {
+    const sig = JSON.stringify(v);
+    if (_fbLastWrite['sp:'+id] !== sig) { batch.set(P.space(id), v); _fbLastWrite['sp:'+id] = sig; n++; }
+  });
+  // 這台刪掉的房型 → 雲端也刪
+  Object.keys(_fbLastWrite).filter(k=>k.startsWith('sp:')).forEach(k => {
+    const id = k.slice(3);
+    if (!spaces[id]) { batch.delete(P.space(id)); delete _fbLastWrite[k]; n++; }
+  });
+  if (!n) return { ok:true, skipped:true };
+  _fbSelfWriteAt = Date.now();
+  await batch.commit();
+  return { ok:true, n };
+}
+// 讀回整份（登入時用）
+async function fbLoad(u){
+  const { getDoc, getDocs } = window.FB;
+  const P = fbPaths(u);
+  const [pj, mt, ms, sps] = await Promise.all([
+    getDoc(P.part('projects')), getDoc(P.part('materials')), getDoc(P.part('misc')), getDocs(P.spaces)
+  ]);
+  if (!pj.exists() && !sps.size) return null; // 這個帳號在 Firestore 還沒有資料
+  const data = { projects: (pj.data()||{}).projects || [], spaces: {}, zones: {},
+                 reinf: {}, extras: {}, fixes: {}, ffixes: {},
+                 materials: (mt.data()||{}).materials || null, savedAt: Date.now() };
+  const m = ms.data() || {};
+  data.reinf = m.reinf||{}; data.extras = m.extras||{}; data.fixes = m.fixes||{}; data.ffixes = m.ffixes||{};
+  _fbLastWrite = {};
+  _fbLastWrite['part:projects'] = JSON.stringify({projects:data.projects});
+  _fbLastWrite['part:materials'] = JSON.stringify({materials:data.materials});
+  _fbLastWrite['part:misc'] = JSON.stringify({reinf:data.reinf,extras:data.extras,fixes:data.fixes,ffixes:data.ffixes});
+  sps.forEach(d => {
+    const v = d.data() || {};
+    if (!v.space) return;
+    (data.spaces[v.project] = data.spaces[v.project] || []).push(v.space);
+    data.zones[v.space.id] = v.zones || [];
+    _fbLastWrite['sp:'+d.id] = JSON.stringify(v);
+  });
+  return data;
+}
+// 即時同步：別台改了哪個房型，這台就更新那個房型（不整包覆蓋）
+function fbWatch(u){
+  if (_fbUnsub) { try{_fbUnsub();}catch(e){} _fbUnsub = null; }
+  const { onSnapshot } = window.FB;
+  const P = fbPaths(u);
+  _fbUnsub = onSnapshot(P.spaces, snap => {
+    if (Date.now() - _fbSelfWriteAt < 1500) return; // 自己剛寫的，不用理
+    let changed = 0;
+    snap.docChanges().forEach(ch => {
+      const id = ch.doc.id, v = ch.doc.data() || {};
+      const sig = JSON.stringify(v);
+      if (_fbLastWrite['sp:'+id] === sig) return;   // 內容一樣
+      if (ch.type === 'removed') {
+        Object.keys(state.spaces||{}).forEach(pid => { state.spaces[pid] = (state.spaces[pid]||[]).filter(x=>x.id!==id); });
+        delete state.zones[id]; delete _fbLastWrite['sp:'+id]; changed++;
+        return;
+      }
+      if (!v.space) return;
+      const pid = v.project;
+      state.spaces[pid] = state.spaces[pid] || [];
+      const i = state.spaces[pid].findIndex(x => x.id === id);
+      if (i >= 0) state.spaces[pid][i] = v.space; else state.spaces[pid].push(v.space);
+      state.zones[id] = v.zones || [];
+      _fbLastWrite['sp:'+id] = sig; changed++;
+    });
+    if (changed) {
+      recalcActiveProject(); renderCalcTab(); renderResults();
+      toast('☁ 已同步其他裝置的 ' + changed + ' 項變更', 'info');
+    }
+  }, err => { console.warn('watch', err); });
+}
+
 async function gasCall(action, payload) {
   const res = await fetch(GAS_URL, {
     method: 'POST',
@@ -1840,6 +2009,8 @@ function showLoginError(msg) {
 
 async function doLogout() {
   clearTimeout(saveTimer);
+  if (_fbUnsub) { try { _fbUnsub(); } catch(e) {} _fbUnsub = null; }
+  _fbLastWrite = {};
   // 還沒存成功就登出 → 先真的存一次；再失敗就問，避免帶著未儲存資料離開
   if (cloudSaveState === 'pending' || cloudSaveState === 'saving' || cloudSaveState === 'error') {
     await doCloudSave();
@@ -2040,7 +2211,7 @@ function applyRollback(){
   const cz = x => Object.values((x&&x.zones)||{}).reduce((a,z)=>a+(z||[]).length,0);
   if (!confirm('用本機備份覆蓋目前資料並存回雲端？\n（'+(d.projects||[]).length+' 個案場・'+cz(d)+' 個區塊）')) return;
   d.savedAt = Date.now();
-  loadUserData(d); saveNow();
+  loadUserData(d); _fbLastWrite = {}; saveNow();
   renderProjects(); renderCalcTab(); renderResults();
   const el = document.getElementById('mc-rollback-banner'); if (el) el.remove();
   toast('✅ 已用本機備份還原並存回雲端');
@@ -2096,7 +2267,7 @@ function importBackupFile(file) {
     if (!d || !Array.isArray(d.projects)) { toast('不是材料計算的備份檔','error'); return; }
     if (!confirm('用備份檔（' + d.projects.length + ' 個案場）覆蓋目前資料並存回雲端？')) return;
     d.savedAt = Date.now();
-    loadUserData(d); saveNow(); renderCalcTab(); renderResults();
+    loadUserData(d); _fbLastWrite = {}; saveNow(); renderCalcTab(); renderResults();
     toast('✅ 已從備份檔還原 ' + d.projects.length + ' 個案場');
   };
   rd.readAsText(file);
@@ -2131,9 +2302,9 @@ async function doCloudSave() {
   cacheLocal(data);
   let ok = false, res = null;
   try {
-    res = await gasCall('saveData', { username: state.user, password: state.password, data, baseRev: state.rev || 0, force: !!_forceNextSave });
+    res = await fbSave();               // 只寫有變動的那幾份（房型各自一份，不整包覆蓋）
     ok = !!(res && res.ok);
-  } catch(e) { ok = false; }
+  } catch(e) { ok = false; res = null; }
   _forceNextSave = false;
   if (ok) {
     cloudSaveState = 'saved'; saveRetryN = 0; _lastSavedAt = data.savedAt;
