@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v77</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v78</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1099,6 +1099,39 @@ function applyDueDeliveries(){
   if(n){ save(); renderAll(); toast('📅 已自動入帳 '+n+' 筆預定送料'); }
   return n;
 }
+// 📄 預定送料單：給師傅照著搬（依日期→樓層分組，有勾選欄）
+function exportPendingPDF(onlyDate){
+  const p = cur.project;
+  let list = (D.deliveries||[]).filter(d=>d.project===p && d.pending);
+  if(onlyDate) list = list.filter(d=>d.date===onlyDate);
+  if(!list.length){ toast('沒有預定送料'); return; }
+  const byDate = {};
+  list.forEach(d=>{ (byDate[d.date]=byDate[d.date]||[]).push(d); });
+  let body = `<h1>預定送料單</h1><div class="meta">案場：${esc(p)}　列印日期：${todayStr()}${onlyDate?('　送料日：'+esc(onlyDate)):''}</div>`;
+  Object.keys(byDate).sort().forEach(dt=>{
+    const rows = byDate[dt];
+    const byFl = {};
+    rows.forEach(d=>{ const f=roomFloor(p,d.room); (byFl[f]=byFl[f]||[]).push(d); });
+    body += `<div class="fl">📅 ${esc(dt)}　<span class="sub">${rows.length} 項</span></div>`;
+    Object.keys(byFl).sort(cmpFloor).forEach(fl=>{
+      const its = byFl[fl].slice().sort((a,b)=>{
+        const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
+        return ga.sort-gb.sort || ga.label.localeCompare(gb.label)
+          || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''});
+      });
+      const sum = its.reduce((a,d)=>a+num(d.qty),0);
+      body += `<div style="font-weight:700;margin:8px 0 3px">🏢 ${esc(fl)}　<span style="font-weight:400;color:#666;font-size:12px">${its.length} 項・合計 ${round(sum)}</span></div>
+      <table><thead><tr><th style="width:34px">✓</th><th>分類</th><th>材料</th><th>規格</th><th>房間</th><th>數量</th><th>備註</th></tr></thead><tbody>
+      ${its.map(d=>{ const m=mat(d.matId); const u=m?m.unit:'';
+        const it=D.items.find(i=>i.project===p&&i.room===d.room&&i.matId===d.matId);
+        const note=(it&&it.note)?esc(it.note):'';
+        return `<tr><td style="text-align:center">☐</td><td>${esc(m?m.cat:'')}</td><td>${esc(m?m.name:'?')}</td><td>${esc((m&&m.spec)||'')}</td><td>${esc(d.room)}</td><td class="q">${d.qty}${esc(u)}</td><td style="font-size:11px;color:#555">${note}</td></tr>`;
+      }).join('')}</tbody></table>`;
+    });
+  });
+  body += `<div style="margin-top:14px;font-size:12px;color:#555">送貨／搬運：________________　　簽收：________________　　日期：__________</div>`;
+  printHTML('預定送料單 '+p, body);
+}
 function applyPendingNow(id){
   const d = (D.deliveries||[]).find(x=>x.id===id); if(!d||!d.pending) return;
   if(!confirm('提前入帳這筆（'+esc(d.date)+'）？已送/現場剩餘會馬上加上去。')) return;
@@ -1150,8 +1183,15 @@ function renderDeliverLog(){
   const el = document.getElementById('dv-log');
   // 預定（未來日期，還沒入帳）另外一區，不受日期篩選影響
   const pend = all.filter(d=>d.pending).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const pendDates = [...new Set(pend.map(d=>d.date))].sort();
   const pendHTML = pend.length ? `<div class="card" style="padding:10px 12px;border-left:4px solid var(--amber);margin-bottom:8px">
-    <div style="font-weight:800;font-size:13px;color:var(--amber)">📅 預定送料（${pend.length}）· 到日期才入帳</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+      <div style="font-weight:800;font-size:13px;color:var(--amber)">📅 預定送料（${pend.length}）· 到日期才入帳</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${pendDates.map(dt=>`<button class="btn mini gray" onclick="exportPendingPDF('${esc(dt)}')">📄 ${esc(dt)}</button>`).join('')}
+        ${pendDates.length>1?`<button class="btn mini" onclick="exportPendingPDF()">📄 全部</button>`:''}
+      </div>
+    </div>
     ${pend.map(d=>{ const m=mat(d.matId); const u=m?m.unit:'';
       return `<div class="listitem" style="padding:6px 9px">
         <div class="li-m" style="min-width:0"><div class="li-t" style="font-size:13px">${esc(m?m.name:'?')}</div>
