@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v66</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v67</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v66</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v67</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -4009,8 +4009,8 @@ function guessFieldCat(label) {
 function zoneMatRecords(z) {
   const recs = [];
   const cap = {
-    addTotal: (key, label, qty, unit) => recs.push({ key, label, unit, cat: guessFieldCat(label), kind: 'total', raw: qty, div: 1 }),
-    addPool: (key, label, unit, kind, raw, div) => recs.push({ key, label, unit, cat: guessFieldCat(label), kind, raw, div }),
+    addTotal: (key, label, qty, unit) => { const sp = splitSpec(label); recs.push({ key, label, name: sp.name, spec: sp.spec, unit, cat: guessFieldCat(label), kind: 'total', raw: qty, div: 1 }); },
+    addPool: (key, label, unit, kind, raw, div) => { const sp = splitSpec(label); recs.push({ key, label, name: sp.name, spec: sp.spec, unit, cat: guessFieldCat(label), kind, raw, div }); },
     finalize: () => {}
   };
   aggregateZone(z, 1, cap);
@@ -4039,7 +4039,8 @@ function exportToFieldApp() {
       rooms.push({ type: s.name, count: c, walls: zonesOf(s).map(z => ({ name: z.name, sides: (z.type === 'partition' && z.params && z.params.sides === 'double') ? 'double' : 'single', mats: zoneMatRecords(z) })) });
     });
     agg.finalize();
-    const materials = Object.entries(agg.totals).map(([key, t]) => ({ key, name: t.label, unit: t.unit, qty: t.qty, cat: guessFieldCat(t.label) }));
+    const materials = Object.entries(agg.totals).map(([key, t]) => { const sp = splitSpec(t.label);
+      return { key, name: sp.name, spec: sp.spec, fullName: t.label, unit: t.unit, qty: t.qty, cat: guessFieldCat(t.label) }; });
     return { floor: fl, materials, rooms };
   }).filter(f => f.materials.length);
   if (!floors.length) { toast('沒有可匯出的用量', 'error'); return; }
@@ -4203,6 +4204,34 @@ function zoneDetailHTML(z) {
   return '';
 }
 
+
+// ── 名稱／規格分離：把合併過的標籤拆成「名稱」+「規格」 ──
+// 例：C92 骨架（下料 395cm） → {name:'C92 骨架', spec:'395cm'}
+//     水泥板 9mm 4x6尺       → {name:'9mm 水泥板', spec:'4x6尺'}
+function splitSpec(label){
+  const s = String(label||'').trim();
+  let m;
+  // 板材：類型 + 厚度 + 尺寸 → 「9mm 水泥板」+「4x6尺」
+  if ((m = s.match(/^(矽酸鈣板|水泥板|石膏板)\s*(\d+)\s*mm\s*(\S+尺)(（立板）)?$/)))
+    return { name: m[2] + 'mm ' + m[1] + (m[4]||''), spec: m[3] };
+  // 立板板材
+  if ((m = s.match(/^立板板材\s*(\S+尺)$/))) return { name: '立板板材', spec: m[1] };
+  // 骨架下料
+  if ((m = s.match(/^(.+?)\s*骨架（下料\s*([\d.]+)\s*cm）$/))) return { name: m[1] + ' 骨架', spec: m[2] + 'cm' };
+  // 螺桿：3M / 訂做 Ncm
+  if ((m = s.match(/^(.*螺桿)\s*(3M|訂做\s*[\d.]+cm)$/))) return { name: m[1], spec: m[2].replace(/\s+/g,' ') };
+  // 棉：岩棉 60K 30x120cm / 玻璃棉 24K 厚50mm
+  if ((m = s.match(/^(岩棉\s*\S+?)\s+(\S+cm)$/))) return { name: m[1], spec: m[2] };
+  if ((m = s.match(/^(玻璃棉\s*\S+?)\s+(厚\S+)$/))) return { name: m[1], spec: m[2] };
+  // 補強鋼板 4x8尺
+  if ((m = s.match(/^(補強鋼板)\s*(\S+尺)$/))) return { name: m[1], spec: m[2] };
+  // 收邊：L收邊 8尺（243cm）
+  if ((m = s.match(/^(.+?收邊)\s*(\S+尺（[\d.]+cm）|\S+尺)$/))) return { name: m[1], spec: m[2] };
+  // 一般「名稱 + 長度cm」：U43 槽鐵 243cm、N38 加強橫枝 243cm、N38 主架 243cm、大百葉 243cm
+  if ((m = s.match(/^(.+?)\s*([\d.]+)\s*cm(（立板）)?$/))) return { name: m[1].trim() + (m[3]||''), spec: m[2] + 'cm' };
+  return { name: s, spec: '' };
+}
+
 // 用量表的材料排序：骨架→槽鐵→加強橫枝→補強鋼板→主架→副架→螺桿→五金→板材→棉→收邊，同類再依名稱自然排序
 const RESULT_CAT_ORDER = ['骨架立柱', '槽鐵', '加強橫枝', '補強鋼板', '主架', '副架', '螺桿', '五金', '板材', '玻璃棉', '岩棉', '收邊', '其他'];
 function resultMatOrder(label) { const i = RESULT_CAT_ORDER.indexOf(guessFieldCat(label)); return i < 0 ? 99 : i; }
@@ -4236,14 +4265,15 @@ function totalsTableHTML(totals, editable, floor) {
   const fixes = !editable ? null : (floor!=null ? floorFixesOf(floor) : projFixes());
   const rows = Object.entries(totals).map(([k,t])=>Object.assign({key:k},t)).sort((a, b) =>
     resultMatOrder(a.label) - resultMatOrder(b.label) || String(a.label).localeCompare(String(b.label), 'zh-Hant', { numeric: true }));
-  return `<table class="result-table"><thead><tr><th>材料</th><th>數量</th><th>單位</th></tr></thead><tbody>${
+  return `<table class="result-table"><thead><tr><th>材料</th><th>規格</th><th>數量</th><th>單位</th></tr></thead><tbody>${
     rows.map(t => {
       const fx = fixes && fixes[t.key]!=null ? fixes[t.key] : null;
       const qty = fx!=null
         ? `<b style="color:#b45309">${fx.toLocaleString()}</b> <span style="color:#999;font-size:11px">(原 ${t.qty.toLocaleString()})</span>`
         : t.qty.toLocaleString();
       const pen = editable ? ` <a onclick="${floor!=null?`fixFloorTotal(decodeURIComponent('${encodeURIComponent(floor)}'),'${esc(t.key)}',${t.qty})`:`fixTotal('${esc(t.key)}',${t.qty})`}" style="cursor:pointer;text-decoration:none">✏️</a>` : '';
-      return `<tr><td>${t.label}</td><td class="qty">${qty}${pen}</td><td class="unit-cell">${t.unit}</td></tr>`;
+      const sp = splitSpec(t.label);
+      return `<tr><td>${sp.name}</td><td class="unit-cell">${sp.spec||''}</td><td class="qty">${qty}${pen}</td><td class="unit-cell">${t.unit}</td></tr>`;
     }).join('')
   }</tbody></table>`;
 }
@@ -4815,8 +4845,8 @@ function printResults() {
   if (Object.keys(totals).length) {
     totalTable = `<h3 style="margin:20px 0 8px;font-size:14px;border-bottom:1px solid #ccc;padding-bottom:4px;">📊 全案材料彙總</h3>
     <table style="width:100%;border-collapse:collapse;font-size:12px;">
-      <tr style="background:#2B5F8E;color:#fff;"><th style="padding:6px 10px;text-align:left;">材料</th><th style="padding:6px 10px;">總數量</th><th style="padding:6px 10px;">單位</th></tr>
-      ${Object.values(totals).slice().sort((a,b)=>resultMatOrder(a.label)-resultMatOrder(b.label)||String(a.label).localeCompare(String(b.label),'zh-Hant',{numeric:true})).map((t,i)=>`<tr style="background:${i%2?'#f8f8f8':'#fff'};"><td style="border:1px solid #ddd;padding:5px 10px;">${t.label}</td><td style="border:1px solid #ddd;padding:5px 10px;text-align:center;font-weight:700;">${t.qty.toLocaleString()}</td><td style="border:1px solid #ddd;padding:5px 10px;color:#666;">${t.unit}</td></tr>`).join('')}
+      <tr style="background:#2B5F8E;color:#fff;"><th style="padding:6px 10px;text-align:left;">材料</th><th style="padding:6px 10px;">規格</th><th style="padding:6px 10px;">總數量</th><th style="padding:6px 10px;">單位</th></tr>
+      ${Object.values(totals).slice().sort((a,b)=>resultMatOrder(a.label)-resultMatOrder(b.label)||String(a.label).localeCompare(String(b.label),'zh-Hant',{numeric:true})).map((t,i)=>{const sp=splitSpec(t.label);return `<tr style="background:${i%2?'#f8f8f8':'#fff'};"><td style="border:1px solid #ddd;padding:5px 10px;">${sp.name}</td><td style="border:1px solid #ddd;padding:5px 10px;color:#666;">${sp.spec||''}</td><td style="border:1px solid #ddd;padding:5px 10px;text-align:center;font-weight:700;">${t.qty.toLocaleString()}</td><td style="border:1px solid #ddd;padding:5px 10px;color:#666;">${t.unit}</td></tr>`;}).join('')}
     </table>`;
   }
 

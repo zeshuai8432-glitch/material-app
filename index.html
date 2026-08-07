@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v79</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v80</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -535,7 +535,20 @@ function wallStages(wall){
   return STAGES.filter(s=> (s.key==='frame'&&hasFrame)||(s.key==='board1'&&hasDouble)||(s.key==='fill'&&hasFill)||(s.key==='board2'&&hasBoard));
 }
 function hasRecipe(project, floor){ return !!(D.recipes && D.recipes[project] && D.recipes[project].find(f=>f.floor===floor)); }
-function labelMatIdMap(){ const m={}; D.mats.forEach(x=>{ if(!(x.name in m)) m[x.name]=x.id; }); return m; }
+function labelMatIdMap(){ // 食譜的 label 可能是合併名稱或新的 name+spec，兩種都要對得到
+  const m={};
+  D.mats.forEach(x=>{
+    const k = matKeyOf(x);
+    if(!(k in m)) m[k]=x.id;
+    if(!(x.name in m)) m[x.name]=x.id;               // 純名稱（新格式食譜）
+  });
+  return m;
+}
+function lookupMatId(lm, rec){                        // rec: 食譜的一筆材料
+  if(rec.name!=null){ const k=matKey(rec.name, rec.spec); if(lm[k]) return lm[k]; }
+  const sp = splitSpec(rec.label||rec.name||'');
+  return lm[matKey(sp.name, sp.spec)] || lm[rec.label] || lm[sp.name];
+}
 function floorNeedsMap(project, floor){ // {matId: 還需要數量}
   const key = project+'||'+floor;
   if(_needCache[key]) return _needCache[key];
@@ -553,7 +566,7 @@ function floorNeedsMap(project, floor){ // {matId: 還需要數量}
         const wp = rp[wall.name] || {};
         const undoneOf = k => { const v = wp[k]!=null ? num(wp[k]) : cnt; return Math.max(0, Math.min(v, cnt)); };
         (wall.mats||[]).forEach(r=>{
-          const mid = lm[r.label]; if(!mid) return;
+          const mid = lookupMatId(lm, r); if(!mid) return;
           map.__has.add(mid); // 記錄「有出現在牆食譜」的材料（不管進度做到哪）
           const st = stageOfCat(r.cat);
           // 雙面牆的板材：一半算封第一面、一半算封版
@@ -608,6 +621,60 @@ function noteHTML(it){
   const bg = due ? '#fee2e2' : (soon ? '#fef3c7' : '#eef2ff');
   return `<div style="margin-top:4px;font-size:12px;font-weight:600;color:${c};background:${bg};border-radius:7px;padding:3px 8px;display:inline-block;max-width:100%;word-break:break-all">📌 ${esc(it.note)}${d?`　<span style="font-weight:800">${due?'⏰ ':''}${esc(d)}</span>`:''}</div>`;
 }
+
+// ── 名稱／規格分離（與算料同一套規則）──
+function splitSpec(label){
+  const s = String(label||'').trim();
+  let m;
+  if ((m = s.match(/^(矽酸鈣板|水泥板|石膏板)\s*(\d+)\s*mm\s*(\S+尺)(（立板）)?$/)))
+    return { name: m[2] + 'mm ' + m[1] + (m[4]||''), spec: m[3] };
+  if ((m = s.match(/^立板板材\s*(\S+尺)$/))) return { name: '立板板材', spec: m[1] };
+  if ((m = s.match(/^(.+?)\s*骨架（下料\s*([\d.]+)\s*cm）$/))) return { name: m[1] + ' 骨架', spec: m[2] + 'cm' };
+  if ((m = s.match(/^(.*螺桿)\s*(3M|訂做\s*[\d.]+cm)$/))) return { name: m[1], spec: m[2].replace(/\s+/g,' ') };
+  if ((m = s.match(/^(岩棉\s*\S+?)\s+(\S+cm)$/))) return { name: m[1], spec: m[2] };
+  if ((m = s.match(/^(玻璃棉\s*\S+?)\s+(厚\S+)$/))) return { name: m[1], spec: m[2] };
+  if ((m = s.match(/^(補強鋼板)\s*(\S+尺)$/))) return { name: m[1], spec: m[2] };
+  if ((m = s.match(/^(.+?收邊)\s*(\S+尺（[\d.]+cm）|\S+尺)$/))) return { name: m[1], spec: m[2] };
+  if ((m = s.match(/^(.+?)\s*([\d.]+)\s*cm(（立板）)?$/))) return { name: m[1].trim() + (m[3]||''), spec: m[2] + 'cm' };
+  return { name: s, spec: '' };
+}
+// 材料識別鍵：名稱＋規格（去空白），用來比對「同一種材料」
+function matKey(name, spec){ return String(name||'').replace(/\s+/g,'') + '|' + String(spec||'').replace(/\s+/g,''); }
+function matKeyOf(m){ return m ? matKey(m.name, m.spec) : ''; }
+// 一次性遷移：規格還黏在名稱裡的材料 → 拆成 名稱/規格，並合併重複
+function migrateMatSpecs(){
+  let changed = 0;
+  (D.mats||[]).forEach(m=>{
+    if(m.spec) return;                       // 已經有規格欄就不動
+    const sp = splitSpec(m.name);
+    if(sp.spec){ m.name = sp.name; m.spec = sp.spec; changed++; }
+  });
+  if(!changed) return 0;
+  // 拆完可能出現同名同規格的兩筆 → 合併（歷史全部搬過去）
+  const seen = {};
+  (D.mats||[]).slice().forEach(m=>{
+    const k = matKeyOf(m);
+    if(!seen[k]){ seen[k] = m; return; }
+    const keep = seen[k];
+    D.deliveries.forEach(d=>{ if(d.matId===m.id) d.matId=keep.id; });
+    (D.transfers||[]).forEach(t=>{ if(t.matId===m.id) t.matId=keep.id; if(t.fromMatId===m.id) t.fromMatId=keep.id; if(t.toMatId===m.id) t.toMatId=keep.id; });
+    (D.counts||[]).forEach(c=>{ if(c.matId===m.id) c.matId=keep.id; });
+    (D.orders||[]).forEach(o=>(o.lines||[]).forEach(l=>{ if(l.matId===m.id) l.matId=keep.id; }));
+    D.items.filter(i=>i.matId===m.id).forEach(di=>{
+      const ki = D.items.find(i=>i.matId===keep.id && i.project===di.project && i.room===di.room);
+      if(!ki){ di.matId = keep.id; return; }
+      ki.delivered = round(num(ki.delivered)+num(di.delivered));
+      ki.remaining = round(num(ki.remaining)+num(di.remaining));
+      ki.demand = Math.max(num(ki.demand), num(di.demand));
+      const adj = num(ki.needAdj)+num(di.needAdj); ki.needAdj = adj||null;
+      D.items = D.items.filter(x=>x!==di);
+    });
+    D.mats = D.mats.filter(x=>x.id!==m.id);
+  });
+  clearNeedCache();
+  return changed;
+}
+
 function lastCountAt(it){ // 上次盤點時間：新資料存 countAt，舊資料從盤點紀錄回推
   if(it.countAt) return it.countAt;
   let best=null; (D.counts||[]).forEach(c=>{ if(c.project===it.project&&c.room===it.room&&c.matId===it.matId&&(!best||c.at>best)) best=c.at; });
@@ -2162,9 +2229,9 @@ function restorePreImport(){
 // 🔗 合併重複材料：同名材料自動併成一筆，送料/盤點/需求/調撥全部改掛到保留的那筆
 function mergeDupMats(){
   // 同名判定：先去疊字、再拿掉「所有空格」（含全形），一個空格之差也算同一筆
-  const normKey = s => String(s||'').replace(/(\S+) \1/g,'$1').replace(/\s+/g,'');
+  const normKey = m => String(m.name||'').replace(/(\S+) \1/g,'$1').replace(/\s+/g,'') + '|' + String(m.spec||'').replace(/\s+/g,'');
   const groups={};
-  D.mats.forEach(m=>{ const k=normKey(m.name); (groups[k]=groups[k]||[]).push(m); });
+  D.mats.forEach(m=>{ const k=normKey(m); (groups[k]=groups[k]||[]).push(m); });
   const dups=Object.values(groups).filter(g=>g.length>1);
   if(!dups.length){ toast('沒有同名的重複材料'); return; }
   const lines = dups.map(g=>'・'+g[0].name+'（'+g.length+' 筆）').join('\n');
@@ -2393,14 +2460,20 @@ function applyCalcImport(pl){
     (fl.materials||[]).forEach(m=>{
       const cat = m.cat || '其他';
       if(!D.cats.includes(cat)) D.cats.push(cat);
-      let mt = D.mats.find(x=>x.name===m.name);
+      // 匯入的 name/spec 已分離（新版算料）；舊版只有 name → 自己拆
+      const inSp = (m.spec!=null) ? {name:m.name, spec:m.spec} : splitSpec(m.name);
+      const wantKey = matKey(inSp.name, inSp.spec);
+      const normDup = s=>String(s).replace(/(\S+) \1/g,'$1').replace(/\s+/g,'');
+      let mt = D.mats.find(x=>matKeyOf(x)===wantKey);
       if(!mt){
-        // 名稱遷移：去疊字＋無視所有空格後相同＝同一個材料（涵蓋手動刪字留下的空格差）
-        // → 直接改名沿用（送料/盤點/需求歷史全跟著），不生幽靈
-        const normDup = s=>String(s).replace(/(\S+) \1/g,'$1').replace(/\s+/g,'');
-        const oldMt = D.mats.find(x=>normDup(x.name)===normDup(m.name));
-        if(oldMt){ oldMt.name = m.name; mt = oldMt; }
-        else { mt = {id:uid(), cat, name:m.name, spec:'', thick:'', unit:m.unit||'支'}; D.mats.push(mt); }
+        // 舊資料規格還黏在名稱裡（或有疊字/空格差）→ 認出來就改成新格式沿用，不生幽靈
+        const legacy = D.mats.find(x=>{
+          if(x.spec) return false;
+          const xs = splitSpec(x.name);
+          return matKey(xs.name, xs.spec)===wantKey || normDup(x.name)===normDup(m.fullName||m.name);
+        });
+        if(legacy){ legacy.name = inSp.name; legacy.spec = inSp.spec; mt = legacy; }
+        else { mt = {id:uid(), cat, name:inSp.name, spec:inSp.spec, thick:'', unit:m.unit||'支'}; D.mats.push(mt); }
       }
       let it = D.items.find(i=>i.project===project && i.room===floorName && i.matId===mt.id);
       if(!it){ it = {id:uid(), project, room:floorName, matId:mt.id, demand:0, remaining:0, delivered:0}; D.items.push(it); }
@@ -2455,7 +2528,9 @@ function dismissCalcImport(){
 }
 
 // ── boot ──
-load(); fillProjSel(); go('board');
+load();
+{ const n = migrateMatSpecs(); if(n){ save(); } }   // 規格從名稱拆出來（一次性）
+fillProjSel(); go('board');
 fbInitField();                       // Firestore：拉回雲端 + 開即時同步
 applyDueDeliveries();                // 預定送料到期自動入帳
 checkPendingImport();
