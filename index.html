@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v78</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v79</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1120,16 +1120,18 @@ function exportPendingPDF(onlyDate){
           || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''});
       });
       const sum = its.reduce((a,d)=>a+num(d.qty),0);
+      // 同一層若有多個房間才顯示「房間」欄；房間名＝樓層名時不重複顯示
+      const roomNames = [...new Set(its.map(d=>d.room))];
+      const multi = roomNames.length>1 || roomNames[0]!==fl;
       body += `<div style="font-weight:700;margin:8px 0 3px">🏢 ${esc(fl)}　<span style="font-weight:400;color:#666;font-size:12px">${its.length} 項・合計 ${round(sum)}</span></div>
-      <table><thead><tr><th style="width:34px">✓</th><th>分類</th><th>材料</th><th>規格</th><th>房間</th><th>數量</th><th>備註</th></tr></thead><tbody>
+      <table><thead><tr><th style="width:34px">✓</th><th>分類</th><th>材料</th><th>規格</th>${multi?'<th>房間</th>':''}<th>數量</th><th>備註</th></tr></thead><tbody>
       ${its.map(d=>{ const m=mat(d.matId); const u=m?m.unit:'';
         const it=D.items.find(i=>i.project===p&&i.room===d.room&&i.matId===d.matId);
         const note=(it&&it.note)?esc(it.note):'';
-        return `<tr><td style="text-align:center">☐</td><td>${esc(m?m.cat:'')}</td><td>${esc(m?m.name:'?')}</td><td>${esc((m&&m.spec)||'')}</td><td>${esc(d.room)}</td><td class="q">${d.qty}${esc(u)}</td><td style="font-size:11px;color:#555">${note}</td></tr>`;
+        return `<tr><td style="text-align:center">☐</td><td>${esc(m?m.cat:'')}</td><td>${esc(m?m.name:'?')}</td><td>${esc((m&&m.spec)||'')}</td>${multi?`<td>${esc(d.room)}</td>`:''}<td class="q">${d.qty}${esc(u)}</td><td style="font-size:11px;color:#555">${note}</td></tr>`;
       }).join('')}</tbody></table>`;
     });
   });
-  body += `<div style="margin-top:14px;font-size:12px;color:#555">送貨／搬運：________________　　簽收：________________　　日期：__________</div>`;
   printHTML('預定送料單 '+p, body);
 }
 function applyPendingNow(id){
@@ -2106,7 +2108,7 @@ function printHTML(title, inner){
     tr:nth-child(even) td{background:#fafbfc}
     .foot{margin-top:22px;font-size:11px;color:#999;border-top:1px solid #e5e7eb;padding-top:8px}
     @media print{body{padding:6px}}
-  </style></head><body>${inner}<div class="foot">現場材料管理系統・${todayStr()}</div></body></html>`;
+  </style></head><body>${inner}</body></html>`;
   _lastPrintHTML = html;
   document.getElementById('printtitle').textContent = title;
   document.getElementById('printframe').srcdoc = html;
