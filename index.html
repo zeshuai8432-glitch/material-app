@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v83</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v84</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -167,7 +167,11 @@
   <!-- ═══ 盤點 ═══ -->
   <div class="page" id="pg-count">
     <div class="card">
-      <h2 style="display:flex;justify-content:space-between;align-items:center">📋 現場盤點 <button class="btn ghost sm" onclick="openCountLog()">🗒️ 盤點紀錄</button></h2>
+      <h2 style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">📋 現場盤點
+        <span style="display:flex;gap:6px">
+          <button class="btn ghost sm" onclick="printCountSheet()">🖨️ 列印盤點表</button>
+          <button class="btn ghost sm" onclick="openCountLog()">🗒️ 盤點紀錄</button>
+        </span></h2>
       <div class="hint">選一個房間，把每種材料「現在還剩多少」重新數一次填進去。「需求量」是這房間總共要用多少，可現場改。</div>
       <div class="fg"><label>房間</label><select id="ct-room" onchange="renderCount()"></select></div>
     </div>
@@ -1345,6 +1349,50 @@ function delDelivery(id){
 //  盤點 COUNT
 // ════════════════════════════════════════════
 function renderCountPage(){ fillRoomSel('ct-room'); renderCount(); }
+
+// 🖨️ 空白盤點表：帶去現場手寫（可選本層或全部樓層）
+function printCountSheet(){
+  const p = cur.project;
+  if(!p){ toast('先選案場'); return; }
+  const here = document.getElementById('ct-room') ? document.getElementById('ct-room').value : '';
+  const rooms = projRooms(p).map(r=>r.name);
+  if(!rooms.length){ toast('此案場尚無房間'); return; }
+  let pick = [here];
+  if(rooms.length>1){
+    const ans = confirm('要印「全部樓層」嗎？\n\n【確定】全部 '+rooms.length+' 層\n【取消】只印目前這層（'+(here||'—')+'）');
+    pick = ans ? rooms.slice() : [here];
+  }
+  pick = pick.filter(Boolean);
+  if(!pick.length){ toast('沒有可列印的房間'); return; }
+  pick.sort(cmpFloor);
+  let body = `<h1>現場盤點表</h1><div class="meta">案場：${esc(p)}　列印日期：${todayStr()}　盤點人：____________</div>`;
+  let any = false;
+  pick.forEach(room=>{
+    const its = D.items.filter(i=>i.project===p && i.room===room)
+      .sort((a,b)=>{ const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
+        return ga.sort-gb.sort || ga.label.localeCompare(gb.label)
+          || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''}); });
+    if(!its.length) return;
+    any = true;
+    body += `<div class="fl">🏢 ${esc(room)}　<span class="sub">${its.length} 項</span></div>`;
+    let lastG = null, rows = '';
+    its.forEach(it=>{
+      const m = mat(it.matId); const u = m?m.unit:'';
+      const g = deliverGroupKey(m).label;
+      if(g!==lastG){ rows += `<tr><td colspan="6" style="background:#f6f9fd;font-weight:700;font-size:11.5px;color:#334155">${esc(g)}</td></tr>`; lastG = g; }
+      const sp = (m&&m.spec) ? {name:m.name, spec:m.spec} : splitSpec(m?m.name:'');
+      const thick = (m&&m.thick)?esc(m.thick):'';
+      rows += `<tr><td>${esc(sp.name||'?')}</td><td class="sp">${esc(sp.spec||'')}</td><td>${thick}</td>`
+        + `<td style="color:#888">${itemNeed(it)}${esc(u)}</td>`
+        + `<td style="border-bottom:1px solid #94a3b8;min-width:76px">&nbsp;</td>`
+        + `<td style="border-bottom:1px solid #94a3b8;min-width:90px">&nbsp;</td></tr>`;
+    });
+    body += `<table><thead><tr><th>材料</th><th class="sp">規格</th><th>厚度</th><th>需求量</th><th>實際盤點</th><th>備註</th></tr></thead><tbody>${rows}</tbody></table>`;
+  });
+  if(!any){ toast('選取的樓層沒有材料'); return; }
+  printHTML('盤點表 '+p, body);
+}
+
 // 🗒️ 盤點紀錄：反時序，依日期分組（每筆：樓層 · 材料 · 原本→盤成）
 function openCountLog(){
   const p = cur.project;
