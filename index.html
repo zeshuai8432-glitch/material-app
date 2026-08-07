@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v81</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v82</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -431,7 +431,7 @@ function fbWatchField(){
         if(FB_PROJ.includes(k)){ D[k]=(D[k]||[]).filter(x=>x.project!==p).concat(v||[]); ch++; }
         else if(FB_PROJ_O.includes(k)){ D[k]=D[k]||{}; D[k][p]=v; ch++; }
       });
-      if(ch){ clearNeedCache(); saveLocalOnly(); renderAll(); setCloudStatus('☁ 已同步其他裝置','ok'); }
+      if(ch){ migrateMatSpecs(); clearNeedCache(); saveLocalOnly(); renderAll(); setCloudStatus('☁ 已同步其他裝置','ok'); }
     }, ()=>{}));
   });
 }
@@ -441,7 +441,12 @@ async function fbInitField(){
     const remote = await fbPullField();
     if(remote){
       const localN=(D.items||[]).length, remoteN=(remote.items||[]).length;
-      if(remoteN>=localN || !localN){ D = normalize(Object.assign(D, remote)); }
+      if(remoteN>=localN || !localN){
+        D = normalize(Object.assign(D, remote));
+        // 雲端拉回來的可能還是舊格式（規格黏在名稱裡）→ 拉回後再遷移一次並推回去
+        const n = migrateMatSpecs();
+        if(n){ saveLocalOnly(); await fbPushField(); toast('✅ 已把 '+n+' 項材料的規格獨立出來'); }
+      }
       else { await fbPushField(); }   // 本機比較完整 → 推上去
     } else {
       await fbPushField();            // 雲端還沒有 → 把現有資料搬上去
