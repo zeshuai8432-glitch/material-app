@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v68</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v69</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v68</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v69</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1670,6 +1670,7 @@ const DEFAULT_MATERIALS = {
     { id: 'hitnail', name: '擊釘片', unit: '個', price: 0 },
     { id: 'clip4', name: '四齒夾', unit: '個', price: 0 },
     { id: 'hook', name: '吊勾具', unit: '個', price: 0 },
+    { id: 'louver_joint', name: '百葉連結頭', unit: '個', price: 0 },
   ],
 };
 
@@ -3381,6 +3382,7 @@ function renderZonesHTML(spaceId) {
         <span>${r.rodResult.isBrace?'吊筋(橫枝)':'螺桿'} <strong>${r.rodResult.rods}</strong> 支${adjTag('adjRod')}</span>
         <span>板材 <strong>${r.boards}</strong> 片${adjTag('adjBoard')}</span>
         <span>收邊 <strong>${r.trims}</strong> 支${adjTag('adjTrim')}</span>
+        ${r.louverJoints>0?`<span>百葉連結頭 <strong>${r.louverJoints}</strong> 個</span>`:''}
         ${r.totalPrice ? `<span style="color:var(--green)">估價 <strong>$${r.totalPrice.toLocaleString()}</strong></span>` : ''}
       </div>`;
     }
@@ -3722,6 +3724,9 @@ function calcCeiling(p) {
   const subTotal = Math.max(0, subFullSticks + subLastSticks + (parseInt(p.adjSub)||0)); // 含手動加減
   // 四齒夾 = 副架條數 × 每條跟幾支主架交叉
   const clipsTotal = p.sys === 'n38' ? subCount * mainRows : 0;
+  // 百葉連結頭：一條副架用 N 支就要接 N-1 次；手動增減副架也跟著算
+  const subSticksEff = Math.max(0, subFullSticks + subLastSticks + (parseInt(p.adjSub)||0));
+  const louverJoints = Math.max(0, subSticksEff - subCount);
   // 吊勾具 = N38 吊點數（橫枝吊筋直接鎖，不用吊勾）
   const hooksTotal = (p.sys === 'n38' && !rodResult.isBrace) ? effPoints : 0; // 含螺桿手動加減換算
 
@@ -3779,6 +3784,7 @@ function calcCeiling(p) {
   if (hitNails > 0) addP(state.materials.hardware, 'hitnail', hitNails, '個');
   if (clipsTotal > 0) addP(state.materials.hardware, 'clip4', clipsTotal, '個');
   if (hooksTotal > 0) addP(state.materials.hardware, 'hook', hooksTotal, '個');
+  if (louverJoints > 0) addP(state.materials.hardware, 'louver_joint', louverJoints, '個');
 
   return {
     area: (area/10000).toFixed(2),
@@ -3786,7 +3792,7 @@ function calcCeiling(p) {
     mainRows, mainPerRow, mainTotal, mainLen, mainFrameId, mainFrameName, mainFullSticks, mainLastSticks, lastMainLen: lastLen,
     hangPointsTotal, rodResult, nuts, hitNails,
     subCount, subPerRow, subTotal, subLen, subFrameId, subFrameName,
-    clipsTotal, hooksTotal,
+    clipsTotal, hooksTotal, louverJoints,
     boards, boardsRaw: boardsRaw.toFixed(2),
     trims, trimType: p.trimType,
     fascia,
@@ -4120,6 +4126,7 @@ function aggregateZone(z, mult, agg) {
     if (r.hitNails > 0) AT('hitnail', '擊釘片', r.hitNails, '個');
     if (r.clipsTotal > 0) AT('clip4', '四齒夾', r.clipsTotal, '個');
     if (r.hooksTotal > 0) AT('hook', '吊勾具', r.hooksTotal, '個');
+    if (r.louverJoints > 0) AT('louver_joint', '百葉連結頭', r.louverJoints, '個');
     const cBoardKey = params.boardType + '-' + params.boardThickness + '-' + params.boardSize;
     AT(cBoardKey, boardTypeName(params.boardType) + ' ' + params.boardThickness + 'mm ' + params.boardSize + '尺', r.boards, '片');
     AT('trim_' + params.trimType, trimNames[params.trimType] || params.trimType, r.trims, '支');
@@ -4183,6 +4190,7 @@ function zoneDetailHTML(z) {
             ${r.hitNails > 0 ? `<tr><td>擊釘片</td><td class="qty">${r.hitNails} 個</td><td class="unit-cell">標準品螺桿需要</td></tr>` : ''}
             ${r.clipsTotal > 0 ? `<tr><td>四齒夾</td><td class="qty">${r.clipsTotal} 個</td><td class="unit-cell">N38與百葉結合</td></tr>` : ''}
             ${r.hooksTotal > 0 ? `<tr><td>吊勾具</td><td class="qty">${r.hooksTotal} 個</td><td class="unit-cell">N38系統專用</td></tr>` : ''}
+            ${r.louverJoints > 0 ? `<tr><td>百葉連結頭</td><td class="qty">${r.louverJoints} 個</td><td class="unit-cell">${r.subCount}條×每條接${Math.max(0,r.subPerRow-1)}處</td></tr>` : ''}
             <tr><td>${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td class="qty">${r.boards} 片</td><td class="unit-cell">含5%損耗（淨算 ${r.boardsRaw} 片）</td></tr>
             <tr><td>${trimNames[params.trimType]||params.trimType}</td><td class="qty">${r.trims} 支</td><td class="unit-cell">周長 ${r.perimeter}m</td></tr>
             ${fasciaR && fasciaR.method==='partition' ? `
@@ -4801,6 +4809,7 @@ function printResults() {
           ${r.hitNails>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">擊釘片</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.hitNails} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
           ${r.clipsTotal>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">四齒夾</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.clipsTotal} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
           ${r.hooksTotal>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">吊勾具</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.hooksTotal} 個</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>`:''}
+          ${r.louverJoints>0?`<tr><td style="border:1px solid #ccc;padding:4px 8px;">百葉連結頭</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.louverJoints} 個</td><td style="border:1px solid #ccc;padding:4px 8px;">每條接${Math.max(0,r.subPerRow-1)}處</td></tr>`:''}
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.boards} 片</td><td style="border:1px solid #ccc;padding:4px 8px;">含5%損耗</td></tr>
           <tr><td style="border:1px solid #ccc;padding:4px 8px;">${trimNames[params.trimType]||params.trimType}</td><td style="border:1px solid #ccc;padding:4px 8px;text-align:center;font-weight:700;">${r.trims} 支</td><td style="border:1px solid #ccc;padding:4px 8px;"></td></tr>
         </table>
@@ -4814,6 +4823,7 @@ function printResults() {
         if (r.hitNails>0) addT('hitnail','擊釘片',r.hitNails,'個');
         if (r.clipsTotal>0) addT('clip4','四齒夾',r.clipsTotal,'個');
         if (r.hooksTotal>0) addT('hook','吊勾具',r.hooksTotal,'個');
+        if (r.louverJoints>0) addT('louver_joint','百葉連結頭',r.louverJoints,'個');
         const ck=`${params.boardType}-${params.boardThickness}-${params.boardSize}`;
         addT(ck,`${boardTypeName(params.boardType)} ${params.boardThickness}mm ${params.boardSize}尺`,r.boards,'片');
         addT('trim_'+params.trimType,trimNames[params.trimType]||params.trimType,r.trims,'支');
