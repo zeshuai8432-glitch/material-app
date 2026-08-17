@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v69</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v70</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v69</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v70</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -4618,43 +4618,43 @@ function materialSection(title, key, headers) {
   items.forEach((item, i) => {
     if (key === 'boards') {
       rows += `<tr>
-        <td>${esc(item.name)}</td>
+        <td><input value="${esc(item.name)}" onchange="state.materials['${key}'][${i}].name=this.value;saveUserData();renderMaterials()" style="width:180px"></td>
         <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
-        <td></td>
+        <td style="white-space:nowrap"><button class="btn btn-danger btn-sm" onclick="removeMaterial('${key}',${i})">刪</button></td>
       </tr>`;
     } else if (key === 'rockwool') {
       rows += `<tr>
-        <td>${esc(item.name)}</td>
+        <td><input value="${esc(item.name)}" onchange="state.materials['${key}'][${i}].name=this.value;saveUserData();renderMaterials()" style="width:180px"></td>
         <td><input type="number" value="${item.piecesPerPack || 4}" onchange="state.materials['${key}'][${i}].piecesPerPack=+this.value;saveUserData()" style="width:60px;"></td>
         <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
-        <td></td>
+        <td style="white-space:nowrap"><button class="btn btn-danger btn-sm" onclick="removeMaterial('${key}',${i})">刪</button></td>
       </tr>`;
     } else if (key === 'glasswool') {
       const area = ((+item.rollW || 0) * (+item.rollL || 0));
       rows += `<tr>
-        <td>${esc(item.name)}</td>
+        <td><input value="${esc(item.name)}" onchange="state.materials['${key}'][${i}].name=this.value;saveUserData();renderMaterials()" style="width:180px"></td>
         <td><input type="number" step="0.1" value="${item.rollW != null ? item.rollW : ''}" onchange="setGwDim(${i},'rollW',this.value)" style="width:64px;"></td>
         <td><input type="number" step="0.1" value="${item.rollL != null ? item.rollL : ''}" onchange="setGwDim(${i},'rollL',this.value)" style="width:64px;"> <span style="color:var(--text-3);font-size:12px">= ${area.toFixed(1)}㎡</span></td>
         <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
-        <td></td>
+        <td style="white-space:nowrap"><button class="btn btn-danger btn-sm" onclick="removeMaterial('${key}',${i})">刪</button></td>
       </tr>`;
     } else if (key === 'trims' || key === 'rods' || key === 'mainFrames' || key === 'subFrames') {
       rows += `<tr>
-        <td>${esc(item.name)}</td>
+        <td><input value="${esc(item.name)}" onchange="state.materials['${key}'][${i}].name=this.value;saveUserData();renderMaterials()" style="width:180px"></td>
         <td><input type="number" value="${item.length}" onchange="state.materials['${key}'][${i}].length=+this.value;saveUserData()" style="width:80px;"></td>
         <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
-        <td></td>
+        <td style="white-space:nowrap"><button class="btn btn-danger btn-sm" onclick="removeMaterial('${key}',${i})">刪</button></td>
       </tr>`;
     } else if (key === 'hardware') {
       rows += `<tr>
-        <td>${esc(item.name)}</td>
+        <td><input value="${esc(item.name)}" onchange="state.materials['${key}'][${i}].name=this.value;saveUserData();renderMaterials()" style="width:180px"></td>
         <td><input type="number" value="${item.price}" onchange="state.materials['${key}'][${i}].price=+this.value;saveUserData()" style="width:80px;"></td>
-        <td></td>
+        <td style="white-space:nowrap"><button class="btn btn-danger btn-sm" onclick="removeMaterial('${key}',${i})">刪</button></td>
       </tr>`;
     }
   });
 
-  return matSectionWrap(title, key, headers, rows, false);
+  return matSectionWrap(title, key, headers, rows, true);
 }
 
 // 補強鋼板：依尺寸各一筆，名稱＋單價可編輯
@@ -4705,16 +4705,44 @@ function addFrame(key) {
   renderMaterials();
 }
 function addCustomMaterial(key) {
-  const name = prompt('新增材料名稱（例：C64 骨架）');
-  if (!name) return;
-  const lv = prompt('第一個長度（cm）', '300');
-  const len = parseInt(lv) || 300;
-  state.materials[key].push({ id: 'custom_' + Date.now(), name: name.trim(), unit: '支', pricePerM: 0, lengths: [len], custom: true });
+  const hint = {
+    studs:'例：C75 骨架', tracks:'例：U77 槽鐵', braces:'例：N50 加強橫枝',
+    boards:'例：石膏板 15mm 4x8尺', rockwool:'例：岩棉 80K 60x120cm', glasswool:'例：玻璃棉 16K 厚50mm',
+    trims:'例：L收邊 12尺（365cm）', rods:'例：四分螺桿 3M', mainFrames:'例：N38主架 10尺（305cm）',
+    subFrames:'例：小百葉 8尺（243cm）', hardware:'例：吊筋螺帽', reinfPlates:'例：補強鋼板 3x6尺'
+  }[key] || '';
+  const name = prompt('新增材料名稱' + (hint?('\n' + hint):''));
+  if (!name || !name.trim()) return;
+  const id = 'custom_' + Date.now();
+  const L = state.materials[key] = state.materials[key] || [];
+  if (MAT_GROUP_KEYS.includes(key)) {            // 骨架/槽鐵/加強橫枝：元/M ＋ 多長度
+    const len = parseInt(prompt('第一個長度（cm）', '300')) || 300;
+    L.push({ id, name: name.trim(), unit: '支', pricePerM: 0, lengths: [len], custom: true });
+  } else if (key === 'trims' || key === 'rods' || key === 'mainFrames' || key === 'subFrames') {
+    const len = parseInt(prompt('單支長度（cm）', '243')) || 243;
+    L.push({ id, name: name.trim(), length: len, unit: '支', price: 0, custom: true });
+  } else if (key === 'rockwool') {
+    const per = parseInt(prompt('一包幾片', '4')) || 4;
+    L.push({ id, name: name.trim(), unit: '包', piecesPerPack: per, price: 0, custom: true });
+  } else if (key === 'glasswool') {
+    const w = parseFloat(prompt('捲寬（M）', '1.2')) || 1.2;
+    const l = parseFloat(prompt('捲長（M）', '10')) || 10;
+    L.push({ id, name: name.trim(), unit: '捲', rollW: w, rollL: l, rollSize: +(w*l).toFixed(3), price: 0, custom: true });
+  } else if (key === 'boards') {
+    L.push({ id, name: name.trim(), unit: '片', price: 0, custom: true });
+  } else if (key === 'reinfPlates') {
+    L.push({ id, name: name.trim(), unit: '片', price: 0, custom: true });
+  } else {                                        // hardware 等
+    const unit = (prompt('單位', '個') || '個').trim();
+    L.push({ id, name: name.trim(), unit, price: 0, custom: true });
+  }
   saveUserData();
   renderMaterials();
 }
 
 function removeMaterial(key, idx) {
+  const m = (state.materials[key] || [])[idx]; if (!m) return;
+  if (!confirm('刪除材料「' + (m.name || '') + '」？\n（已建立的區塊若用到它，數值會保留，但重新計算時要改選其他材料）')) return;
   state.materials[key].splice(idx, 1);
   saveUserData();
   renderMaterials();
