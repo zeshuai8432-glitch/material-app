@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v86</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v87</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1926,6 +1926,7 @@ function renderOrders(){
             <div class="li-t" style="font-size:13px">▸ ${esc(o.date)}　${Object.keys(byFl).sort(cmpFloor).map(esc).join('、')}</div>
             <div class="li-s" id="ord-sum-${o.id}">${o.lines.length} 項・合計 ${round(total)}（點開看明細／改數量）</div>
           </div>
+          <span class="btn mini gray" onclick="event.preventDefault();event.stopPropagation();exportOrderPDF('${o.id}')">📄 PDF</span>
           <span class="btn mini" onclick="event.preventDefault();event.stopPropagation();applyOrder('${o.id}')">✅ 到貨入帳</span>
           <span class="btn mini gray" onclick="event.preventDefault();event.stopPropagation();delOrder('${o.id}')">刪</span>
         </summary>
@@ -1933,6 +1934,37 @@ function renderOrders(){
       </details>`;
     }).join('')}</div>`;
 }
+
+// 📄 待到貨補料單 PDF：給師傅／廠商照著點收
+function exportOrderPDF(id){
+  const o=(D.orders||[]).find(x=>x.id===id); if(!o||!o.lines.length){ toast('這張單是空的'); return; }
+  const p=o.project;
+  const byFl={};
+  o.lines.forEach(l=>{ const f=roomFloor(p,l.room); (byFl[f]=byFl[f]||[]).push(l); });
+  const grand=o.lines.reduce((a,l)=>a+num(l.qty),0);
+  let body=`<h1>待到貨補料單</h1><div class="meta">案場：${esc(p)}　建立日期：${esc(o.date)}　列印：${todayStr()}　共 ${o.lines.length} 項・合計 ${round(grand)}</div>`;
+  Object.keys(byFl).sort(cmpFloor).forEach(fl=>{
+    const its=byFl[fl].slice().sort((a,b)=>{
+      const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
+      return ga.sort-gb.sort || ga.label.localeCompare(gb.label)
+        || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''});
+    });
+    const roomNames=[...new Set(its.map(l=>l.room))];
+    const multi=roomNames.length>1 || roomNames[0]!==fl;
+    const sum=its.reduce((a,l)=>a+num(l.qty),0);
+    const anyNote=its.some(l=>{ const it=D.items.find(i=>i.project===p&&i.room===l.room&&i.matId===l.matId); return it&&it.note; });
+    body+=`<div class="fl">🏢 ${esc(fl)}　<span class="sub">${its.length} 項・合計 ${round(sum)}</span></div>
+    <table><thead><tr><th class="ck">✓</th><th>分類</th><th>材料</th><th class="sp">規格</th>${multi?'<th>房間</th>':''}<th class="q">數量</th>${anyNote?'<th>備註</th>':''}</tr></thead><tbody>
+    ${its.map(l=>{ const m=mat(l.matId); const u=m?m.unit:'';
+      const sp=(m&&m.spec)?{name:m.name,spec:m.spec}:splitSpec(m?m.name:'');
+      const it=D.items.find(i=>i.project===p&&i.room===l.room&&i.matId===l.matId);
+      const note=(it&&it.note)?esc(it.note):'';
+      return `<tr><td class="ck">☐</td><td>${esc(m?m.cat:'')}</td><td>${esc(sp.name||'?')}</td><td class="sp">${esc(sp.spec||'')}</td>${multi?`<td>${esc(l.room)}</td>`:''}<td class="q">${l.qty}${esc(u)}</td>${anyNote?`<td style="font-size:11px;color:#555">${note}</td>`:''}</tr>`;
+    }).join('')}</tbody></table>`;
+  });
+  printHTML('待到貨補料單 '+p, body);
+}
+
 const _ordOpen = new Set();                 // 記住哪幾張單是展開的
 function ordToggle(id, open){ if(open) _ordOpen.add(id); else _ordOpen.delete(id); }
 function ordRefreshSummary(o){              // 只更新標題那行，不動整張卡
