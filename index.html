@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v87</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v88</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -217,8 +217,11 @@
     </div>
     <div class="card">
       <h2>📐 需求量</h2>
-      <div class="muted" style="margin-bottom:8px">設定每個房間各種材料「總共要用多少」。這是總覽紅綠與「要補」的判斷基準。</div>
-      <button class="btn ghost sm" onclick="openPlanSheet()">✏️ 編輯房間需求量</button>
+      <div class="muted" style="margin-bottom:8px">設定每個房間各種材料「總共要用多少」。這是總覽紅綠與「要補」的判斷基準。不想跑「材料計算」時，用「直接叫料」一步就能建材料＋設需求。</div>
+      <div class="row">
+        <button class="btn ghost sm" onclick="openQuickAdd()">➕ 直接叫料</button>
+        <button class="btn ghost sm" onclick="openPlanSheet()">✏️ 編輯房間需求量</button>
+      </div>
     </div>
     <div class="card">
       <h2>💾 資料</h2>
@@ -646,6 +649,8 @@ function splitSpec(label){
   let m;
   if ((m = s.match(/^(矽酸鈣板|水泥板|石膏板)\s*(\d+)\s*mm\s*(\S+尺)(（立板）)?$/)))
     return { name: m[2] + 'mm ' + m[1] + (m[4]||''), spec: m[3] };
+  if ((m = s.match(/^(\d+)\s*mm\s*(矽酸鈣板|水泥板|石膏板)(（立板）)?\s*(\S+尺)$/)))   // 已改名後的順序：9mm 水泥板 4x6尺
+    return { name: m[1] + 'mm ' + m[2] + (m[3]||''), spec: m[4] };
   if ((m = s.match(/^立板板材\s*(\S+尺)$/))) return { name: '立板板材', spec: m[1] };
   if ((m = s.match(/^(.+?)\s*骨架（下料\s*([\d.]+)\s*cm）$/))) return { name: m[1] + ' 骨架', spec: m[2] + 'cm' };
   if ((m = s.match(/^(.*螺桿)\s*(3M|訂做\s*[\d.]+cm)$/))) return { name: m[1], spec: m[2].replace(/\s+/g,' ') };
@@ -774,7 +779,7 @@ function renderBoard(){
   const p = cur.project;
   if(!p){ el.innerHTML = emptyBox('🏗️','還沒有案場','到「設定」新增案場，再建房間與需求量'); return; }
   const allItems = projItems(p);
-  if(!allItems.length){ el.innerHTML = emptyBox('📋','此案場尚無材料','到「設定 → 需求量」設定各房間要用的材料'); return; }
+  if(!allItems.length){ el.innerHTML = emptyBox('📋','此案場尚無材料','從「材料計算」匯入，或直接自己加<br><button class="btn sm" style="margin-top:10px" onclick="openQuickAdd()">➕ 直接叫料</button>'); return; }
   // 系統篩選（隔間 / 天花 / 全部）
   const items = allItems.filter(it=> sysMatch(mat(it.matId)?.cat));
 
@@ -800,7 +805,8 @@ function renderBoard(){
         <div style="font-size:15px;font-weight:800;margin-top:2px">${lackRooms.size? `<span class="lack">${lackRooms.size} 個房間要補料</span>` : '<span class="ok">全部房間庫存充足 ✅</span>'}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;flex:0 0 auto">
-        <button class="btn sm" onclick="openAllocSheet()">🔄 調撥建議</button>
+        <button class="btn sm" onclick="openQuickAdd()">➕ 直接叫料</button>
+        <button class="btn sm gray" onclick="openAllocSheet()">🔄 調撥建議</button>
         <button class="btn sm gray" onclick="openRefillSheet()">📄 補料單</button>
         <button class="btn sm gray" onclick="openAdjLog()">📝 追加紀錄${adjCount?` <span style="background:var(--amber);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${adjCount}</span>`:''}</button>
         <button class="btn sm gray" onclick="openTransferLog()">🚚 調撥紀錄</button>
@@ -1816,6 +1822,109 @@ function savePlan(){
 }
 
 // ════════════════════════════════════════════
+//  ➕ 直接叫料：不經「材料計算」，一步建材料＋設需求
+// ════════════════════════════════════════════
+let _qaLog = [], _qaMode = 'add';
+function openQuickAdd(){
+  const p = cur.project;
+  if(!p){ toast('⚠️ 先選案場'); return; }
+  const rooms = projRooms(p);
+  if(!rooms.length){ toast('⚠️ 先新增樓層／房間'); openRoomSheet(); return; }
+  _qaLog = []; _qaMode = 'add';
+  const roomOpts = rooms.slice()
+    .sort((a,b)=>cmpFloor(a.floor||a.name, b.floor||b.name)||cmpFloor(a.name,b.name))
+    .map(r=>`<option value="${esc(r.name)}">${esc(r.floor&&r.floor!==r.name?(r.floor+' / '):'')}${esc(r.name)}</option>`).join('');
+  const catOpts = (D.cats.length?D.cats:['其他']).map(c=>`<option>${esc(c)}</option>`).join('');
+  openSheet(`<h3>➕ 直接叫料<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="hint">不用經過「材料計算」。選樓層 → 打材料名稱 → 填數量，馬上變成這層的需求，總覽會算缺、補料單也帶得出來。可以連續加好幾筆。</div>
+    <div class="fg"><label>樓層／房間</label><select id="qa-room" onchange="qaSync()">${roomOpts}</select></div>
+    <div class="fg"><label>材料（打字會跳出材料庫既有的）</label>
+      <input id="qa-mat" list="qa-mats" autocomplete="off" placeholder="如 C41 骨架 395cm" oninput="qaSync()">
+      <datalist id="qa-mats">${qaDatalist()}</datalist></div>
+    <div id="qa-hit" style="font-size:12px;margin:-4px 0 9px;line-height:1.6"></div>
+    <div id="qa-new" style="display:none">
+      <div class="fg"><label>分類</label><select id="qa-cat">${catOpts}</select></div>
+      <div class="row">
+        <div class="fg"><label>規格</label><input id="qa-spec" placeholder="395cm / 4x6尺"></div>
+        <div class="fg"><label>厚度</label><input id="qa-thick" placeholder="0.8 / 12mm"></div>
+      </div>
+      <div class="fg"><label>單位</label><input id="qa-unit" value="支" placeholder="支 / 片 / 捲 / 包"></div>
+    </div>
+    <div class="fg"><label>數量</label><input type="number" inputmode="decimal" id="qa-qty" placeholder="0"></div>
+    <div class="seg" style="margin-bottom:10px">
+      <button class="segbtn on" id="qa-m-add" onclick="qaMode('add')">＋ 加上去</button>
+      <button class="segbtn" id="qa-m-set" onclick="qaMode('set')">＝ 改成這個數</button>
+    </div>
+    <button class="btn" onclick="qaSave()">✅ 加入需求</button>
+    <div id="qa-log"></div>`);
+  qaSync();
+}
+function qaDatalist(){
+  return D.mats.slice()
+    .sort((a,b)=>catOrder(a.cat)-catOrder(b.cat)||matLabel(a).localeCompare(matLabel(b),'zh-Hant',{numeric:true}))
+    .map(m=>`<option value="${esc(matLabel(m))}">${esc(m.cat||'')}</option>`).join('');
+}
+function qaMode(m){ _qaMode=m; ['add','set'].forEach(k=>{ const b=document.getElementById('qa-m-'+k); if(b)b.classList.toggle('on',k===m); }); }
+function qaNorm(s){ return String(s||'').replace(/\s+/g,'').toLowerCase(); }
+function qaFindMat(txt){ const q=qaNorm(txt); return q ? (D.mats.find(m=>qaNorm(matLabel(m))===q) || null) : null; }
+function qaSync(){
+  const inp = document.getElementById('qa-mat'); if(!inp) return;
+  const txt = inp.value.trim(), m = qaFindMat(txt), room = document.getElementById('qa-room').value;
+  document.getElementById('qa-new').style.display = (m || !txt) ? 'none' : '';
+  const hit = document.getElementById('qa-hit');
+  if(m){
+    const it = D.items.find(i=>i.project===cur.project&&i.room===room&&i.matId===m.id);
+    hit.innerHTML = `<span class="ok">✅ 材料庫已有</span>　${matDisp(m)}<br>`
+      + (it ? `<span style="color:var(--text2)">${esc(room)} 目前總需 <b>${itemTotal(it)}</b>${esc(m.unit||'')}・送 ${num(it.delivered)}${esc(m.unit||'')}</span>`
+            : `<span style="color:var(--text2)">${esc(room)} 還沒設過這料，會新開一筆</span>`);
+  } else if(txt){
+    hit.innerHTML = `<span style="color:var(--amber);font-weight:700">🆕 材料庫沒有</span> <span style="color:var(--text2)">會順便幫你建這個材料（下面補分類／規格）</span>`;
+  } else hit.innerHTML = '';
+}
+function qaSave(){
+  const p = cur.project;
+  const room = document.getElementById('qa-room').value;
+  const txt = document.getElementById('qa-mat').value.trim();
+  const qty = round(num(document.getElementById('qa-qty').value));
+  if(!txt){ toast('⚠️ 先填材料'); return; }
+  if(!(qty>0)){ toast('⚠️ 數量要大於 0'); return; }
+  let m = qaFindMat(txt), isNew = false;
+  if(!m){
+    const cat = document.getElementById('qa-cat').value || (D.cats[0]||'其他');
+    if(!D.cats.includes(cat)) D.cats.push(cat);
+    let name = txt, spec = document.getElementById('qa-spec').value.trim();
+    if(!spec){ const sp = splitSpec(txt); if(sp.spec){ name = sp.name; spec = sp.spec; } }  // 規格打在名稱裡也拆得出來
+    m = { id:uid(), cat, name, spec, thick:document.getElementById('qa-thick').value.trim(),
+          unit:document.getElementById('qa-unit').value.trim()||'支' };
+    D.mats.push(m); isNew = true;
+  }
+  let it = D.items.find(i=>i.project===p&&i.room===room&&i.matId===m.id);
+  const before = it ? itemTotal(it) : 0;
+  if(!it){ it = {id:uid(), project:p, room, matId:m.id, demand:qty, remaining:0, delivered:0, manualAdd:1}; D.items.push(it); }
+  else { it.demand = (_qaMode==='add') ? round(num(it.demand)+qty) : qty; it.manualAdd = 1; }
+  save(); renderAll();
+  _qaLog.unshift({label:matLabel(m), room, before, after:itemTotal(it), unit:m.unit||'', isNew});
+  document.getElementById('qa-mats').innerHTML = qaDatalist();
+  document.getElementById('qa-mat').value = '';
+  document.getElementById('qa-qty').value = '';
+  const sp=document.getElementById('qa-spec'), th=document.getElementById('qa-thick');
+  if(sp)sp.value=''; if(th)th.value='';
+  qaSync(); renderQaLog();
+  toast('✅ 已加入 '+matLabel(m));
+  document.getElementById('qa-mat').focus();
+}
+function renderQaLog(){
+  const el = document.getElementById('qa-log'); if(!el) return;
+  if(!_qaLog.length){ el.innerHTML=''; return; }
+  el.innerHTML = `<div class="divider"></div>
+    <div style="font-weight:800;font-size:13px;margin-bottom:4px">本次已加入 ${_qaLog.length} 筆</div>`
+    + _qaLog.map(r=>`<div class="listitem" style="padding:6px 10px">
+        <div class="li-m" style="min-width:0"><div class="li-t" style="font-size:12px">${esc(r.label)}${r.isNew?' <span class="tag lack-bg" style="font-size:10px;padding:1px 6px">新材料</span>':''}</div>
+        <div class="li-s">${esc(r.room)}・總需 ${r.before}→<b>${r.after}</b>${esc(r.unit)}</div></div>
+      </div>`).join('');
+}
+
+// ════════════════════════════════════════════
 //  補料單 PDF
 // ════════════════════════════════════════════
 function openRefillSheet(){
@@ -2474,6 +2583,7 @@ function importGhosts(pl){
   (pl.floors||[]).forEach(f=>(f.materials||[]).forEach(m=>names.add(f.floor+'||'+nd(m.name))));
   return D.items.filter(it=>{
     if(it.project!==proj) return false;
+    if(it.manualAdd) return false;                 // 現場直接叫料的，不算計算移除
     const m = mat(it.matId); if(!m) return false;
     return !names.has(it.room+'||'+nd(m.name));
   });
@@ -2487,6 +2597,7 @@ function recipeMatLabels(project){
 // 判斷某材料是不是「計算已移除的殘影」：不在牆食譜裡、且不是補強鋼板（那個走樓層彙總、本來就不在牆裡）
 function isGhostItem(it, labels){
   const m = mat(it.matId); if(!m) return false;
+  if(it.manualAdd) return false;          // 現場直接叫料的，不是殘影
   if(m.cat==='補強鋼板') return false;
   return !labels.has(m.name);
 }
@@ -2617,6 +2728,7 @@ function applyCalcImport(pl){
     if(it.project!==project) return true;                 // 別的案場不動
     const m = mat(it.matId);
     if(liveKeys.has(it.room+'||'+(m?m.name:''))) return true;  // 計算裡還有 → 保留（含手動加減）
+    if(it.manualAdd) return true;                              // 現場「直接叫料」加的 → 計算本來就不知道，原樣保留
     const physical = num(it.delivered)>0 || num(it.remaining)>0 || (it.restock!=null && it.restock!=='') || needAdj(it)!==0;
     if(physical){ it.demand=0; it.restock=null; nSurplus++; return true; }  // 送過料/有手動加減 → 需求歸零保留
     nRemoved++; return false;                             // 沒碰過 → 移除
