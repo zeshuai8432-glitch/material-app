@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v88</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v89</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -157,6 +157,7 @@
       </div>
       <button class="btn" onclick="addDelivery()">✅ 登記送料</button>
     </div>
+    <div id="dv-drafts"></div>
     <div id="dv-orders"></div>
     <div class="card">
       <h2>📜 送料紀錄</h2>
@@ -295,6 +296,7 @@ let D = {
   mats: [],          // [{id, cat, name, spec, thick, unit}]
   items: [],         // [{id, project, room, matId, demand, remaining, delivered, restock, needAdj}]
   deliveries: [],    // [{id, date, project, room, matId, qty}]
+  drafts: [],        // 叫料草稿（先記下來，數量確定後整合成一張單）[{id, project, room, matId, qty, memo, at}]
   recipes: {},       // { [project]: [{floor, rooms:[{type,count,walls:[{name,mats:[{label,unit,cat,kind,raw,div}]}]}]}] }
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
@@ -330,7 +332,7 @@ function clearNeedCache(){ _needCache = {}; }
 function saveLocalOnly(){ clearNeedCache(); try{ localStorage.setItem('fieldmat_v1', JSON.stringify(D)); }catch(e){} }
 function save(){ D.updatedAt = new Date().toISOString(); saveLocalOnly(); schedulePush(); }
 function normalize(x){
-  ['projects','archived','rooms','cats','mats','items','deliveries','transfers','counts','orders'].forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; });
+  ['projects','archived','rooms','cats','mats','items','deliveries','transfers','counts','orders','drafts'].forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; });
   ['recipes','progress'].forEach(k=>{ if(!x[k] || typeof x[k]!=='object' || Array.isArray(x[k])) x[k]={}; });
   if(!x.cats.length) x.cats = DEFAULT_CATS.slice();
   x.items.forEach(it=>{ if(it.demand==null){ it.demand = it.stillNeed!=null ? num(it.stillNeed) : num(it.plan||0); } delete it.plan; delete it.stillNeed; });
@@ -363,7 +365,7 @@ function load(){
 //   field/{project}/parts/{key}     該案場的 items/deliveries/counts/transfers/orders/recipes/progress/rooms
 // ════════════════════════════════════
 const FB_GLOBAL = ['projects','archived','cats','mats'];
-const FB_PROJ   = ['rooms','items','deliveries','counts','transfers','orders'];
+const FB_PROJ   = ['rooms','items','deliveries','counts','transfers','orders','drafts'];
 const FB_PROJ_O = ['recipes','progress'];  // 物件型（以案場為 key）
 let _fbLast = {}, _fbUnsubs = [], _fbSelfAt = 0, _fbOn = false;
 
@@ -409,7 +411,7 @@ async function fbPullField(){
   if(!ms.exists()) return null;
   const meta = ms.data()||{};
   const out = {projects:meta.projects||[],archived:meta.archived||[],cats:meta.cats||[],mats:meta.mats||[],
-    rooms:[],items:[],deliveries:[],counts:[],transfers:[],orders:[],recipes:{},progress:{}};
+    rooms:[],items:[],deliveries:[],counts:[],transfers:[],orders:[],drafts:[],recipes:{},progress:{}};
   _fbLast = { meta: JSON.stringify({projects:out.projects,archived:out.archived,cats:out.cats,mats:out.mats}) };
   for(const p of out.projects){
     const snap = await getDocs(P.parts(p));
@@ -683,6 +685,7 @@ function migrateMatSpecs(){
     (D.transfers||[]).forEach(t=>{ if(t.matId===m.id) t.matId=keep.id; if(t.fromMatId===m.id) t.fromMatId=keep.id; if(t.toMatId===m.id) t.toMatId=keep.id; });
     (D.counts||[]).forEach(c=>{ if(c.matId===m.id) c.matId=keep.id; });
     (D.orders||[]).forEach(o=>(o.lines||[]).forEach(l=>{ if(l.matId===m.id) l.matId=keep.id; }));
+    (D.drafts||[]).forEach(d=>{ if(d.matId===m.id) d.matId=keep.id; });
     D.items.filter(i=>i.matId===m.id).forEach(di=>{
       const ki = D.items.find(i=>i.matId===keep.id && i.project===di.project && i.room===di.room);
       if(!ki){ di.matId = keep.id; return; }
@@ -779,7 +782,9 @@ function renderBoard(){
   const p = cur.project;
   if(!p){ el.innerHTML = emptyBox('🏗️','還沒有案場','到「設定」新增案場，再建房間與需求量'); return; }
   const allItems = projItems(p);
-  if(!allItems.length){ el.innerHTML = emptyBox('📋','此案場尚無材料','從「材料計算」匯入，或直接自己加<br><button class="btn sm" style="margin-top:10px" onclick="openQuickAdd()">➕ 直接叫料</button>'); return; }
+  if(!allItems.length){ const nd=draftList(p).length;
+    el.innerHTML = emptyBox('📋','此案場尚無材料','從「材料計算」匯入，或直接自己加<br><button class="btn sm" style="margin-top:10px" onclick="openQuickAdd()">➕ 直接叫料</button>'
+      + (nd?`<br><button class="btn gray sm" style="margin-top:8px" onclick="openDraftSheet()">📝 叫料草稿（${nd} 筆）</button>`:'')); return; }
   // 系統篩選（隔間 / 天花 / 全部）
   const items = allItems.filter(it=> sysMatch(mat(it.matId)?.cat));
 
@@ -806,6 +811,7 @@ function renderBoard(){
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;flex:0 0 auto">
         <button class="btn sm" onclick="openQuickAdd()">➕ 直接叫料</button>
+        <button class="btn sm gray" onclick="openDraftSheet()">📝 叫料草稿${draftList(p).length?` <span style="background:var(--amber);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${draftList(p).length}</span>`:''}</button>
         <button class="btn sm gray" onclick="openAllocSheet()">🔄 調撥建議</button>
         <button class="btn sm gray" onclick="openRefillSheet()">📄 補料單</button>
         <button class="btn sm gray" onclick="openAdjLog()">📝 追加紀錄${adjCount?` <span style="background:var(--amber);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${adjCount}</span>`:''}</button>
@@ -1131,6 +1137,7 @@ function renderDeliver(){
   document.getElementById('dv-date').value = document.getElementById('dv-date').value || todayStr();
   fillRoomSel('dv-room');
   fillMatSel('dv-mat');
+  renderDraftCard();
   renderOrders();
   renderDeliverLog();
 }
@@ -1707,7 +1714,7 @@ function saveRoom(oldName){
   if(oldName){
     const r = D.rooms.find(x=>x.project===p && x.name===oldName);
     if(r){ r.name=name; r.floor=floor; }
-    if(name!==oldName){ D.items.forEach(i=>{ if(i.project===p&&i.room===oldName)i.room=name; }); D.deliveries.forEach(d=>{ if(d.project===p&&d.room===oldName)d.room=name; }); }
+    if(name!==oldName){ D.items.forEach(i=>{ if(i.project===p&&i.room===oldName)i.room=name; }); D.deliveries.forEach(d=>{ if(d.project===p&&d.room===oldName)d.room=name; }); (D.drafts||[]).forEach(d=>{ if(d.project===p&&d.room===oldName)d.room=name; }); }
   } else {
     D.rooms.push({project:p, name, floor});
   }
@@ -1719,6 +1726,7 @@ function delRoom(name){
   D.rooms = D.rooms.filter(r=>!(r.project===p&&r.name===name));
   D.items = D.items.filter(i=>!(i.project===p&&i.room===name));
   D.deliveries = D.deliveries.filter(d=>!(d.project===p&&d.room===name));
+  D.drafts = (D.drafts||[]).filter(d=>!(d.project===p&&d.room===name));
   save(); renderAll(); renderSettings(); toast('已刪除');
 }
 
@@ -1765,6 +1773,7 @@ function delMat(id){
   if(D.items.some(i=>i.matId===id)){ if(!confirm('此材料已用於某些房間，一併刪除相關需求/盤點紀錄？')) return; }
   D.items = D.items.filter(i=>i.matId!==id);
   D.deliveries = D.deliveries.filter(d=>d.matId!==id);
+  D.drafts = (D.drafts||[]).filter(d=>d.matId!==id);
   D.mats = D.mats.filter(m=>m.id!==id);
   save(); renderSettings(); toast('已刪除');
 }
@@ -1824,19 +1833,24 @@ function savePlan(){
 // ════════════════════════════════════════════
 //  ➕ 直接叫料：不經「材料計算」，一步建材料＋設需求
 // ════════════════════════════════════════════
-let _qaLog = [], _qaMode = 'add';
+let _qaLog = [], _qaMode = 'add', _qaDest = 'draft';
 function openQuickAdd(){
   const p = cur.project;
   if(!p){ toast('⚠️ 先選案場'); return; }
   const rooms = projRooms(p);
   if(!rooms.length){ toast('⚠️ 先新增樓層／房間'); openRoomSheet(); return; }
   _qaLog = []; _qaMode = 'add';
+  if(_qaDest!=='need' && _qaDest!=='draft') _qaDest = 'draft';
   const roomOpts = rooms.slice()
     .sort((a,b)=>cmpFloor(a.floor||a.name, b.floor||b.name)||cmpFloor(a.name,b.name))
     .map(r=>`<option value="${esc(r.name)}">${esc(r.floor&&r.floor!==r.name?(r.floor+' / '):'')}${esc(r.name)}</option>`).join('');
   const catOpts = (D.cats.length?D.cats:['其他']).map(c=>`<option>${esc(c)}</option>`).join('');
   openSheet(`<h3>➕ 直接叫料<span class="x" onclick="closeSheet()">✕</span></h3>
-    <div class="hint">不用經過「材料計算」。選樓層 → 打材料名稱 → 填數量，馬上變成這層的需求，總覽會算缺、補料單也帶得出來。可以連續加好幾筆。</div>
+    <div class="seg" style="margin-bottom:8px">
+      <button class="segbtn ${_qaDest==='draft'?'on':''}" id="qa-d-draft" onclick="qaDest('draft')">📝 先記草稿</button>
+      <button class="segbtn ${_qaDest==='need'?'on':''}" id="qa-d-need" onclick="qaDest('need')">⚡ 直接列入需求</button>
+    </div>
+    <div class="hint" id="qa-dest-hint"></div>
     <div class="fg"><label>樓層／房間</label><select id="qa-room" onchange="qaSync()">${roomOpts}</select></div>
     <div class="fg"><label>材料（打字會跳出材料庫既有的）</label>
       <input id="qa-mat" list="qa-mats" autocomplete="off" placeholder="如 C41 骨架 395cm" oninput="qaSync()">
@@ -1850,13 +1864,34 @@ function openQuickAdd(){
       </div>
       <div class="fg"><label>單位</label><input id="qa-unit" value="支" placeholder="支 / 片 / 捲 / 包"></div>
     </div>
-    <div class="fg"><label>數量</label><input type="number" inputmode="decimal" id="qa-qty" placeholder="0"></div>
-    <div class="seg" style="margin-bottom:10px">
+    <div class="row">
+      <div class="fg"><label>數量</label><input type="number" inputmode="decimal" id="qa-qty" placeholder="0"></div>
+      <div class="fg"><label>備註（選填）</label><input id="qa-memo" placeholder="如：先問廠商 / 待丈量"></div>
+    </div>
+    <div class="seg" id="qa-mode-wrap" style="margin-bottom:10px">
       <button class="segbtn on" id="qa-m-add" onclick="qaMode('add')">＋ 加上去</button>
       <button class="segbtn" id="qa-m-set" onclick="qaMode('set')">＝ 改成這個數</button>
     </div>
-    <button class="btn" onclick="qaSave()">✅ 加入需求</button>
+    <button class="btn" id="qa-save" onclick="qaSave()">✅ 加入</button>
     <div id="qa-log"></div>`);
+  qaDest(_qaDest); qaSync();
+}
+function qaDest(d){
+  _qaDest = d;
+  ['draft','need'].forEach(k=>{ const b=document.getElementById('qa-d-'+k); if(b)b.classList.toggle('on',k===d); });
+  const hint=document.getElementById('qa-dest-hint'), mw=document.getElementById('qa-mode-wrap'),
+        sv=document.getElementById('qa-save'), mm=document.getElementById('qa-memo');
+  if(!hint) return;
+  if(d==='draft'){
+    hint.innerHTML = '先記在<b>叫料草稿</b>，不動需求。數量之後還能改，全部確定了再按「整合成一張單」變成一張待到貨補料單。';
+    if(mw)mw.style.display='none'; if(sv)sv.textContent='📝 記到草稿';
+    if(mm)mm.parentElement.style.display='';
+  } else {
+    hint.innerHTML = '直接寫進這層的<b>需求量</b>，總覽馬上算缺、補料單帶得出來。';
+    if(mw)mw.style.display=''; if(sv)sv.textContent='✅ 加入需求';
+    if(mm)mm.parentElement.style.display='none';
+  }
+  const dl=document.getElementById('qa-draft-badge'); if(dl) dl.remove();
   qaSync();
 }
 function qaDatalist(){
@@ -1874,9 +1909,11 @@ function qaSync(){
   const hit = document.getElementById('qa-hit');
   if(m){
     const it = D.items.find(i=>i.project===cur.project&&i.room===room&&i.matId===m.id);
+    const dq = round((D.drafts||[]).filter(d=>d.project===cur.project&&d.room===room&&d.matId===m.id).reduce((a,d)=>a+num(d.qty),0));
     hit.innerHTML = `<span class="ok">✅ 材料庫已有</span>　${matDisp(m)}<br>`
       + (it ? `<span style="color:var(--text2)">${esc(room)} 目前總需 <b>${itemTotal(it)}</b>${esc(m.unit||'')}・送 ${num(it.delivered)}${esc(m.unit||'')}</span>`
-            : `<span style="color:var(--text2)">${esc(room)} 還沒設過這料，會新開一筆</span>`);
+            : `<span style="color:var(--text2)">${esc(room)} 還沒設過這料，會新開一筆</span>`)
+      + (dq ? `<br><span style="color:var(--amber);font-weight:700">📝 草稿裡已經記了 ${dq}${esc(m.unit||'')}</span>` : '');
   } else if(txt){
     hit.innerHTML = `<span style="color:var(--amber);font-weight:700">🆕 材料庫沒有</span> <span style="color:var(--text2)">會順便幫你建這個材料（下面補分類／規格）</span>`;
   } else hit.innerHTML = '';
@@ -1898,30 +1935,133 @@ function qaSave(){
           unit:document.getElementById('qa-unit').value.trim()||'支' };
     D.mats.push(m); isNew = true;
   }
-  let it = D.items.find(i=>i.project===p&&i.room===room&&i.matId===m.id);
-  const before = it ? itemTotal(it) : 0;
-  if(!it){ it = {id:uid(), project:p, room, matId:m.id, demand:qty, remaining:0, delivered:0, manualAdd:1}; D.items.push(it); }
-  else { it.demand = (_qaMode==='add') ? round(num(it.demand)+qty) : qty; it.manualAdd = 1; }
-  save(); renderAll();
-  _qaLog.unshift({label:matLabel(m), room, before, after:itemTotal(it), unit:m.unit||'', isNew});
+  if(_qaDest==='draft'){
+    const memo = (document.getElementById('qa-memo')||{}).value || '';
+    D.drafts.push({ id:uid(), project:p, room, matId:m.id, qty, memo:memo.trim(), at:todayStr() });
+    save(); renderAll();
+    _qaLog.unshift({label:matLabel(m), room, draft:1, qty, unit:m.unit||'', isNew});
+    const mm=document.getElementById('qa-memo'); if(mm)mm.value='';
+    toast('📝 已記到草稿 '+matLabel(m));
+  } else {
+    let it = D.items.find(i=>i.project===p&&i.room===room&&i.matId===m.id);
+    const before = it ? itemTotal(it) : 0;
+    if(!it){ it = {id:uid(), project:p, room, matId:m.id, demand:qty, remaining:0, delivered:0, manualAdd:1}; D.items.push(it); }
+    else { it.demand = (_qaMode==='add') ? round(num(it.demand)+qty) : qty; it.manualAdd = 1; }
+    save(); renderAll();
+    _qaLog.unshift({label:matLabel(m), room, before, after:itemTotal(it), unit:m.unit||'', isNew});
+    toast('✅ 已加入 '+matLabel(m));
+  }
   document.getElementById('qa-mats').innerHTML = qaDatalist();
   document.getElementById('qa-mat').value = '';
   document.getElementById('qa-qty').value = '';
   const sp=document.getElementById('qa-spec'), th=document.getElementById('qa-thick');
   if(sp)sp.value=''; if(th)th.value='';
   qaSync(); renderQaLog();
-  toast('✅ 已加入 '+matLabel(m));
   document.getElementById('qa-mat').focus();
 }
 function renderQaLog(){
   const el = document.getElementById('qa-log'); if(!el) return;
   if(!_qaLog.length){ el.innerHTML=''; return; }
+  const nd = (D.drafts||[]).filter(d=>d.project===cur.project).length;
   el.innerHTML = `<div class="divider"></div>
     <div style="font-weight:800;font-size:13px;margin-bottom:4px">本次已加入 ${_qaLog.length} 筆</div>`
     + _qaLog.map(r=>`<div class="listitem" style="padding:6px 10px">
         <div class="li-m" style="min-width:0"><div class="li-t" style="font-size:12px">${esc(r.label)}${r.isNew?' <span class="tag lack-bg" style="font-size:10px;padding:1px 6px">新材料</span>':''}</div>
-        <div class="li-s">${esc(r.room)}・總需 ${r.before}→<b>${r.after}</b>${esc(r.unit)}</div></div>
-      </div>`).join('');
+        <div class="li-s">${esc(r.room)}・${r.draft?('📝 草稿 '+r.qty+esc(r.unit)):('總需 '+r.before+'→<b>'+r.after+'</b>'+esc(r.unit))}</div></div>
+      </div>`).join('')
+    + (nd?`<button class="btn gray sm" style="width:100%;margin-top:8px" onclick="closeSheet();openDraftSheet()">📝 去看叫料草稿（${nd} 筆）→ 整合成一張單</button>`:'');
+}
+
+// ── 📝 叫料草稿：一筆一筆記，數量確定後整合成一張待到貨補料單 ──
+function draftList(p){ return (D.drafts||[]).filter(d=>d.project===p); }
+function openDraftSheet(){
+  const p = cur.project;
+  const list = draftList(p);
+  if(!list.length){
+    openSheet(`<h3>📝 叫料草稿<span class="x" onclick="closeSheet()">✕</span></h3>
+      <div class="muted" style="padding:6px 0 12px">目前沒有草稿。到「➕ 直接叫料」選「📝 先記草稿」，就能一筆一筆記下來，數量都確定了再整合成一張單。</div>
+      <button class="btn" onclick="closeSheet();openQuickAdd()">➕ 去叫料</button>`);
+    return;
+  }
+  const byRoom = {};
+  list.forEach(d=>{ (byRoom[d.room] = byRoom[d.room] || []).push(d); });
+  let body = '';
+  Object.keys(byRoom).sort(cmpFloor).forEach(rm=>{
+    body += `<div style="font-size:12px;font-weight:800;color:var(--text2);padding:8px 2px 2px">🏢 ${esc(rm)}</div>`;
+    byRoom[rm].slice().sort((a,b)=>{
+      const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
+      return ga.sort-gb.sort || ga.label.localeCompare(gb.label)
+        || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''});
+    }).forEach(d=>{
+      const m = mat(d.matId), u = m?m.unit:'';
+      const it = D.items.find(i=>i.project===p&&i.room===d.room&&i.matId===d.matId);
+      body += `<div class="listitem" style="padding:7px 10px;gap:8px">
+        <div class="li-m" style="min-width:0">
+          <div class="li-t" style="font-size:13px">${matDisp(m)}</div>
+          <div class="li-s">${esc(d.at||'')}${it?`・現場剩 ${itemRemaining(it)}${esc(u)}・缺 ${Math.max(itemLack(it),0)}${esc(u)}`:'・這層還沒設過需求'}</div>
+          ${d.memo?`<div style="font-size:12px;color:var(--purple,#7c3aed);font-weight:700;margin-top:2px">📌 ${esc(d.memo)}</div>`:''}
+        </div>
+        <div style="flex:0 0 auto;display:flex;align-items:center;gap:5px;white-space:nowrap">
+          <input type="number" inputmode="decimal" value="${d.qty}" style="width:64px;text-align:center;font-weight:800;padding:5px 4px"
+            onchange="editDraft('${d.id}',this.value)">
+          <span style="font-size:12px;color:var(--text2)">${esc(u)}</span>
+          <button class="btn mini gray" onclick="delDraft('${d.id}')">刪</button>
+        </div>
+      </div>`;
+    });
+  });
+  // 合併後會是幾項（同樓層同材料會併成一行）
+  const merged = new Set(list.map(d=>d.room+'||'+d.matId)).size;
+  const grand = round(list.reduce((a,d)=>a+num(d.qty),0));
+  openSheet(`<h3>📝 叫料草稿<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="muted" style="margin-bottom:4px">共 ${list.length} 筆・合計 ${grand}${merged!==list.length?`（同樓層同材料會併成 ${merged} 項）`:''}。數量可以直接改，確定了再整合成一張單。</div>
+    ${body}
+    <div class="divider"></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:6px 0;cursor:pointer">
+      <input type="checkbox" id="dr-need" checked style="width:18px;height:18px"> 同時把數量列入各層「需求量」<span class="muted" style="font-weight:400">（總覽才算得出缺）</span></label>
+    <button class="btn" onclick="mergeDraftToOrder()">📦 整合成一張單</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="closeSheet();openQuickAdd()">➕ 再加一筆</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="clearDrafts()">🗑 清空草稿</button>`);
+}
+function editDraft(id, v){
+  const d = (D.drafts||[]).find(x=>x.id===id); if(!d) return;
+  const q = round(num(v));
+  if(!(q>0)){ toast('⚠️ 數量要大於 0'); return; }
+  d.qty = q; save(); renderAll(); toast('已改成 '+q);
+}
+function delDraft(id){
+  D.drafts = (D.drafts||[]).filter(x=>x.id!==id);
+  save(); renderAll(); openDraftSheet(); toast('已刪除');
+}
+function clearDrafts(){
+  const p = cur.project;
+  if(!confirm('清空「'+p+'」的叫料草稿？（不會動需求、庫存）')) return;
+  D.drafts = (D.drafts||[]).filter(d=>d.project!==p);
+  save(); renderAll(); closeSheet(); toast('草稿已清空');
+}
+function mergeDraftToOrder(){
+  const p = cur.project;
+  const list = draftList(p);
+  if(!list.length){ toast('沒有草稿'); return; }
+  const toNeed = !!(document.getElementById('dr-need')||{}).checked;
+  // 同樓層同材料合併成一行
+  const bag = {};
+  list.forEach(d=>{ const k=d.room+'||'+d.matId; bag[k] = bag[k] || {room:d.room, matId:d.matId, qty:0}; bag[k].qty = round(bag[k].qty + num(d.qty)); });
+  const lines = Object.values(bag).filter(l=>l.qty>0);
+  if(!lines.length){ toast('草稿數量都是 0'); return; }
+  if(toNeed){
+    lines.forEach(l=>{
+      let it = D.items.find(i=>i.project===p&&i.room===l.room&&i.matId===l.matId);
+      if(!it){ it = {id:uid(), project:p, room:l.room, matId:l.matId, demand:l.qty, remaining:0, delivered:0, manualAdd:1}; D.items.push(it); }
+      else { it.demand = round(num(it.demand) + l.qty); it.manualAdd = 1; }
+    });
+  }
+  const o = { id: uid(), date: todayStr(), project: p, lines, fromDraft: 1 };
+  D.orders.push(o);
+  D.drafts = (D.drafts||[]).filter(d=>d.project!==p);
+  _ordOpen.add(o.id);
+  save(); closeSheet(); go('deliver'); renderAll();
+  toast('📦 已整合成一張單（'+lines.length+' 項）');
 }
 
 // ════════════════════════════════════════════
@@ -2006,12 +2146,28 @@ function confirmRefillPDF(){
   exportRefillPDF(null, null, ids, qtyMap);
 }
 // ── 待到貨補料單：到貨一鍵入帳成送料 ──
+function renderDraftCard(){
+  const el = document.getElementById('dv-drafts'); if(!el) return;
+  const list = draftList(cur.project);
+  if(!list.length){ el.innerHTML=''; return; }
+  const merged = new Set(list.map(d=>d.room+'||'+d.matId)).size;
+  const rooms = [...new Set(list.map(d=>roomFloor(cur.project,d.room)))].sort(cmpFloor);
+  el.innerHTML = `<div class="card">
+    <h2>📝 叫料草稿 <span class="muted" style="font-weight:400">(${list.length})</span></h2>
+    <div class="hint">一筆一筆先記著、不動需求。數量都確定了，按「整合成一張單」變成一張待到貨補料單。</div>
+    <div class="listitem" style="padding:8px 11px">
+      <div class="li-m" style="min-width:0"><div class="li-t" style="font-size:13px">${rooms.map(esc).join('、')}</div>
+      <div class="li-s">${list.length} 筆${merged!==list.length?`（會併成 ${merged} 項）`:''}・合計 ${round(list.reduce((a,d)=>a+num(d.qty),0))}</div></div>
+      <span class="btn mini" onclick="openDraftSheet()">開啟</span>
+    </div>
+  </div>`;
+}
 function renderOrders(){
   const el = document.getElementById('dv-orders'); if(!el) return;
   const list = (D.orders||[]).filter(o=>o.project===cur.project);
   if(!list.length){ el.innerHTML=''; return; }
   el.innerHTML = `<div class="card"><h2>📦 待到貨補料單 <span class="muted" style="font-weight:400">(${list.length})</span></h2>
-    <div class="hint">匯出補料單時自動建立。料到了按「到貨入帳」，整張單自動登記成送料（已送/現場剩餘一起加）。</div>
+    <div class="hint">匯出補料單、或把叫料草稿「整合成一張單」時自動建立。料到了按「到貨入帳」，整張單自動登記成送料（已送/現場剩餘一起加）。</div>
     ${list.map(o=>{
       const byFl={}; o.lines.forEach(l=>{ const f=roomFloor(o.project,l.room); byFl[f]=(byFl[f]||0)+1; });
       const total = o.lines.reduce((a,l)=>a+num(l.qty),0);
@@ -2471,6 +2627,7 @@ function mergeDupMats(){
       (D.transfers||[]).forEach(t=>{ if(t.matId===dead.id) t.matId=keep.id; if(t.fromMatId===dead.id) t.fromMatId=keep.id; if(t.toMatId===dead.id) t.toMatId=keep.id; });
       (D.counts||[]).forEach(c=>{ if(c.matId===dead.id) c.matId=keep.id; });
       (D.orders||[]).forEach(o=>(o.lines||[]).forEach(l=>{ if(l.matId===dead.id) l.matId=keep.id; }));
+      (D.drafts||[]).forEach(d=>{ if(d.matId===dead.id) d.matId=keep.id; });
       D.items.filter(i=>i.matId===dead.id).forEach(di=>{
         const ki=D.items.find(i=>i.matId===keep.id && i.project===di.project && i.room===di.room);
         if(!ki){ di.matId=keep.id; return; }
