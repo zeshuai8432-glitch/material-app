@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v90</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v91</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1468,15 +1468,12 @@ function renderCount(){
     const g = deliverGroupKey(m).label;
     if(g!==lastG){ html+=`<div class="catrow" style="padding-left:14px">${esc(g)}</div>`; lastG=g; }
     const ctn = nameTone(m?m.name:'');
-    // 已用（依進度）= 全做完的量 − 現況還需要；建議現場剩餘 = 送料 ＋ 調撥淨額 − 已用
+    // 盤點以現場為準：只擺事實（已送／已用／上次盤點），不推估、不比對、不催重盤
     const used = itemUsed(it);
-    const tn = itemTransferNet(it);
-    const est = round(Math.max(num(it.delivered) + tn.net - used, 0));
     const defVal = itemRemaining(it);
-    const bigGap = used>0 && Math.abs(defVal-est) >= Math.max(5, 0.2*Math.max(defVal, est)); // 差很大→提醒重盤
     html += `<div class="card" style="padding:11px 13px;margin-bottom:8px;border-left:4px solid ${ctn.c}">
       <div style="font-weight:800;font-size:14px;color:${ctn.c}">${matDisp(m)}</div>
-      <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 已送 ${num(it.delivered)}${esc(unit)}${used>0?(' · 已用 '+used+esc(unit)):''} · ${countAgeHTML(it)}</div>
+      <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 已送 ${num(it.delivered)}${esc(unit)}${used>0?(' · 已用 '+used+esc(unit)):''} · ${countAgeHTML(it)}${used>0?` · <a onclick="openReconSheet('${it.id}')" style="color:var(--text2);cursor:pointer;text-decoration:underline">對帳</a>`:''}</div>
       <div class="row">
         <div><label>現場剩餘・可用算式</label>
           <div class="stepper"><button type="button" onclick="stepQty('ct-rem-${it.id}',-1)">−</button>
@@ -1486,8 +1483,6 @@ function renderCount(){
         <div><label>需求量</label>
           <input type="number" id="ct-need-${it.id}" inputmode="decimal" value="${itemNeed(it)}" onchange="liveCount('${it.id}')"></div>
       </div>
-      ${used>0?`<div class="muted" style="margin-top:6px;font-size:12px">建議剩餘 = 送料 ${num(it.delivered)}${tn.tin?` ＋調入 ${tn.tin}`:''}${tn.tout?` −調出 ${tn.tout}`:''} − 已用 ${used} = <b>${est}</b>${defVal!==est?` <a onclick="document.getElementById('ct-rem-${it.id}').value=${est};liveCount('${it.id}')" style="color:var(--blue);cursor:pointer">帶入</a>`:''} · <a onclick="openReconSheet('${it.id}')" style="color:var(--blue);cursor:pointer">🔍 這些數字怎麼來的</a></div>`:''}
-      ${bigGap?`<div onclick="openReconSheet('${it.id}')" style="margin-top:4px;font-size:12px;font-weight:700;color:var(--amber);cursor:pointer">⚠️ 目前顯示 ${defVal}${esc(unit)}，與進度推算 ${est}${esc(unit)} 差 ${Math.abs(round(defVal-est))}${esc(unit)} — 點我看差在哪 ›</div>`:''}
       <div id="ct-res-${it.id}" style="text-align:right;margin-top:7px;font-weight:800">${countResHTML(it)}</div>
     </div>`;
   });
@@ -1535,10 +1530,10 @@ function openReconSheet(id){
       <div style="font-weight:800;font-size:13px;margin:12px 0 4px">差額可能來自</div>
       <ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.75;color:var(--text2)">${causes.map(c=>'<li>'+c+'</li>').join('')}</ul>
       <div class="divider"></div>
-      <div class="muted" style="margin-bottom:6px">要怎麼收尾？</div>
-      <button class="btn" onclick="reconTake('${it.id}','est')">📐 以進度為準：把現場剩餘改成 ${est}${esc(u)}</button>
-      <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="reconTake('${it.id}','real')">✅ 以實盤為準：${real}${esc(u)} 是對的，差額當耗損</button>`}
-    <div class="muted" style="margin-top:10px;font-size:12px">👉 正確順序是<b>先填進度、再盤點</b>。盤點會記住「當下已用多少」，之後進度往前走才從你盤的數字繼續扣。</div>`);
+      <div class="muted" style="margin-bottom:6px">要怎麼收尾？盤點以現場為準，通常選第一個就好。</div>
+      <button class="btn" onclick="reconTake('${it.id}','real')">✅ 以實盤為準：${real}${esc(u)} 是對的，差額當耗損</button>
+      <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="reconTake('${it.id}','est')">📐 以進度為準：把現場剩餘改成 ${est}${esc(u)}</button>`}
+    <div class="muted" style="margin-top:10px;font-size:12px">👉 想讓兩邊接近一點的話，順序是<b>先填進度、再盤點</b>：盤點會記住「當下已用多少」，之後進度往前走才從你盤的數字繼續扣。</div>`);
 }
 function reconTake(id, which){
   const it = D.items.find(x=>x.id===id); if(!it) return;
