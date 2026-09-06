@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v89</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v90</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -454,7 +454,8 @@ async function fbInitField(){
         D = normalize(Object.assign(D, remote));
         // 雲端拉回來的可能還是舊格式（規格黏在名稱裡）→ 拉回後再遷移一次並推回去
         const n = migrateMatSpecs();
-        if(n){ saveLocalOnly(); await fbPushField(); toast('✅ 已把 '+n+' 項材料的規格獨立出來'); }
+        const k = migrateUsedAt();      // 雲端可能是舊裝置寫的、還沒平移過
+        if(n||k){ saveLocalOnly(); await fbPushField(); if(n) toast('✅ 已把 '+n+' 項材料的規格獨立出來'); }
       }
       else { await fbPushField(); }   // 本機比較完整 → 推上去
     } else {
@@ -563,8 +564,8 @@ function lookupMatId(lm, rec){                        // rec: 食譜的一筆材
   const sp = splitSpec(rec.label||rec.name||'');
   return lm[matKey(sp.name, sp.spec)] || lm[rec.label] || lm[sp.name];
 }
-function floorNeedsMap(project, floor){ // {matId: 還需要數量}
-  const key = project+'||'+floor;
+function floorNeedsMap(project, floor, full){ // {matId: 還需要數量}；full=true → 當作全部都還沒做（＝全做完要的量）
+  const key = project+'||'+floor+(full?'||FULL':'');
   if(_needCache[key]) return _needCache[key];
   const map = {};
   Object.defineProperty(map, '__has', { value:new Set(), enumerable:false }); // 牆食譜裡出現過的材料
@@ -578,7 +579,7 @@ function floorNeedsMap(project, floor){ // {matId: 還需要數量}
       const cnt = num(room.count);
       (room.walls||[]).forEach(wall=>{
         const wp = rp[wall.name] || {};
-        const undoneOf = k => { const v = wp[k]!=null ? num(wp[k]) : cnt; return Math.max(0, Math.min(v, cnt)); };
+        const undoneOf = k => { if(full) return cnt; const v = wp[k]!=null ? num(wp[k]) : cnt; return Math.max(0, Math.min(v, cnt)); };
         (wall.mats||[]).forEach(r=>{
           const mid = lookupMatId(lm, r); if(!mid) return;
           map.__has.add(mid); // 記錄「有出現在牆食譜」的材料（不管進度做到哪）
@@ -612,8 +613,20 @@ function needAdj(it){ return num(it.needAdj); } // 手動需求增減（換料/�
 function itemNeed(it){ return round(baseNeed(it) + needAdj(it)); } // 需求量（含手動增減）
 function itemTotal(it){ return round(num(it.demand) + needAdj(it)); } // 總需求量（含手動增減）
 function itemManual(it){ return it.restock!=null && it.restock!==''; } // 有手動指定要補數量
-function itemUsed(it){ // 依進度推「已用」量（全做完的量 − 依進度還需要），不受手動增減影響
-  return hasRecipe(it.project, it.room) ? Math.max(round(num(it.demand) - baseNeed(it)), 0) : 0;
+// 這層「全做完要多少」— 直接由牆食譜算（進度當作全沒做），不受需求量被手改影響
+function itemFullNeed(it){
+  if(!hasRecipe(it.project, it.room)) return num(it.demand);
+  const m = floorNeedsMap(it.project, it.room, true);
+  if(m.__has && !m.__has.has(it.matId)) return num(it.demand);   // 不在牆食譜裡 → 只能用需求量
+  return round(m[it.matId] || 0);
+}
+// 記住「這筆的剩餘數字是在已用多少的時候定下來的」，之後進度前進才從這裡續扣。
+// uv2 同時標記「這個 usedAt 是新公式寫的」，讓一次性平移不會重複套到它身上。
+function markUsed(it){ it.usedAt = itemUsed(it); it.uv2 = 1; }
+function itemUsed(it){ // 依進度推「已用」量 = 食譜全做完的量 − 依進度還需要的量
+  // 基準用「食譜全做完的量」而不是 it.demand：需求量被手動改過（用量結果湊整／直接叫料／編需求量）
+  // 也不會讓「已用」跟著失真 —— 已用只該由施工進度決定
+  return hasRecipe(it.project, it.room) ? Math.max(round(itemFullNeed(it) - baseNeed(it)), 0) : 0;
 }
 function itemTransferNet(it){ // 這材料在此樓層的調撥進出（含裁切）
   let tin=0, tout=0;
@@ -990,7 +1003,7 @@ function undoTransfer(id){
   const m = mat(t.matId); const unit = m?m.unit:'';
   const findIt = (room, matId)=>D.items.find(i=>i.project===t.project && i.room===room && i.matId===matId);
   const mkIt = (room, matId)=>{ let it=findIt(room, matId); if(!it){ it={id:uid(),project:t.project,room,matId,demand:0,remaining:0,delivered:0}; D.items.push(it); } return it; };
-  const setRem = (it, v)=>{ it.remaining = round(Math.max(v,0)); it.usedAt = itemUsed(it); };
+  const setRem = (it, v)=>{ it.remaining = round(Math.max(v,0)); markUsed(it); };
   if(t.cut){
     // 裁切：目的材料 −qty、來源材料（同層）＋qty
     let fromMatId = t.fromMatId;
@@ -1108,7 +1121,7 @@ function saveQuickCount(itemId){
   const rs = (document.getElementById('qc-restock').value||'').trim();
   it.restock = rs==='' ? null : evalQty(rs); // 手動要補，留空＝自動算
   it.remaining = evalQty(document.getElementById('qc-rem').value);
-  it.usedAt = itemUsed(it); // 記住盤點當下的已用量，之後進度前進會從盤點數續扣
+  markUsed(it); // 記住盤點當下的已用量，之後進度前進會從盤點數續扣
   it.countAt = new Date().toISOString();
   logCount(it, prevRem, prevRestock);
   // 總需求量改成手動增減（存成與原計算的差），這樣換料/追加不會被重新匯出蓋掉。
@@ -1473,13 +1486,74 @@ function renderCount(){
         <div><label>需求量</label>
           <input type="number" id="ct-need-${it.id}" inputmode="decimal" value="${itemNeed(it)}" onchange="liveCount('${it.id}')"></div>
       </div>
-      ${used>0?`<div class="muted" style="margin-top:6px;font-size:12px">建議剩餘 = 送料 ${num(it.delivered)}${tn.tin?` ＋調入 ${tn.tin}`:''}${tn.tout?` −調出 ${tn.tout}`:''} − 已用 ${used} = <b>${est}</b>${defVal!==est?` <a onclick="document.getElementById('ct-rem-${it.id}').value=${est};liveCount('${it.id}')" style="color:var(--blue);cursor:pointer">帶入</a>`:''}</div>`:''}
-      ${bigGap?`<div style="margin-top:4px;font-size:12px;font-weight:700;color:var(--amber)">⚠️ 目前顯示 ${defVal}${esc(unit)}，與進度推算 ${est}${esc(unit)} 差 ${Math.abs(round(defVal-est))}${esc(unit)} — 建議實地重盤一次接回帳</div>`:''}
+      ${used>0?`<div class="muted" style="margin-top:6px;font-size:12px">建議剩餘 = 送料 ${num(it.delivered)}${tn.tin?` ＋調入 ${tn.tin}`:''}${tn.tout?` −調出 ${tn.tout}`:''} − 已用 ${used} = <b>${est}</b>${defVal!==est?` <a onclick="document.getElementById('ct-rem-${it.id}').value=${est};liveCount('${it.id}')" style="color:var(--blue);cursor:pointer">帶入</a>`:''} · <a onclick="openReconSheet('${it.id}')" style="color:var(--blue);cursor:pointer">🔍 這些數字怎麼來的</a></div>`:''}
+      ${bigGap?`<div onclick="openReconSheet('${it.id}')" style="margin-top:4px;font-size:12px;font-weight:700;color:var(--amber);cursor:pointer">⚠️ 目前顯示 ${defVal}${esc(unit)}，與進度推算 ${est}${esc(unit)} 差 ${Math.abs(round(defVal-est))}${esc(unit)} — 點我看差在哪 ›</div>`:''}
       <div id="ct-res-${it.id}" style="text-align:right;margin-top:7px;font-weight:800">${countResHTML(it)}</div>
     </div>`;
   });
   html += `<button class="btn" onclick="saveCount()">💾 儲存盤點</button>`;
   el.innerHTML = html;
+}
+// 🔍 對帳：把「送料 / 調撥 / 已用 / 實盤」整條帳攤開，並指出差額最可能出在哪
+function openReconSheet(id){
+  const it = D.items.find(x=>x.id===id); if(!it) return;
+  const m = mat(it.matId), u = m?m.unit:'';
+  const tn = itemTransferNet(it);
+  const used = itemUsed(it);
+  const full = itemFullNeed(it);
+  const left = baseNeed(it);
+  const est  = round(Math.max(num(it.delivered) + tn.net - used, 0));
+  const real = itemRemaining(it);
+  const gap  = round(real - est);
+  const at   = lastCountAt(it);
+  const usedAtCount = it.usedAt!=null ? round(num(it.usedAt)) : null;
+  const since = usedAtCount!=null ? Math.max(round(used - usedAtCount), 0) : null;
+  const demandGap = round(num(it.demand) - full);   // 需求量 vs 食譜全做完的量
+  const row = (k,v,c)=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed var(--line)">
+    <span style="color:var(--text2)">${k}</span><b style="white-space:nowrap;color:${c||'var(--text)'}">${v}</b></div>`;
+  const causes = [];
+  if(!hasRecipe(it.project,it.room)) causes.push('這層<b>沒有牆食譜</b>（沒從材料計算匯入過），所以「已用」一律算 0，帳面剩餘＝送料，跟實盤差多少都正常。');
+  if(demandGap!==0) causes.push(`這層需求量 <b>${num(it.demand)}${esc(u)}</b> 與牆食譜全做完的 <b>${full}${esc(u)}</b> 差 <b>${demandGap>0?'＋':''}${demandGap}${esc(u)}</b>（用量結果手動調過／直接叫料加過）。「已用」現在只看食譜，不受這個影響，但<b>缺料判斷</b>還是照需求量走。`);
+  if(since) causes.push(`你是<b>先盤點、之後才補進度</b>：盤點當下已用 ${usedAtCount}${esc(u)}，現在 ${used}${esc(u)}，中間這 <b>${since}${esc(u)}</b> 會從你盤的數字再扣一次。如果盤的時候那些工<b>其實已經做完了</b>，就等於扣了兩次 —— 這種情況請重盤一次（或直接「帶入」帳面值）接回帳。`);
+  causes.push('實際耗損：裁切損料、破損、借去別層沒登記調撥、送料單登記多／少。');
+  openSheet(`<h3>🔍 對帳<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div style="font-weight:800;font-size:14px">${matDisp(m)}</div>
+    <div class="muted" style="margin-bottom:8px">${esc(it.room)}${at?`・上次盤點 ${esc(String(at).slice(0,10))}`:'・還沒盤過'}</div>
+    <div style="font-weight:800;font-size:13px;margin:10px 0 2px">📥 進來的</div>
+    ${row('送料登記', '＋'+num(it.delivered)+u)}
+    ${tn.tin?row('調入', '＋'+tn.tin+u):''}
+    ${tn.tout?row('調出', '−'+tn.tout+u,'var(--amber)'):''}
+    <div style="font-weight:800;font-size:13px;margin:12px 0 2px">🔨 依施工進度用掉的</div>
+    ${row('全做完要（牆食譜）', full+u)}
+    ${row('照目前進度還要', left+u)}
+    ${row('＝ 已用', '−'+used+u, 'var(--amber)')}
+    <div class="divider"></div>
+    ${row('帳面應剩', est+u, 'var(--blue)')}
+    ${row('實際盤點', real+u, 'var(--blue)')}
+    ${row('差額', (gap>0?'＋':'')+gap+u, gap===0?'var(--green,#16a34a)':'var(--red)')}
+    ${gap===0?'<div class="muted" style="margin-top:8px">✅ 帳面跟實盤對得起來。</div>':`
+      <div style="font-weight:800;font-size:13px;margin:12px 0 4px">差額可能來自</div>
+      <ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.75;color:var(--text2)">${causes.map(c=>'<li>'+c+'</li>').join('')}</ul>
+      <div class="divider"></div>
+      <div class="muted" style="margin-bottom:6px">要怎麼收尾？</div>
+      <button class="btn" onclick="reconTake('${it.id}','est')">📐 以進度為準：把現場剩餘改成 ${est}${esc(u)}</button>
+      <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="reconTake('${it.id}','real')">✅ 以實盤為準：${real}${esc(u)} 是對的，差額當耗損</button>`}
+    <div class="muted" style="margin-top:10px;font-size:12px">👉 正確順序是<b>先填進度、再盤點</b>。盤點會記住「當下已用多少」，之後進度往前走才從你盤的數字繼續扣。</div>`);
+}
+function reconTake(id, which){
+  const it = D.items.find(x=>x.id===id); if(!it) return;
+  const prevRem = itemRemaining(it);
+  if(which==='est'){
+    const tn = itemTransferNet(it);
+    it.remaining = round(Math.max(num(it.delivered) + tn.net - itemUsed(it), 0));
+  }else{
+    it.remaining = round(itemRemaining(it));   // 把有效剩餘固定下來
+  }
+  markUsed(it);                    // 重新對齊基準，之後進度前進才從這裡續扣
+  it.countAt = new Date().toISOString();
+  logCount(it, prevRem, it.restock);
+  save(); closeSheet(); renderAll(); renderCount();
+  toast('✅ 已對帳，現場剩餘 '+it.remaining);
 }
 function countResHTML(it){
   const lack = itemLack(it);
@@ -1502,7 +1576,7 @@ function saveCount(){
   const p = cur.project; const room = document.getElementById('ct-room').value;
   D.items.filter(i=>i.project===p && i.room===room).forEach(it=>{
     const r=document.getElementById('ct-rem-'+it.id), n=document.getElementById('ct-need-'+it.id);
-    if(r){ const prevRem = itemRemaining(it); it.remaining = evalQty(r.value); it.usedAt = itemUsed(it); it.countAt = new Date().toISOString(); logCount(it, prevRem, it.restock); } // 記住盤點當下已用量＋記流水帳
+    if(r){ const prevRem = itemRemaining(it); it.remaining = evalQty(r.value); markUsed(it); it.countAt = new Date().toISOString(); logCount(it, prevRem, it.restock); } // 記住盤點當下已用量＋記流水帳
     // 需求量編輯存成手動增減（相對依進度的還需要），不動原計算基準、也不會被重新匯出蓋掉
     if(n){ const adj = round(num(n.value) - baseNeed(it)); it.needAdj = adj===0 ? null : adj; }
   });
@@ -2368,8 +2442,8 @@ function doCuts(p, cuts){
   cuts.forEach(c=>{
     const from=D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.fromMatId);
     const to=D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.toMatId);
-    if(from){ from.remaining = round(Math.max(itemRemaining(from)-c.qty, 0)); from.usedAt = itemUsed(from); }
-    if(to){ to.remaining = round(itemRemaining(to)+c.qty); to.usedAt = itemUsed(to); }
+    if(from){ from.remaining = round(Math.max(itemRemaining(from)-c.qty, 0)); markUsed(from); }
+    if(to){ to.remaining = round(itemRemaining(to)+c.qty); markUsed(to); }
     D.transfers.push({id:uid(), date:todayStr(), project:p, matId:c.toMatId, fromMatId:c.fromMatId, from:c.floor+'（'+(mat(c.fromMatId)?.name||'')+' 裁）', to:c.floor, qty:round(c.qty), cut:true});
   });
 }
@@ -2502,8 +2576,8 @@ function doManualTransfer(){
   const src=D.items.find(i=>i.project===p && i.room===from && i.matId===matId);
   let dst=D.items.find(i=>i.project===p && i.room===to && i.matId===matId);
   if(!dst){ dst={id:uid(), project:p, room:to, matId, demand:0, remaining:0, delivered:0}; D.items.push(dst); }
-  if(src){ src.remaining = round(Math.max(itemRemaining(src)-qty,0)); src.usedAt = itemUsed(src); }
-  dst.remaining = round(itemRemaining(dst)+qty); dst.usedAt = itemUsed(dst);
+  if(src){ src.remaining = round(Math.max(itemRemaining(src)-qty,0)); markUsed(src); }
+  dst.remaining = round(itemRemaining(dst)+qty); markUsed(dst);
   D.transfers.push({id:uid(), date:todayStr(), project:p, matId, from, to, qty, manual:true});
   save(); renderAll(); closeSheet();
   const m=mat(matId); toast(`✅ 已調撥 ${esc(m?m.name:'')} ${qty}${esc(m?m.unit:'')}：${from} → ${to}`);
@@ -2515,8 +2589,8 @@ function doAlloc(p, mid){ // 實際套用一個材料的調撥（重算以防過
     const src = D.items.find(i=>i.project===p && i.room===t.from && i.matId===mid);
     let dst = D.items.find(i=>i.project===p && i.room===t.to && i.matId===mid);
     if(!dst){ dst = {id:uid(), project:p, room:t.to, matId:mid, demand:0, remaining:0, delivered:0}; D.items.push(dst); }
-    if(src){ src.remaining = round(Math.max(itemRemaining(src) - t.qty, 0)); src.usedAt = itemUsed(src); }
-    dst.remaining = round(itemRemaining(dst) + t.qty); dst.usedAt = itemUsed(dst);
+    if(src){ src.remaining = round(Math.max(itemRemaining(src) - t.qty, 0)); markUsed(src); }
+    dst.remaining = round(itemRemaining(dst) + t.qty); markUsed(dst);
     D.transfers.push({id:uid(), date:todayStr(), project:p, matId:mid, from:t.from, to:t.to, qty:round(t.qty)});
   });
   return a.plan.length;
@@ -2908,9 +2982,25 @@ function dismissCalcImport(){
   _pendingImport = null; closeSheet();
 }
 
+// 一次性：v90 起「已用」＝食譜全做完的量 − 依進度還需要（不再看 it.demand）。
+// 已盤點過的品項，usedAt 是用舊公式存的，直接沿用會讓畫面上的剩餘跳動 → 平移同樣的差額。
+// 標記記在品項上（uv2），會跟著雲端同步，所以每台裝置只會平移一次。
+function migrateUsedAt(){
+  let touched = 0, shifted = 0;
+  D.items.forEach(it=>{
+    if(it.uv2 || it.usedAt==null) return;                     // 沒盤過、或已是新公式寫的 → 不動
+    const shift = round(itemFullNeed(it) - num(it.demand));   // 不在食譜／沒食譜 → 0
+    if(shift){ it.usedAt = Math.max(round(num(it.usedAt) + shift), 0); shifted++; }
+    it.uv2 = 1; touched++;
+  });
+  if(shifted) console.log('[migrate] usedAt 基準平移', shifted, '筆');
+  return touched;
+}
+
 // ── boot ──
 load();
 { const n = migrateMatSpecs(); if(n){ save(); } }   // 規格從名稱拆出來（一次性）
+{ if(migrateUsedAt()) save(); }      // 「已用」改由食譜計算後，把已盤點品項的基準一起平移（一次性）
 fillProjSel(); go('board');
 fbInitField();                       // Firestore：拉回雲端 + 開即時同步
 applyDueDeliveries();                // 預定送料到期自動入帳
