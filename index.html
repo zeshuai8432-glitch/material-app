@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v92</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v93</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1902,7 +1902,14 @@ function savePlan(){
 // ════════════════════════════════════════════
 //  ➕ 直接叫料：不經「材料計算」，一步建材料＋設需求
 // ════════════════════════════════════════════
-let _qaLog = [], _qaMode = 'add', _qaDest = 'draft';
+let _qaLog = [], _qaMode = 'add', _qaDest = 'draft', _qaTag = '';
+// 用過的標籤（廠商名／日期…）：草稿裡的 ＋ 已出過的單上的，給下拉直接選
+function draftTags(p){
+  const s = new Set();
+  (D.drafts||[]).forEach(d=>{ if(d.project===p && d.tag) s.add(d.tag); });
+  (D.orders||[]).forEach(o=>{ if(o.project===p && o.label) s.add(o.label); });
+  return [...s].sort((a,b)=>String(b).localeCompare(String(a),'zh-Hant',{numeric:true}));
+}
 function openQuickAdd(){
   const p = cur.project;
   if(!p){ toast('⚠️ 先選案場'); return; }
@@ -1921,6 +1928,14 @@ function openQuickAdd(){
     </div>
     <div class="hint" id="qa-dest-hint"></div>
     <div class="fg"><label>樓層／房間</label><select id="qa-room" onchange="qaSync()">${roomOpts}</select></div>
+    <div class="fg" id="qa-tag-wrap"><label>標籤（選填，會沿用到下一筆）</label>
+      <input id="qa-tag" list="qa-tags" autocomplete="off" value="${esc(_qaTag)}" placeholder="廠商名 / 日期 / 任何你想分的" oninput="_qaTag=this.value">
+      <datalist id="qa-tags">${draftTags(p).map(t=>`<option value="${esc(t)}"></option>`).join('')}</datalist>
+      <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:5px">
+        <a onclick="qaSetTag(todayStr())" style="font-size:12px;font-weight:700;color:var(--blue);border:1px solid var(--line);border-radius:8px;padding:3px 8px;cursor:pointer">📅 今天</a>
+        ${draftTags(p).slice(0,6).map(t=>`<a onclick="qaSetTag('${esc(t).replace(/'/g,"\\'")}')" style="font-size:12px;font-weight:700;color:var(--text2);border:1px solid var(--line);border-radius:8px;padding:3px 8px;cursor:pointer">${esc(t)}</a>`).join('')}
+        ${_qaTag?`<a onclick="qaSetTag('')" style="font-size:12px;font-weight:700;color:var(--amber);border:1px solid var(--line);border-radius:8px;padding:3px 8px;cursor:pointer">✕ 不分</a>`:''}
+      </div></div>
     <div class="fg"><label>材料（打字會跳出材料庫既有的）</label>
       <input id="qa-mat" list="qa-mats" autocomplete="off" placeholder="如 C41 骨架 395cm" oninput="qaSync()">
       <datalist id="qa-mats">${qaDatalist()}</datalist></div>
@@ -1949,16 +1964,17 @@ function qaDest(d){
   _qaDest = d;
   ['draft','need'].forEach(k=>{ const b=document.getElementById('qa-d-'+k); if(b)b.classList.toggle('on',k===d); });
   const hint=document.getElementById('qa-dest-hint'), mw=document.getElementById('qa-mode-wrap'),
-        sv=document.getElementById('qa-save'), mm=document.getElementById('qa-memo');
+        sv=document.getElementById('qa-save'), mm=document.getElementById('qa-memo'),
+        tw=document.getElementById('qa-tag-wrap');
   if(!hint) return;
   if(d==='draft'){
-    hint.innerHTML = '先記在<b>叫料草稿</b>，不動需求。數量之後還能改，全部確定了再按「整合成一張單」變成一張待到貨補料單。';
+    hint.innerHTML = '先記在<b>叫料草稿</b>，不動需求。數量之後還能改，全部確定了再整合成單（可依標籤／分類／樓層分張）。';
     if(mw)mw.style.display='none'; if(sv)sv.textContent='📝 記到草稿';
-    if(mm)mm.parentElement.style.display='';
+    if(mm)mm.parentElement.style.display=''; if(tw)tw.style.display='';
   } else {
     hint.innerHTML = '直接寫進這層的<b>需求量</b>，總覽馬上算缺、補料單帶得出來。';
     if(mw)mw.style.display=''; if(sv)sv.textContent='✅ 加入需求';
-    if(mm)mm.parentElement.style.display='none';
+    if(mm)mm.parentElement.style.display='none'; if(tw)tw.style.display='none';
   }
   const dl=document.getElementById('qa-draft-badge'); if(dl) dl.remove();
   qaSync();
@@ -1968,6 +1984,7 @@ function qaDatalist(){
     .sort((a,b)=>catOrder(a.cat)-catOrder(b.cat)||matLabel(a).localeCompare(matLabel(b),'zh-Hant',{numeric:true}))
     .map(m=>`<option value="${esc(matLabel(m))}">${esc(m.cat||'')}</option>`).join('');
 }
+function qaSetTag(t){ _qaTag = t; const el=document.getElementById('qa-tag'); if(el)el.value=t; }
 function qaMode(m){ _qaMode=m; ['add','set'].forEach(k=>{ const b=document.getElementById('qa-m-'+k); if(b)b.classList.toggle('on',k===m); }); }
 function qaNorm(s){ return String(s||'').replace(/\s+/g,'').toLowerCase(); }
 function qaFindMat(txt){ const q=qaNorm(txt); return q ? (D.mats.find(m=>qaNorm(matLabel(m))===q) || null) : null; }
@@ -2006,9 +2023,11 @@ function qaSave(){
   }
   if(_qaDest==='draft'){
     const memo = (document.getElementById('qa-memo')||{}).value || '';
-    D.drafts.push({ id:uid(), project:p, room, matId:m.id, qty, memo:memo.trim(), at:todayStr() });
+    const tag = ((document.getElementById('qa-tag')||{}).value || '').trim();
+    _qaTag = tag;                                   // 標籤沿用到下一筆，同一個廠商可以連續記
+    D.drafts.push({ id:uid(), project:p, room, matId:m.id, qty, memo:memo.trim(), tag, at:todayStr() });
     save(); renderAll();
-    _qaLog.unshift({label:matLabel(m), room, draft:1, qty, unit:m.unit||'', isNew});
+    _qaLog.unshift({label:matLabel(m), room, draft:1, qty, unit:m.unit||'', isNew, tag});
     const mm=document.getElementById('qa-memo'); if(mm)mm.value='';
     toast('📝 已記到草稿 '+matLabel(m));
   } else {
@@ -2036,7 +2055,7 @@ function renderQaLog(){
     <div style="font-weight:800;font-size:13px;margin-bottom:4px">本次已加入 ${_qaLog.length} 筆</div>`
     + _qaLog.map(r=>`<div class="listitem" style="padding:6px 10px">
         <div class="li-m" style="min-width:0"><div class="li-t" style="font-size:12px">${esc(r.label)}${r.isNew?' <span class="tag lack-bg" style="font-size:10px;padding:1px 6px">新材料</span>':''}</div>
-        <div class="li-s">${esc(r.room)}・${r.draft?('📝 草稿 '+r.qty+esc(r.unit)):('總需 '+r.before+'→<b>'+r.after+'</b>'+esc(r.unit))}</div></div>
+        <div class="li-s">${esc(r.room)}・${r.draft?('📝 草稿 '+r.qty+esc(r.unit)+(r.tag?'　🏷 '+esc(r.tag):'')):('總需 '+r.before+'→<b>'+r.after+'</b>'+esc(r.unit))}</div></div>
       </div>`).join('')
     + (nd?`<button class="btn gray sm" style="width:100%;margin-top:8px" onclick="closeSheet();openDraftSheet()">📝 去看叫料草稿（${nd} 筆）→ 整合成一張單</button>`:'');
 }
@@ -2047,6 +2066,9 @@ let _drGroup = 'room', _drSplit = 'none', _drNeed = true;
 function drGroup(g){ _drGroup = g; openDraftSheet(); }
 function drSplit(v){ _drSplit = v; openDraftSheet(); }
 function draftCat(d){ return (mat(d.matId)||{}).cat || '其他'; }
+const NO_TAG = '（未分）';
+function draftTag(d){ return d.tag || NO_TAG; }
+function draftKeyFn(kind){ return kind==='cat' ? draftCat : (kind==='tag' ? draftTag : (d=>d.room)); }
 function openDraftSheet(){
   const p = cur.project;
   const list = draftList(p);
@@ -2056,18 +2078,24 @@ function openDraftSheet(){
       <button class="btn" onclick="closeSheet();openQuickAdd()">➕ 去叫料</button>`);
     return;
   }
-  const byCat = _drGroup==='cat';
+  const gk = _drGroup, byCat = gk==='cat', byTag = gk==='tag';
+  const keyFn = draftKeyFn(gk);
   const groups = {};
-  list.forEach(d=>{ const k = byCat ? draftCat(d) : d.room; (groups[k] = groups[k] || []).push(d); });
-  const keys = Object.keys(groups).sort((a,b)=> byCat ? (catOrder(a)-catOrder(b) || a.localeCompare(b,'zh-Hant')) : cmpFloor(a,b));
+  list.forEach(d=>{ const k = keyFn(d); (groups[k] = groups[k] || []).push(d); });
+  const keys = Object.keys(groups).sort((a,b)=>
+    byCat ? (catOrder(a)-catOrder(b) || a.localeCompare(b,'zh-Hant'))
+    : byTag ? ((a===NO_TAG?1:0)-(b===NO_TAG?1:0) || a.localeCompare(b,'zh-Hant',{numeric:true}))
+    : cmpFloor(a,b));
   let body = '';
   keys.forEach(k=>{
     const g = groups[k];
     const sub = round(g.reduce((a,d)=>a+num(d.qty),0));
+    const gicon = byCat?'🗄️':(byTag?'🏷':'🏢');
     body += `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;font-weight:800;color:var(--text2);padding:9px 2px 2px">
-      <span>${byCat?'🗄️':'🏢'} ${esc(k)}</span><span style="font-weight:700">${g.length} 筆・${sub}</span></div>`;
+      <span>${gicon} ${esc(k)}${byTag?` <a onclick="retagGroup('${esc(k).replace(/'/g,"\\'")}')" style="color:var(--blue);font-weight:700;cursor:pointer">改標籤</a>`:''}</span>
+      <span style="font-weight:700">${g.length} 筆・${sub}</span></div>`;
     g.slice().sort((a,b)=>{
-      if(byCat) { const r = cmpFloor(a.room,b.room); if(r) return r; }
+      if(byCat||byTag) { const r = cmpFloor(a.room,b.room); if(r) return r; }
       const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
       return ga.sort-gb.sort || ga.label.localeCompare(gb.label)
         || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''});
@@ -2077,7 +2105,8 @@ function openDraftSheet(){
       body += `<div class="listitem" style="padding:7px 10px;gap:8px">
         <div class="li-m" style="min-width:0">
           <div class="li-t" style="font-size:13px">${matDisp(m)}</div>
-          <div class="li-s">${byCat?`🏢 ${esc(d.room)}・`:''}${esc(d.at||'')}${it?`・現場剩 ${itemRemaining(it)}${esc(u)}・缺 ${Math.max(itemLack(it),0)}${esc(u)}`:'・這層還沒設過需求'}</div>
+          <div class="li-s">${(byCat||byTag)?`🏢 ${esc(d.room)}・`:''}${esc(d.at||'')}${it?`・現場剩 ${itemRemaining(it)}${esc(u)}・缺 ${Math.max(itemLack(it),0)}${esc(u)}`:'・這層還沒設過需求'}</div>
+          ${byTag?'':`<div style="margin-top:2px"><a onclick="retagOne('${d.id}')" style="font-size:11px;font-weight:700;cursor:pointer;color:${d.tag?'var(--blue)':'var(--text2)'}">${d.tag?'🏷 '+esc(d.tag):'🏷 加標籤'}</a></div>`}
           ${d.memo?`<div style="font-size:12px;color:var(--purple,#7c3aed);font-weight:700;margin-top:2px">📌 ${esc(d.memo)}</div>`:''}
         </div>
         <div style="flex:0 0 auto;display:flex;align-items:center;gap:5px;white-space:nowrap">
@@ -2096,14 +2125,19 @@ function openDraftSheet(){
   openSheet(`<h3>📝 叫料草稿<span class="x" onclick="closeSheet()">✕</span></h3>
     <div class="muted" style="margin-bottom:6px">共 ${list.length} 筆・合計 ${grand}${merged!==list.length?`（同樓層同材料會併成 ${merged} 項）`:''}。數量可以直接改，確定了再整合出單。</div>
     <div class="seg" style="margin-bottom:2px">
-      <button class="segbtn ${_drGroup==='room'?'on':''}" onclick="drGroup('room')">🏢 依樓層看</button>
-      <button class="segbtn ${byCat?'on':''}" onclick="drGroup('cat')">🗄️ 依分類看</button>
+      <button class="segbtn ${gk==='room'?'on':''}" onclick="drGroup('room')">🏢 樓層</button>
+      <button class="segbtn ${byCat?'on':''}" onclick="drGroup('cat')">🗄️ 分類</button>
+      <button class="segbtn ${byTag?'on':''}" onclick="drGroup('tag')">🏷 標籤</button>
     </div>
     ${body}
     <div class="divider"></div>
     <div style="font-weight:800;font-size:13px;margin-bottom:5px">出單方式</div>
-    <div class="seg" style="margin-bottom:6px">${sBtn('none','1 張單')}${sBtn('cat','🗄️ 依分類分單')}${sBtn('room','🏢 依樓層分單')}</div>
-    <div class="muted" style="font-size:12px;margin-bottom:8px">${_drSplit==='none'?'全部併成一張待到貨補料單。':(_drSplit==='cat'?'一個材料分類一張單 —— 不同廠商可以各拿一張。':'一個樓層一張單。')}會產生 <b>${nOrders}</b> 張。</div>
+    <div class="seg" style="margin-bottom:6px">${sBtn('none','1 張')}${sBtn('tag','🏷 標籤')}${sBtn('cat','🗄️ 分類')}${sBtn('room','🏢 樓層')}</div>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">${
+      _drSplit==='none'?'全部併成一張待到貨補料單。'
+      :_drSplit==='tag'?'一個標籤一張單 —— 你自己打的廠商名／日期怎麼分，單就怎麼出。'
+      :_drSplit==='cat'?'一個材料分類一張單。'
+      :'一個樓層一張單。'}會產生 <b>${nOrders}</b> 張。</div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:6px 0;cursor:pointer">
       <input type="checkbox" id="dr-need" ${_drNeed?'checked':''} style="width:18px;height:18px" onchange="_drNeed=this.checked"> 同時把數量列入各層「需求量」<span class="muted" style="font-weight:400">（總覽才算得出缺）</span></label>
     <button class="btn" onclick="mergeDraftToOrder()">📦 整合成 ${nOrders} 張單</button>
@@ -2113,8 +2147,27 @@ function openDraftSheet(){
 // 出單會切成幾張（依目前選的出單方式）
 function draftSplitKeys(list){
   if(_drSplit==='none') return [''];
-  const f = _drSplit==='cat' ? draftCat : (d=>d.room);
-  return [...new Set(list.map(f))].sort((a,b)=> _drSplit==='cat' ? (catOrder(a)-catOrder(b)||a.localeCompare(b,'zh-Hant')) : cmpFloor(a,b));
+  const f = draftKeyFn(_drSplit);
+  return [...new Set(list.map(f))].sort((a,b)=>
+    _drSplit==='cat' ? (catOrder(a)-catOrder(b)||a.localeCompare(b,'zh-Hant'))
+    : _drSplit==='tag' ? ((a===NO_TAG?1:0)-(b===NO_TAG?1:0) || a.localeCompare(b,'zh-Hant',{numeric:true}))
+    : cmpFloor(a,b));
+}
+// 改標籤：整組一起改，或單筆改
+function retagGroup(k){
+  const p = cur.project;
+  const cur0 = k===NO_TAG ? '' : k;
+  const v = prompt('這組 '+ (k===NO_TAG?'未分標籤的':'「'+k+'」的') +'項目要改成什麼標籤？（留空＝不分）', cur0);
+  if(v===null) return;
+  const t = v.trim();
+  draftList(p).forEach(d=>{ if(draftTag(d)===k) d.tag = t; });
+  save(); renderAll(); openDraftSheet(); toast(t?('🏷 已改成 '+t):'已清掉標籤');
+}
+function retagOne(id){
+  const d = (D.drafts||[]).find(x=>x.id===id); if(!d) return;
+  const v = prompt('這筆的標籤（廠商名／日期／留空＝不分）', d.tag||'');
+  if(v===null) return;
+  d.tag = v.trim(); save(); renderAll(); openDraftSheet();
 }
 function editDraft(id, v){
   const d = (D.drafts||[]).find(x=>x.id===id); if(!d) return;
@@ -2137,7 +2190,7 @@ function mergeDraftToOrder(){
   const list = draftList(p);
   if(!list.length){ toast('沒有草稿'); return; }
   const toNeed = _drNeed;
-  const keyOf = _drSplit==='cat' ? draftCat : (_drSplit==='room' ? (d=>d.room) : (()=>'' ));
+  const keyOf = _drSplit==='none' ? (()=>'') : draftKeyFn(_drSplit);
   const made = [];
   draftSplitKeys(list).forEach(k=>{
     const part = list.filter(d=>keyOf(d)===k);
@@ -2155,7 +2208,7 @@ function mergeDraftToOrder(){
       });
     }
     const o = { id: uid(), date: todayStr(), project: p, lines, fromDraft: 1 };
-    if(k) o.label = k;
+    if(k && k!==NO_TAG) o.label = k;   // 未分標籤的那張不掛標籤
     D.orders.push(o); _ordOpen.add(o.id); made.push(o);
   });
   if(!made.length){ toast('草稿數量都是 0'); return; }
@@ -2253,12 +2306,14 @@ function renderDraftCard(){
   if(!list.length){ el.innerHTML=''; return; }
   const merged = new Set(list.map(d=>d.room+'||'+d.matId)).size;
   const rooms = [...new Set(list.map(d=>roomFloor(cur.project,d.room)))].sort(cmpFloor);
+  const tags = [...new Set(list.map(d=>d.tag).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-Hant',{numeric:true}));
   el.innerHTML = `<div class="card">
     <h2>📝 叫料草稿 <span class="muted" style="font-weight:400">(${list.length})</span></h2>
-    <div class="hint">一筆一筆先記著、不動需求。數量都確定了，按「整合成一張單」變成一張待到貨補料單。</div>
+    <div class="hint">一筆一筆先記著、不動需求。數量都確定了再整合出單，可依標籤（廠商／日期）、材料分類或樓層分成幾張。</div>
     <div class="listitem" style="padding:8px 11px">
       <div class="li-m" style="min-width:0"><div class="li-t" style="font-size:13px">${rooms.map(esc).join('、')}</div>
-      <div class="li-s">${list.length} 筆${merged!==list.length?`（會併成 ${merged} 項）`:''}・合計 ${round(list.reduce((a,d)=>a+num(d.qty),0))}</div></div>
+      <div class="li-s">${list.length} 筆${merged!==list.length?`（會併成 ${merged} 項）`:''}・合計 ${round(list.reduce((a,d)=>a+num(d.qty),0))}</div>
+      ${tags.length?`<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px">${tags.map(t=>`<span class="tag over-bg" style="font-size:10px;padding:1px 7px">🏷 ${esc(t)}</span>`).join('')}</div>`:''}</div>
       <span class="btn mini" onclick="openDraftSheet()">開啟</span>
     </div>
   </div>`;
