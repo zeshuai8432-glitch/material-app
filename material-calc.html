@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v70</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v71</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v70</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v71</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1157,7 +1157,7 @@
             <label>轉角數（L/ㄇ 型；牆寬填總長）</label>
             <input type="number" id="p-corners" placeholder="0" min="0" value="0">
           </div>
-          <div class="field" style="display:flex;align-items:flex-end;font-size:12px;color:var(--text-3);">每個轉角自動 +2 支角柱；槽鐵/板材照總長算</div>
+          <div class="field" style="display:flex;align-items:flex-end;font-size:12px;color:var(--text-3);" id="p-corner-hint">每個轉角自動補角柱（雙面 +2、單面 +1）；槽鐵/板材照總長算</div>
         </div>
 
         <hr class="divider">
@@ -3041,6 +3041,10 @@ function setSides(v) {
   state.sides = v;
   document.getElementById('side-single').classList.toggle('active', v === 'single');
   document.getElementById('side-double').classList.toggle('active', v === 'double');
+  const h = document.getElementById('p-corner-hint');
+  if (h) h.textContent = (v === 'double'
+    ? '雙面牆：每個轉角自動 +2 支角柱'
+    : '單面牆：每個轉角自動 +1 支角柱') + '；槽鐵/板材照總長算';
 }
 
 function updateBraceFields() {
@@ -3836,9 +3840,9 @@ function calcPartition(p) {
   // C型骨架：兩端各一支，中間每 spacing 間距一支（studPosts = 需要幾根立柱）
   // 公式：floor((W - 1) / spacing) + 2，等同 ceil(W / spacing) + 1（間隔數 +1，含兩端頭尾）
   const corners = parseInt(p.corners) || 0;
-  // 轉角 +2：牆寬填的是「轉彎後拉直的總長」，間距公式不知道哪裡轉彎，
-  // 所以每個轉角要補上「前一段的收尾柱」＋「後一段的起頭柱」各一支（兩個面各自要有邊可以釘板）
-  const cornerPosts = corners * 2;
+  // 轉角補角柱：牆寬填的是「轉彎後拉直的總長」，間距公式不知道哪裡轉彎，
+  // 所以轉角要另外補柱子給板材收邊。雙面牆兩個面都要收 → 2 支；單面牆只有一面有板 → 1 支。
+  const cornerPosts = corners * (p.sides === 'double' ? 2 : 1);
   const studPosts = Math.floor((W - 1) / spacing) + 2 + cornerPosts;
   // 下料：一支下料長度可裁幾根（牆高 H）；不夠長則一根要接幾支
   const studStock = p.studStock || 300;
