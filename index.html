@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v93</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v94</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -449,6 +449,7 @@ async function fbInitField(){
   try{
     const remote = await fbPullField();
     if(remote){
+      _cloudRead = true;                                  // 真的讀到雲端了
       const localN=(D.items||[]).length, remoteN=(remote.items||[]).length;
       if(remoteN>=localN || !localN){
         D = normalize(Object.assign(D, remote));
@@ -457,16 +458,30 @@ async function fbInitField(){
         const k = migrateUsedAt();      // 雲端可能是舊裝置寫的、還沒平移過
         if(n||k){ saveLocalOnly(); await fbPushField(); if(n) toast('✅ 已把 '+n+' 項材料的規格獨立出來'); }
       }
-      else { await fbPushField(); }   // 本機比較完整 → 推上去
+      else if(!localIsEmpty()){ await fbPushField(); }     // 本機比較完整 → 推上去
     } else {
-      await fbPushField();            // 雲端還沒有 → 把現有資料搬上去
+      // 讀不到 meta：可能雲端真的空的，也可能是規則過期／離線／被擋 —— 分不出來，
+      // 所以只有「本機有資料」才敢當成初次建立並上傳；本機空的就什麼都不做。
+      if(localIsEmpty()){
+        _fbOn = false;
+        blockPush('雲端讀不到內容（規則過期、離線或被網路擋掉）');
+        return;
+      }
+      _cloudRead = true;
+      await fbPushField();
     }
     if(!cur.project) cur.project = D.projects[0]||null;
-    _fbOn = true;
+    _fbOn = true; clearPushBlock();
     clearNeedCache(); fillProjSel(); renderAll();
     fbWatchField();
     setCloudStatus('✅ 已同步 '+timeStr(),'ok');
-  }catch(e){ setCloudStatus('⚠ 雲端連線失敗','err'); }
+  }catch(e){
+    _fbOn = false;
+    // 讀取失敗時最危險的就是「以為雲端沒東西」而把本機推上去 → 直接鎖住上傳
+    blockPush(String((e&&e.code)||(e&&e.message)||e).includes('permission')
+      ? 'Firestore 權限被拒（測試模式規則已到期，需要到 Firebase 重新發布規則）'
+      : '雲端連線失敗（'+esc(String((e&&e.message)||e).slice(0,80))+'）');
+  }
 }
 
 // ── 雲端同步 (Google Apps Script) ──
@@ -474,9 +489,46 @@ const DEFAULT_CLOUD = 'https://script.google.com/macros/s/AKfycbz1WSPdgyDviRXbB2
 let CLOUD_URL = localStorage.getItem('fieldmat_cloud') || DEFAULT_CLOUD;
 let pushTimer = null, pulling = false;
 function setCloudStatus(s, kind){ const el = document.getElementById('syncPill'); if(!el) return; el.textContent = s; el.className = 'syncpill' + (kind?(' '+kind):''); }
+
+// ════════════════════════════════════════════
+//  上傳安全鎖：沒「成功讀過雲端」之前，一律不准上傳
+//  （第一次在新瀏覽器開、雲端規則過期、網路被擋 → 本機是空的，
+//    以前會把這份空白推上去把雲端蓋掉。現在寧可不同步，也不覆蓋。）
+// ════════════════════════════════════════════
+let _cloudRead = false;      // 這次開機有沒有成功讀到雲端（含「確認雲端真的是空的」）
+let _pushBlocked = '';       // 被擋的原因，顯示在橫幅上
+function localIsEmpty(){ return !(D.items||[]).length && !(D.projects||[]).length; }
+function pushAllowed(){
+  if(localIsEmpty()) return '本機目前沒有任何資料';
+  if(!_cloudRead)    return '還沒成功讀到雲端';
+  return '';
+}
+function blockPush(why){
+  _pushBlocked = why;
+  setCloudStatus('🔒 已暫停上傳（保護資料）','err');
+  showCloudBanner(why);
+}
+function clearPushBlock(){ _pushBlocked=''; const el=document.getElementById('cloudBanner'); if(el)el.remove(); }
+function showCloudBanner(why){
+  let el = document.getElementById('cloudBanner');
+  if(!el){
+    el = document.createElement('div'); el.id='cloudBanner';
+    el.style.cssText='position:fixed;left:0;right:0;top:0;z-index:9999;background:#b91c1c;color:#fff;padding:10px 12px;font-size:13px;line-height:1.6;box-shadow:0 2px 10px rgba(0,0,0,.25)';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `<b>🔒 雲端讀不到，已暫停上傳以保護資料</b><br>
+    原因：${esc(why)}。這台的畫面可能不是最新的 —— <b>先不要在這台輸入東西</b>，也不會有任何資料被推上雲端覆蓋。
+    <div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">
+      <a onclick="retryCloud()" style="background:#fff;color:#b91c1c;font-weight:800;border-radius:8px;padding:4px 10px;cursor:pointer">重試連線</a>
+      <a onclick="clearPushBlock()" style="border:1px solid #fff;border-radius:8px;padding:4px 10px;cursor:pointer">關閉提示</a>
+    </div>`;
+}
+function retryCloud(){ clearPushBlock(); setCloudStatus('⏳ 讀取中…','busy'); fbInitField(); }
 function schedulePush(){
   clearTimeout(pushTimer);
   pushTimer = setTimeout(async ()=>{
+    const why = pushAllowed();
+    if(why){ blockPush(why); return; }          // 沒讀到雲端／本機空的 → 絕對不上傳
     if(_fbOn && window.FB){
       setCloudStatus('⏳ 上傳中…','busy');
       try{ await fbPushField(); setCloudStatus('✅ 已同步 '+timeStr(),'ok'); }
@@ -488,6 +540,8 @@ function schedulePush(){
 }
 function cloudPush(manual){
   if(!CLOUD_URL){ if(manual)toast('⚠️ 尚未設定雲端'); return; }
+  const why = pushAllowed();
+  if(why){ blockPush(why); if(manual)toast('🔒 '+why+'，為了不覆蓋雲端，暫停上傳'); return; }
   setCloudStatus('⏳ 上傳中…','busy');
   fetch(CLOUD_URL, {method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(D)})
     .then(()=>{ setCloudStatus('✅ 已同步 '+timeStr(),'ok'); if(manual)toast('✅ 已上傳雲端'); })
@@ -499,9 +553,10 @@ function cloudPull(manual){
   setCloudStatus('⏳ 讀取中…','busy');
   fetch(CLOUD_URL + '?_t=' + Date.now(), {credentials:'omit'}).then(r=>r.text()).then(txt=>{
     pulling = false;
-    if(!txt || txt.trim()==='' || txt.trim()==='{}'){ setCloudStatus('☁️ 雲端尚無資料',''); if(manual)toast('雲端還沒有資料，改資料後會自動上傳'); return; }
+    if(!txt || txt.trim()==='' || txt.trim()==='{}'){ _cloudRead = true; clearPushBlock(); setCloudStatus('☁️ 雲端尚無資料',''); if(manual)toast('雲端還沒有資料，改資料後會自動上傳'); return; }
     let cd; try{ cd = JSON.parse(txt); if(cd && typeof cd.data==='string') cd = JSON.parse(cd.data); }
     catch(e){ setCloudStatus('⚠️ 解析失敗','err'); if(manual)toast('❌ 雲端資料解析失敗'); return; }
+    _cloudRead = true; clearPushBlock();          // 讀到了 → 解鎖上傳
     const cloudAt = cd.updatedAt || '', localAt = D.updatedAt || '';
     if(cloudAt > localAt){
       D = Object.assign({projects:[],archived:[],rooms:[],cats:[],mats:[],items:[],deliveries:[]}, cd);

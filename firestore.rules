@@ -1,0 +1,24 @@
+rules_version = '2';
+
+// 現場材料管理 + 材料計算系統 的 Firestore 規則
+// 這兩支 app 沒有登入機制，所以只能開放存取 —— 但至少只開這兩個路徑，
+// 而且「沒有到期日」，不會再像測試模式一樣 30 天後整個掛掉。
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 現場材料管理：field/_meta、field/proj_{案場}/parts/{items|deliveries|...}
+    match /field/{docId} {
+      allow read, write: if true;
+      match /{sub=**} { allow read, write: if true; }
+    }
+
+    // 材料計算系統：calc/{使用者}、calc/{使用者}/parts/{k}、calc/{使用者}/spaces/{id}
+    match /calc/{docId} {
+      allow read, write: if true;
+      match /{sub=**} { allow read, write: if true; }
+    }
+
+    // 其他路徑一律拒絕
+    match /{other=**} { allow read, write: if false; }
+  }
+}
