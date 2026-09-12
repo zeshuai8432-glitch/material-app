@@ -3834,9 +3834,11 @@ function calcPartition(p) {
   const spacing = p.studSpacing;
 
   // C型骨架：兩端各一支，中間每 spacing 間距一支（studPosts = 需要幾根立柱）
-  // 公式：floor((W - 1) / spacing) + 1（含兩端頭尾各一）
+  // 公式：floor((W - 1) / spacing) + 2，等同 ceil(W / spacing) + 1（間隔數 +1，含兩端頭尾）
   const corners = parseInt(p.corners) || 0;
-  const cornerPosts = corners * 2; // 每個轉角 +2 支角柱（兩面各一支）
+  // 轉角 +2：牆寬填的是「轉彎後拉直的總長」，間距公式不知道哪裡轉彎，
+  // 所以每個轉角要補上「前一段的收尾柱」＋「後一段的起頭柱」各一支（兩個面各自要有邊可以釘板）
+  const cornerPosts = corners * 2;
   const studPosts = Math.floor((W - 1) / spacing) + 2 + cornerPosts;
   // 下料：一支下料長度可裁幾根（牆高 H）；不夠長則一根要接幾支
   const studStock = p.studStock || 300;
