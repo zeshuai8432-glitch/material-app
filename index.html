@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v91</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v92</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -2043,6 +2043,10 @@ function renderQaLog(){
 
 // ── 📝 叫料草稿：一筆一筆記，數量確定後整合成一張待到貨補料單 ──
 function draftList(p){ return (D.drafts||[]).filter(d=>d.project===p); }
+let _drGroup = 'room', _drSplit = 'none', _drNeed = true;
+function drGroup(g){ _drGroup = g; openDraftSheet(); }
+function drSplit(v){ _drSplit = v; openDraftSheet(); }
+function draftCat(d){ return (mat(d.matId)||{}).cat || '其他'; }
 function openDraftSheet(){
   const p = cur.project;
   const list = draftList(p);
@@ -2052,12 +2056,18 @@ function openDraftSheet(){
       <button class="btn" onclick="closeSheet();openQuickAdd()">➕ 去叫料</button>`);
     return;
   }
-  const byRoom = {};
-  list.forEach(d=>{ (byRoom[d.room] = byRoom[d.room] || []).push(d); });
+  const byCat = _drGroup==='cat';
+  const groups = {};
+  list.forEach(d=>{ const k = byCat ? draftCat(d) : d.room; (groups[k] = groups[k] || []).push(d); });
+  const keys = Object.keys(groups).sort((a,b)=> byCat ? (catOrder(a)-catOrder(b) || a.localeCompare(b,'zh-Hant')) : cmpFloor(a,b));
   let body = '';
-  Object.keys(byRoom).sort(cmpFloor).forEach(rm=>{
-    body += `<div style="font-size:12px;font-weight:800;color:var(--text2);padding:8px 2px 2px">🏢 ${esc(rm)}</div>`;
-    byRoom[rm].slice().sort((a,b)=>{
+  keys.forEach(k=>{
+    const g = groups[k];
+    const sub = round(g.reduce((a,d)=>a+num(d.qty),0));
+    body += `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;font-weight:800;color:var(--text2);padding:9px 2px 2px">
+      <span>${byCat?'🗄️':'🏢'} ${esc(k)}</span><span style="font-weight:700">${g.length} 筆・${sub}</span></div>`;
+    g.slice().sort((a,b)=>{
+      if(byCat) { const r = cmpFloor(a.room,b.room); if(r) return r; }
       const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
       return ga.sort-gb.sort || ga.label.localeCompare(gb.label)
         || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''});
@@ -2067,7 +2077,7 @@ function openDraftSheet(){
       body += `<div class="listitem" style="padding:7px 10px;gap:8px">
         <div class="li-m" style="min-width:0">
           <div class="li-t" style="font-size:13px">${matDisp(m)}</div>
-          <div class="li-s">${esc(d.at||'')}${it?`・現場剩 ${itemRemaining(it)}${esc(u)}・缺 ${Math.max(itemLack(it),0)}${esc(u)}`:'・這層還沒設過需求'}</div>
+          <div class="li-s">${byCat?`🏢 ${esc(d.room)}・`:''}${esc(d.at||'')}${it?`・現場剩 ${itemRemaining(it)}${esc(u)}・缺 ${Math.max(itemLack(it),0)}${esc(u)}`:'・這層還沒設過需求'}</div>
           ${d.memo?`<div style="font-size:12px;color:var(--purple,#7c3aed);font-weight:700;margin-top:2px">📌 ${esc(d.memo)}</div>`:''}
         </div>
         <div style="flex:0 0 auto;display:flex;align-items:center;gap:5px;white-space:nowrap">
@@ -2079,18 +2089,32 @@ function openDraftSheet(){
       </div>`;
     });
   });
-  // 合併後會是幾項（同樓層同材料會併成一行）
   const merged = new Set(list.map(d=>d.room+'||'+d.matId)).size;
   const grand = round(list.reduce((a,d)=>a+num(d.qty),0));
+  const nOrders = draftSplitKeys(list).length;
+  const sBtn = (v,lbl)=>`<button class="segbtn ${_drSplit===v?'on':''}" onclick="drSplit('${v}')">${lbl}</button>`;
   openSheet(`<h3>📝 叫料草稿<span class="x" onclick="closeSheet()">✕</span></h3>
-    <div class="muted" style="margin-bottom:4px">共 ${list.length} 筆・合計 ${grand}${merged!==list.length?`（同樓層同材料會併成 ${merged} 項）`:''}。數量可以直接改，確定了再整合成一張單。</div>
+    <div class="muted" style="margin-bottom:6px">共 ${list.length} 筆・合計 ${grand}${merged!==list.length?`（同樓層同材料會併成 ${merged} 項）`:''}。數量可以直接改，確定了再整合出單。</div>
+    <div class="seg" style="margin-bottom:2px">
+      <button class="segbtn ${_drGroup==='room'?'on':''}" onclick="drGroup('room')">🏢 依樓層看</button>
+      <button class="segbtn ${byCat?'on':''}" onclick="drGroup('cat')">🗄️ 依分類看</button>
+    </div>
     ${body}
     <div class="divider"></div>
+    <div style="font-weight:800;font-size:13px;margin-bottom:5px">出單方式</div>
+    <div class="seg" style="margin-bottom:6px">${sBtn('none','1 張單')}${sBtn('cat','🗄️ 依分類分單')}${sBtn('room','🏢 依樓層分單')}</div>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">${_drSplit==='none'?'全部併成一張待到貨補料單。':(_drSplit==='cat'?'一個材料分類一張單 —— 不同廠商可以各拿一張。':'一個樓層一張單。')}會產生 <b>${nOrders}</b> 張。</div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:6px 0;cursor:pointer">
-      <input type="checkbox" id="dr-need" checked style="width:18px;height:18px"> 同時把數量列入各層「需求量」<span class="muted" style="font-weight:400">（總覽才算得出缺）</span></label>
-    <button class="btn" onclick="mergeDraftToOrder()">📦 整合成一張單</button>
+      <input type="checkbox" id="dr-need" ${_drNeed?'checked':''} style="width:18px;height:18px" onchange="_drNeed=this.checked"> 同時把數量列入各層「需求量」<span class="muted" style="font-weight:400">（總覽才算得出缺）</span></label>
+    <button class="btn" onclick="mergeDraftToOrder()">📦 整合成 ${nOrders} 張單</button>
     <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="closeSheet();openQuickAdd()">➕ 再加一筆</button>
     <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="clearDrafts()">🗑 清空草稿</button>`);
+}
+// 出單會切成幾張（依目前選的出單方式）
+function draftSplitKeys(list){
+  if(_drSplit==='none') return [''];
+  const f = _drSplit==='cat' ? draftCat : (d=>d.room);
+  return [...new Set(list.map(f))].sort((a,b)=> _drSplit==='cat' ? (catOrder(a)-catOrder(b)||a.localeCompare(b,'zh-Hant')) : cmpFloor(a,b));
 }
 function editDraft(id, v){
   const d = (D.drafts||[]).find(x=>x.id===id); if(!d) return;
@@ -2112,26 +2136,34 @@ function mergeDraftToOrder(){
   const p = cur.project;
   const list = draftList(p);
   if(!list.length){ toast('沒有草稿'); return; }
-  const toNeed = !!(document.getElementById('dr-need')||{}).checked;
-  // 同樓層同材料合併成一行
-  const bag = {};
-  list.forEach(d=>{ const k=d.room+'||'+d.matId; bag[k] = bag[k] || {room:d.room, matId:d.matId, qty:0}; bag[k].qty = round(bag[k].qty + num(d.qty)); });
-  const lines = Object.values(bag).filter(l=>l.qty>0);
-  if(!lines.length){ toast('草稿數量都是 0'); return; }
-  if(toNeed){
-    lines.forEach(l=>{
-      let it = D.items.find(i=>i.project===p&&i.room===l.room&&i.matId===l.matId);
-      if(!it){ it = {id:uid(), project:p, room:l.room, matId:l.matId, demand:l.qty, remaining:0, delivered:0, manualAdd:1}; D.items.push(it); }
-      else { it.demand = round(num(it.demand) + l.qty); it.manualAdd = 1; }
-    });
-  }
-  const o = { id: uid(), date: todayStr(), project: p, lines, fromDraft: 1 };
-  D.orders.push(o);
+  const toNeed = _drNeed;
+  const keyOf = _drSplit==='cat' ? draftCat : (_drSplit==='room' ? (d=>d.room) : (()=>'' ));
+  const made = [];
+  draftSplitKeys(list).forEach(k=>{
+    const part = list.filter(d=>keyOf(d)===k);
+    if(!part.length) return;
+    // 同樓層同材料合併成一行
+    const bag = {};
+    part.forEach(d=>{ const kk=d.room+'||'+d.matId; bag[kk] = bag[kk] || {room:d.room, matId:d.matId, qty:0}; bag[kk].qty = round(bag[kk].qty + num(d.qty)); });
+    const lines = Object.values(bag).filter(l=>l.qty>0);
+    if(!lines.length) return;
+    if(toNeed){
+      lines.forEach(l=>{
+        let it = D.items.find(i=>i.project===p&&i.room===l.room&&i.matId===l.matId);
+        if(!it){ it = {id:uid(), project:p, room:l.room, matId:l.matId, demand:l.qty, remaining:0, delivered:0, manualAdd:1}; D.items.push(it); }
+        else { it.demand = round(num(it.demand) + l.qty); it.manualAdd = 1; }
+      });
+    }
+    const o = { id: uid(), date: todayStr(), project: p, lines, fromDraft: 1 };
+    if(k) o.label = k;
+    D.orders.push(o); _ordOpen.add(o.id); made.push(o);
+  });
+  if(!made.length){ toast('草稿數量都是 0'); return; }
   D.drafts = (D.drafts||[]).filter(d=>d.project!==p);
-  _ordOpen.add(o.id);
   save(); closeSheet(); go('deliver'); renderAll();
-  toast('📦 已整合成一張單（'+lines.length+' 項）');
+  toast(made.length>1 ? ('📦 已分成 '+made.length+' 張單') : ('📦 已整合成一張單（'+made[0].lines.length+' 項）'));
 }
+
 
 // ════════════════════════════════════════════
 //  補料單 PDF
@@ -2257,7 +2289,7 @@ function renderOrders(){
       return `<details class="listitem" id="ord-${o.id}" ${_ordOpen.has(o.id)?'open':''} ontoggle="ordToggle('${o.id}',this.open)" style="display:block;padding:8px 11px">
         <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px">
           <div class="li-m" style="min-width:0;flex:1">
-            <div class="li-t" style="font-size:13px">▸ ${esc(o.date)}　${Object.keys(byFl).sort(cmpFloor).map(esc).join('、')}</div>
+            <div class="li-t" style="font-size:13px">▸ ${esc(o.date)}${o.label?` <span class="tag over-bg" style="font-size:10px;padding:1px 7px">${esc(o.label)}</span>`:''}　${Object.keys(byFl).sort(cmpFloor).map(esc).join('、')}</div>
             <div class="li-s" id="ord-sum-${o.id}">${o.lines.length} 項・合計 ${round(total)}（點開看明細／改數量）</div>
           </div>
           <span class="btn mini gray" onclick="event.preventDefault();event.stopPropagation();exportOrderPDF('${o.id}')">📄 PDF</span>
@@ -2276,7 +2308,7 @@ function exportOrderPDF(id){
   const byFl={};
   o.lines.forEach(l=>{ const f=roomFloor(p,l.room); (byFl[f]=byFl[f]||[]).push(l); });
   const grand=o.lines.reduce((a,l)=>a+num(l.qty),0);
-  let body=`<h1>待到貨補料單</h1><div class="meta">案場：${esc(p)}　建立日期：${esc(o.date)}　列印：${todayStr()}　共 ${o.lines.length} 項・合計 ${round(grand)}</div>`;
+  let body=`<h1>待到貨補料單${o.label?`　${esc(o.label)}`:''}</h1><div class="meta">案場：${esc(p)}　建立日期：${esc(o.date)}　列印：${todayStr()}　共 ${o.lines.length} 項・合計 ${round(grand)}</div>`;
   Object.keys(byFl).sort(cmpFloor).forEach(fl=>{
     const its=byFl[fl].slice().sort((a,b)=>{
       const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
@@ -2296,7 +2328,7 @@ function exportOrderPDF(id){
       return `<tr><td class="ck">☐</td><td>${esc(m?m.cat:'')}</td><td>${esc(sp.name||'?')}</td><td class="sp">${esc(sp.spec||'')}</td>${multi?`<td>${esc(l.room)}</td>`:''}<td class="q">${l.qty}${esc(u)}</td>${anyNote?`<td style="font-size:11px;color:#555">${note}</td>`:''}</tr>`;
     }).join('')}</tbody></table>`;
   });
-  printHTML('待到貨補料單 '+p, body);
+  printHTML('待到貨補料單 '+p+(o.label?' '+o.label:''), body);
 }
 
 const _ordOpen = new Set();                 // 記住哪幾張單是展開的
