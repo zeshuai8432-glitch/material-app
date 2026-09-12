@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v94</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v95</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -1965,11 +1965,34 @@ function draftTags(p){
   (D.orders||[]).forEach(o=>{ if(o.project===p && o.label) s.add(o.label); });
   return [...s].sort((a,b)=>String(b).localeCompare(String(a),'zh-Hant',{numeric:true}));
 }
+// 完全空白也能開始：案場／樓層還沒有 → 一張表一次建好，直接接著叫料
+function openQuickStart(){
+  const projOpts = (D.projects||[]).map(x=>`<option ${x===cur.project?'selected':''}>${esc(x)}</option>`).join('');
+  openSheet(`<h3>➕ 直接叫料<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="hint">不用跑「材料計算」。先給我案場跟樓層，下一步就能直接打材料跟數量。</div>
+    ${projOpts?`<div class="fg"><label>案場</label><select id="qs-proj">${projOpts}<option value="__new">＋ 新案場…</option></select></div>`:''}
+    <div class="fg" id="qs-newwrap" style="${projOpts?'display:none':''}"><label>新案場名稱</label><input id="qs-newproj" placeholder="如：元利四季"></div>
+    <div class="fg"><label>樓層／房間</label><input id="qs-room" placeholder="如：9F"></div>
+    <button class="btn" onclick="quickStartGo()">下一步 → 開始叫料</button>`);
+  const sel = document.getElementById('qs-proj');
+  if(sel) sel.onchange = ()=>{ document.getElementById('qs-newwrap').style.display = sel.value==='__new' ? '' : 'none'; };
+}
+function quickStartGo(){
+  const sel = document.getElementById('qs-proj');
+  let p = sel && sel.value!=='__new' ? sel.value : ((document.getElementById('qs-newproj')||{}).value||'').trim();
+  if(!p){ toast('⚠️ 輸入案場名稱'); return; }
+  const room = ((document.getElementById('qs-room')||{}).value||'').trim();
+  if(!room){ toast('⚠️ 輸入樓層／房間'); return; }
+  if(!D.projects.includes(p)) D.projects.push(p);
+  cur.project = p;
+  if(!D.rooms.some(r=>r.project===p && r.name===room)) D.rooms.push({project:p, floor:room, name:room});
+  save(); fillProjSel(); renderAll(); if(_fbOn) fbWatchField();
+  openQuickAdd();
+}
 function openQuickAdd(){
   const p = cur.project;
-  if(!p){ toast('⚠️ 先選案場'); return; }
+  if(!p || !projRooms(p).length){ openQuickStart(); return; }
   const rooms = projRooms(p);
-  if(!rooms.length){ toast('⚠️ 先新增樓層／房間'); openRoomSheet(); return; }
   _qaLog = []; _qaMode = 'add';
   if(_qaDest!=='need' && _qaDest!=='draft') _qaDest = 'draft';
   const roomOpts = rooms.slice()
@@ -1982,7 +2005,9 @@ function openQuickAdd(){
       <button class="segbtn ${_qaDest==='need'?'on':''}" id="qa-d-need" onclick="qaDest('need')">⚡ 直接列入需求</button>
     </div>
     <div class="hint" id="qa-dest-hint"></div>
-    <div class="fg"><label>樓層／房間</label><select id="qa-room" onchange="qaSync()">${roomOpts}</select></div>
+    <div class="fg"><label>樓層／房間</label>
+      <div style="display:flex;gap:6px"><select id="qa-room" onchange="qaSync()" style="flex:1">${roomOpts}</select>
+      <button class="btn gray sm" style="flex:0 0 auto" onclick="qaAddRoom()">＋ 新樓層</button></div></div>
     <div class="fg" id="qa-tag-wrap"><label>標籤（選填，會沿用到下一筆）</label>
       <input id="qa-tag" list="qa-tags" autocomplete="off" value="${esc(_qaTag)}" placeholder="廠商名 / 日期 / 任何你想分的" oninput="_qaTag=this.value">
       <datalist id="qa-tags">${draftTags(p).map(t=>`<option value="${esc(t)}"></option>`).join('')}</datalist>
@@ -2038,6 +2063,16 @@ function qaDatalist(){
   return D.mats.slice()
     .sort((a,b)=>catOrder(a.cat)-catOrder(b.cat)||matLabel(a).localeCompare(matLabel(b),'zh-Hant',{numeric:true}))
     .map(m=>`<option value="${esc(matLabel(m))}">${esc(m.cat||'')}</option>`).join('');
+}
+function qaAddRoom(){
+  const p = cur.project;
+  const v = prompt('新樓層／房間名稱（如 9F）');
+  if(v===null) return;
+  const room = v.trim(); if(!room) return;
+  if(D.rooms.some(r=>r.project===p && r.name===room)){ toast('⚠️ 已存在'); }
+  else { D.rooms.push({project:p, floor:room, name:room}); save(); renderAll(); }
+  openQuickAdd();
+  const sel=document.getElementById('qa-room'); if(sel){ sel.value=room; qaSync(); }
 }
 function qaSetTag(t){ _qaTag = t; const el=document.getElementById('qa-tag'); if(el)el.value=t; }
 function qaMode(m){ _qaMode=m; ['add','set'].forEach(k=>{ const b=document.getElementById('qa-m-'+k); if(b)b.classList.toggle('on',k===m); }); }
