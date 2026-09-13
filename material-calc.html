@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v71</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v72</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v71</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v72</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -4029,16 +4029,53 @@ function zoneMatRecords(z) {
   return recs;
 }
 
+// 匯出診斷：把「為什麼匯不出去」直接攤在畫面上（toast 只閃 2.4 秒，很容易以為沒反應）
+function exportBlocked(title, why, detail) {
+  let el = document.getElementById('export-blocked');
+  if (el) el.remove();
+  el = document.createElement('div');
+  el.id = 'export-blocked';
+  el.style.cssText = 'position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:18px';
+  el.innerHTML = '<div style="background:var(--bg-1,#fff);color:var(--text-1,#111);border-radius:14px;max-width:460px;width:100%;padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.3)">'
+    + '<div style="font-weight:800;font-size:16px;margin-bottom:8px">' + esc(title) + '</div>'
+    + '<div style="font-size:13.5px;line-height:1.75">' + why + '</div>'
+    + (detail ? '<div style="margin-top:10px;font-size:12.5px;line-height:1.8;color:var(--text-3,#666);border-top:1px solid var(--line,#ddd);padding-top:9px">' + detail + '</div>' : '')
+    + '<button class="btn btn-primary" style="width:100%;margin-top:14px" onclick="this.closest(\'#export-blocked\').remove()">知道了</button></div>';
+  document.body.appendChild(el);
+}
+// 匯出前的體檢：回傳一段人看得懂的現況
+function exportDiag(pid) {
+  const spaces = state.spaces[pid] || [];
+  let nFloorSet = 0, nZones = 0, nCalc = 0;
+  spaces.forEach(function (sp) {
+    if ((sp.floors || []).some(function (f) { return f.floor && (parseInt(f.count) || 0) > 0; })) nFloorSet++;
+    const zs = state.zones[sp.id] || [];
+    nZones += zs.length;
+    nCalc += zs.filter(function (z) { return z.result; }).length;
+  });
+  return '目前狀況：空間 <b>' + spaces.length + '</b> 個'
+    + '・其中有設樓層間數的 <b>' + nFloorSet + '</b> 個'
+    + '・計算區塊 <b>' + nZones + '</b> 個・算出結果的 <b>' + nCalc + '</b> 個';
+}
 function exportToFieldApp() {
   const pid = state.activeProjectId;
-  if (!pid) { toast('請先選案場', 'error'); return; }
+  if (!pid) {
+    exportBlocked('⚠️ 還沒選案場', '匯出是「把目前這個案場的各樓層需求量」送給材料管理，所以要先在上面選一個案場。');
+    return;
+  }
   const proj = state.projects.find(x => x.id === pid);
   const spaces = state.spaces[pid] || [];
   const zonesOf = s => (state.zones[s.id] || []).filter(z => z.result);
   recalcActiveProject();
   const floorList = [];
   spaces.forEach(s => (s.floors || []).forEach(f => { if (f.floor && !floorList.includes(f.floor)) floorList.push(f.floor); }));
-  if (!floorList.length) { toast('尚無樓層配置，無法匯出（請在空間裡設定樓層間數）', 'error'); return; }
+  if (!floorList.length) {
+    exportBlocked('⚠️ 沒有樓層配置，匯不出去',
+      '匯出是<b>依樓層</b>送需求量過去的，所以每個空間（房型）都要先告訴它「這個房型在哪幾層、各幾間」。<br><br>'
+      + '請到<b>空間</b>那張卡片 → 點該空間的<b>樓層設定</b> → 填樓層（如 9F）和間數。',
+      exportDiag(pid));
+    return;
+  }
   floorList.sort((a, b) => String(a).localeCompare(String(b), 'zh-Hant', { numeric: true }));
   const floors = floorList.map(fl => {
     const agg = makeAgg();
@@ -4055,7 +4092,16 @@ function exportToFieldApp() {
       return { key, name: sp.name, spec: sp.spec, fullName: t.label, unit: t.unit, qty: t.qty, cat: guessFieldCat(t.label) }; });
     return { floor: fl, materials, rooms };
   }).filter(f => f.materials.length);
-  if (!floors.length) { toast('沒有可匯出的用量', 'error'); return; }
+  if (!floors.length) {
+    exportBlocked('⚠️ 算不出任何用量',
+      '樓層有了，但那些樓層底下沒有任何「算得出結果」的計算區塊，所以沒有東西可以匯。<br><br>'
+      + '常見原因：<br>'
+      + '・空間裡還沒建計算區塊（隔間／天花／直接輸入）<br>'
+      + '・區塊參數沒填完（例如牆寬或牆高是 0），算不出結果<br>'
+      + '・樓層間數填 0',
+      exportDiag(pid));
+    return;
+  }
   // 樓層手改優先：該層該材料直接用你改的數字
   const ffx = (state.ffixes && state.ffixes[pid]) || {};
   floors.forEach(f => { const m2 = ffx[f.floor] || {}; f.materials.forEach(m => { if (m2[m.key] != null) m.qty = m2[m.key]; }); });
@@ -4073,9 +4119,19 @@ function exportToFieldApp() {
   });
   const payload = { source: 'material-calc', exportedAt: new Date().toISOString(), project: proj.name, floors };
   try { localStorage.setItem('fieldmat_pending_import', JSON.stringify(payload)); }
-  catch (e) { toast('匯出失敗：' + e.message, 'error'); return; }
+  catch (e) {
+    exportBlocked('⚠️ 寫入暫存失敗', '瀏覽器不讓我寫暫存資料，材料管理就讀不到。<br><br>'
+      + '錯誤：' + esc(String(e.message || e)) + '<br><br>'
+      + '如果是無痕模式、或瀏覽器把網站資料封鎖了，換成一般視窗再試。');
+    return;
+  }
   const matCount = floors.reduce((a, f) => a + f.materials.length, 0);
-  toast('✅ 已匯出「' + proj.name + '」' + floors.length + ' 層 / ' + matCount + ' 項，打開材料管理即可匯入');
+  toast('✅ 已匯出 ' + floors.length + ' 層 / ' + matCount + ' 項');
+  exportBlocked('✅ 已匯出「' + proj.name + '」',
+    '<b>' + floors.length + '</b> 個樓層、<b>' + matCount + '</b> 項材料已經放進暫存。<br><br>'
+    + '接下來：打開<b>現場材料管理</b>（同一個瀏覽器），它會自己跳出「📥 匯入計算結果」讓你確認。<br>'
+    + '沒跳出來的話，把材料管理那頁<b>重新整理</b>一次。',
+    '樓層：' + floors.map(function (f) { return esc(f.floor); }).join('、'));
 }
 
 function makeAgg() {
