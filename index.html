@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v100</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v101</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -435,6 +435,22 @@ async function fbPullField(){
   const _core = {projects:out.projects,archived:out.archived,cats:out.cats,mats:out.mats,
                  tomb:out.tomb,strAt:out.strAt,objAt:out.objAt};
   _fbLast = { metaCore: JSON.stringify(_core), meta: JSON.stringify(Object.assign({}, _core, {updatedAt:out.__updatedAt})) };
+  // 案場清單掉了（像這次墓碑出包），但分片還在 → 靠 strAt 記得的名字把它們救回來
+  if(!out.projects.length){
+    const seen = Object.keys(out.strAt||{}).filter(k=>k.startsWith('projects:')).map(k=>k.slice(9));
+    for(const p of seen){
+      try{
+        const probe = await getDocs(P.parts(p));
+        let has = false;
+        probe.forEach(d=>{ const v=(d.data()||{}).v; if(Array.isArray(v) ? v.length : (v && Object.keys(v).length)) has = true; });
+        if(has){ out.projects.push(p); console.warn('[recover] 從分片救回案場：'+p); }
+      }catch(e){}
+    }
+    if(out.projects.length){
+      out.tomb = Object.assign({}, out.tomb);
+      out.projects.forEach(p=>delete out.tomb['projects:'+p]);   // 撤掉那個害人的墓碑
+    }
+  }
   for(const p of out.projects){
     const snap = await getDocs(P.parts(p));
     snap.forEach(d=>{
@@ -646,14 +662,22 @@ function stampChanges(){
       if(prev[id]!==sg || !r._t) r._t = now;
       delete D.tomb[k+':'+id];                       // 又出現了 → 撤掉墓碑
     });
-    Object.keys(prev).forEach(id=>{ if(!(id in cur)) D.tomb[k+':'+id] = now; });
+    const gone = Object.keys(prev).filter(id=>!(id in cur));
+    if(gone.length && Object.keys(prev).length>=5 && !Object.keys(cur).length){
+      console.warn('[guard] '+k+' 整份是空的，不下墓碑');      // 同上：空白不等於刪光
+    } else gone.forEach(id=>{ D.tomb[k+':'+id] = now; });
     _sig[k] = cur;
   });
   STR_ARRAYS.forEach(k=>{
     const have = new Set((D[k]||[]).map(String));
     have.forEach(v=>{ const kk=k+':'+v; if(!D.strAt[kk]) D.strAt[kk]=now; delete D.tomb[kk]; });
-    Object.keys(D.strAt).forEach(kk=>{ if(kk.startsWith(k+':') && !have.has(kk.slice(k.length+1))) {
-      if(!D.tomb[kk]) D.tomb[kk] = now; } });
+    const known = Object.keys(D.strAt).filter(kk=>kk.startsWith(k+':'));
+    const gone  = known.filter(kk=>!have.has(kk.slice(k.length+1)));
+    // 保險：整份清單一次全部消失，幾乎都是載入／合併出包，不是真的刪光。
+    // 這時候下墓碑會把「暫時的空白」變成所有裝置的永久刪除 —— 絕對不能做。
+    if(known.length && !have.size){ console.warn('[guard] '+k+' 整份是空的，不下墓碑'); }
+    else if(gone.length && gone.length===known.length){ console.warn('[guard] '+k+' 會被全部刪掉，不下墓碑'); }
+    else gone.forEach(kk=>{ if(!D.tomb[kk]) D.tomb[kk] = now; });
   });
   stampObjMaps(now);
   pruneTombs();
@@ -690,7 +714,11 @@ function mergeField(remote){
   STR_ARRAYS.forEach(k=>{
     const set = new Set(contribute ? [].concat(remote[k]||[], D[k]||[]).map(String)
                                    : (remote[k]||[]).map(String));
-    D[k] = [...set].filter(v=>{ const kk=k+':'+v; const t=tomb[kk]; return !(t && t > (strAt[kk]||OLD_T)); });
+    const all = [...set];
+    const kept = all.filter(v=>{ const kk=k+':'+v; const t=tomb[kk]; return !(t && t > (strAt[kk]||OLD_T)); });
+    // 墓碑如果會把整份清單清光，視為墓碑有問題，寧可全部留著（案場清單被清掉＝整個 app 打不開）
+    if(all.length && !kept.length){ console.warn('[guard] 墓碑會清空 '+k+'，略過'); all.forEach(v=>delete tomb[k+':'+v]); D[k]=all; }
+    else D[k] = kept;
   });
   // recipes / progress：同一個 key 取時間新的那份
   const rRec = remote.recipes||{}, rPro = remote.progress||{};
