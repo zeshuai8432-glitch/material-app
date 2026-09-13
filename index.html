@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v101</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v102</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -304,6 +304,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
+const APP_VER = 102;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -3641,6 +3642,40 @@ if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{ reg.update(); setInterval(()=>reg.update(),60000);
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) reg.update(); }); }).catch(()=>{});
 }
+// ── 版本檢查：卡在舊版時自己看得到，而且一鍵就能脫困 ──
+// sw.js 是用 updateViaCache:'none' 抓的，一定拿得到最新的，所以拿它當「線上版本」的依據
+async function checkAppVersion(){
+  try{
+    const r = await fetch('sw.js?_=' + Date.now(), {cache:'no-store'});
+    const t = await r.text();
+    const m = t.match(/fieldmat-v(\d+)/);
+    if(!m) return;
+    const live = parseInt(m[1],10), here = APP_VER;
+    if(live > here) showUpdateBanner(live, here);
+  }catch(e){}
+}
+function showUpdateBanner(live, here){
+  if(document.getElementById('verBanner')) return;
+  const el = document.createElement('div'); el.id='verBanner';
+  el.style.cssText='position:fixed;left:0;right:0;top:0;z-index:10000;background:#1d4ed8;color:#fff;padding:10px 12px;font-size:13px;line-height:1.6;box-shadow:0 2px 10px rgba(0,0,0,.25)';
+  el.innerHTML = `<b>🔄 有新版本 v${live}</b>（這台還是 v${here}）<br>
+    瀏覽器把舊檔案留在快取裡了。按下面這顆會清掉快取重新載入。
+    <div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">
+      <a onclick="forceUpdate()" style="background:#fff;color:#1d4ed8;font-weight:800;border-radius:8px;padding:4px 10px;cursor:pointer">立即更新</a>
+      <a onclick="this.closest('#verBanner').remove()" style="border:1px solid #fff;border-radius:8px;padding:4px 10px;cursor:pointer">稍後</a>
+    </div>`;
+  document.body.appendChild(el);
+}
+async function forceUpdate(){
+  try{
+    if(navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage('nuke');
+    if(window.caches){ const ks = await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }
+    if(navigator.serviceWorker){ const rs = await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map(r=>r.unregister())); }
+  }catch(e){}
+  location.replace(location.pathname + '?v=' + Date.now());
+}
+checkAppVersion();
+setInterval(checkAppVersion, 5*60*1000);
 </script>
 </body>
 </html>
