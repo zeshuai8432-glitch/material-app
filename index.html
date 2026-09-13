@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v95</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v96</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -378,6 +378,7 @@ function fbP(){ const {db,doc,collection}=window.FB; return {
 function fbSplitField(){
   const out = { meta:{}, byProj:{} };
   FB_GLOBAL.forEach(k=> out.meta[k] = D[k]||[]);
+  out.meta.updatedAt = D.updatedAt || '';      // 誰比較新，靠這個判斷（不再比筆數）
   const projs = [...new Set([...(D.projects||[]), ...(D.items||[]).map(i=>i.project)])].filter(Boolean);
   projs.forEach(p=>{
     const o = {};
@@ -392,17 +393,27 @@ async function fbPushField(){
   const {writeBatch,db} = window.FB; const P = fbP();
   const {meta, byProj} = fbSplitField();
   const batch = writeBatch(db); let n=0;
-  const msig = JSON.stringify(meta);
-  if(_fbLast['meta']!==msig){ batch.set(P.meta, meta); _fbLast['meta']=msig; n++; }
+  // 先看各案場的分片有沒有變
+  const partWrites = [];
   Object.entries(byProj).forEach(([p,o])=>{
     Object.entries(o).forEach(([k,v])=>{
       const key='p:'+p+':'+k, sig=JSON.stringify(v);
-      if(_fbLast[key]!==sig){ batch.set(P.part(p,k), {v}); _fbLast[key]=sig; n++; }
+      if(_fbLast[key]!==sig) partWrites.push({ref:P.part(p,k), v, key, sig});
     });
   });
-  if(!n) return {ok:true,skipped:true};
+  // meta 只在「內容真的變了」或「有分片要寫」時才動。
+  // 否則只是 updatedAt 跳動 —— 舊裝置開一下就把時間戳蓋新，會誤導其他裝置。
+  const core = Object.assign({}, meta); delete core.updatedAt;
+  const coreSig = JSON.stringify(core);
+  if(_fbLast['metaCore']!==coreSig || partWrites.length){
+    batch.set(P.meta, meta);
+    _fbLast['metaCore'] = coreSig; _fbLast['meta'] = JSON.stringify(meta); n++;
+  }
+  partWrites.forEach(w=>{ batch.set(w.ref, {v:w.v}); _fbLast[w.key]=w.sig; n++; });
+  if(!n){ D.syncedAt = D.updatedAt; return {ok:true,skipped:true}; }
   _fbSelfAt = Date.now();
   await batch.commit();
+  D.syncedAt = D.updatedAt; saveLocalOnly();   // 這一版已經上去了
   return {ok:true,n};
 }
 async function fbPullField(){
@@ -412,7 +423,9 @@ async function fbPullField(){
   const meta = ms.data()||{};
   const out = {projects:meta.projects||[],archived:meta.archived||[],cats:meta.cats||[],mats:meta.mats||[],
     rooms:[],items:[],deliveries:[],counts:[],transfers:[],orders:[],drafts:[],recipes:{},progress:{}};
-  _fbLast = { meta: JSON.stringify({projects:out.projects,archived:out.archived,cats:out.cats,mats:out.mats}) };
+  out.__updatedAt = meta.updatedAt || '';
+  const _core = {projects:out.projects,archived:out.archived,cats:out.cats,mats:out.mats};
+  _fbLast = { metaCore: JSON.stringify(_core), meta: JSON.stringify(Object.assign({}, _core, {updatedAt:out.__updatedAt})) };
   for(const p of out.projects){
     const snap = await getDocs(P.parts(p));
     snap.forEach(d=>{
@@ -444,21 +457,78 @@ function fbWatchField(){
     }, ()=>{}));
   });
 }
+// 把雲端那份套進來（含既有的兩個一次性遷移），並把本機標記成「跟雲端同一版」
+function applyRemoteField(remote, cloudAt){
+  const r = Object.assign({}, remote); delete r.__updatedAt;
+  D = normalize(Object.assign(D, r));
+  D.updatedAt = cloudAt || D.updatedAt; D.syncedAt = D.updatedAt;
+  const n = migrateMatSpecs();
+  const k = migrateUsedAt();
+  if(n||k){ saveLocalOnly(); fbPushField().catch(()=>{}); if(n) toast('✅ 已把 '+n+' 項材料的規格獨立出來'); }
+  else saveLocalOnly();
+}
+let _syncRemote = null;
+function openSyncConflict(remote, cloudAt, localAt){
+  _syncRemote = remote;
+  const L = countsOf(D), C = countsOf(remote);
+  const keys = Object.keys(L);
+  const row = k=>{ const l=L[k], c=C[k], diff=l!==c;
+    return `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line)">
+      <span style="flex:1;color:var(--text2)">${k}</span>
+      <b style="width:56px;text-align:right;color:${diff&&l>c?'var(--blue)':'var(--text)'}">${l}</b>
+      <b style="width:56px;text-align:right;color:${diff&&c>l?'var(--blue)':'var(--text)'}">${c}</b></div>`; };
+  openSheet(`<h3>⚠️ 兩邊都有改動<span class="x" onclick="syncKeep('none')">✕</span></h3>
+    <div class="hint">這台有<b>還沒上傳</b>的修改，雲端也比這台新。我不會自己決定要留哪一份 —— 你選。</div>
+    <div style="display:flex;gap:8px;font-size:12px;font-weight:800;color:var(--text2);padding:6px 0 2px">
+      <span style="flex:1"></span><span style="width:56px;text-align:right">這台</span><span style="width:56px;text-align:right">雲端</span></div>
+    ${keys.map(row).join('')}
+    <div style="display:flex;gap:8px;font-size:12px;padding:7px 0;color:var(--text2)">
+      <span style="flex:1">最後修改</span><span style="width:56px;text-align:right">${whenTxt(localAt)}</span><span style="width:56px;text-align:right">${whenTxt(cloudAt)}</span></div>
+    <div class="divider"></div>
+    <button class="btn" onclick="syncKeep('cloud')">☁️ 用雲端這份（丟掉這台沒上傳的修改）</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="syncKeep('local')">📱 用這台這份（覆蓋雲端）</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="syncKeep('none')">⏸ 先都不要動（維持離線，不上傳）</button>
+    <div class="muted" style="margin-top:9px;font-size:12px">不確定就選「先都不要動」，到另一台確認過再回來。這台在你決定前不會上傳任何東西。</div>`);
+}
+function syncKeep(which){
+  const remote = _syncRemote;
+  closeSheet();
+  if(which==='cloud' && remote){
+    applyRemoteField(remote, remote.__updatedAt||'');
+    clearPushBlock(); _cloudRead = true;
+    clearNeedCache(); fillProjSel(); renderAll();
+    setCloudStatus('✅ 已同步 '+timeStr(),'ok'); toast('☁️ 已改用雲端那份');
+  } else if(which==='local'){
+    clearPushBlock(); _cloudRead = true;
+    fbPushField().then(()=>{ setCloudStatus('✅ 已同步 '+timeStr(),'ok'); toast('📱 已用這台覆蓋雲端'); })
+                 .catch(()=>{ setCloudStatus('⚠ 上傳失敗','err'); });
+  } else {
+    blockPush('你選了先不要動（這台不會上傳，畫面也不是最新的）');
+    toast('⏸ 維持現狀，沒有上傳也沒有覆蓋');
+  }
+  _syncRemote = null;
+}
 async function fbInitField(){
   await fbReady();
   try{
     const remote = await fbPullField();
     if(remote){
       _cloudRead = true;                                  // 真的讀到雲端了
-      const localN=(D.items||[]).length, remoteN=(remote.items||[]).length;
-      if(remoteN>=localN || !localN){
-        D = normalize(Object.assign(D, remote));
-        // 雲端拉回來的可能還是舊格式（規格黏在名稱裡）→ 拉回後再遷移一次並推回去
-        const n = migrateMatSpecs();
-        const k = migrateUsedAt();      // 雲端可能是舊裝置寫的、還沒平移過
-        if(n||k){ saveLocalOnly(); await fbPushField(); if(n) toast('✅ 已把 '+n+' 項材料的規格獨立出來'); }
+      // ── 誰說了算？比「時間」和「這台有沒有沒上傳的修改」，絕不比筆數 ──
+      //  舊裝置的筆數可能比較多（新裝置清過幽靈／刪過料），比筆數會讓舊的蓋掉新的。
+      const cloudAt = remote.__updatedAt || '', localAt = D.updatedAt || '';
+      const dirty = localDirty();
+      if(!dirty){
+        applyRemoteField(remote, cloudAt);                 // 這台沒有未上傳的修改 → 一律以雲端為準
+      } else if(cloudAt && cloudAt <= localAt){
+        await fbPushField();                               // 只有這台有新東西 → 推上去
+      } else {
+        // 兩邊都有新東西（或雲端沒時間戳記，分不出來）→ 絕不自己決定，問人
+        _fbOn = true; clearNeedCache(); fillProjSel(); renderAll(); fbWatchField();
+        blockPush('兩邊都有改動，等你選要用哪一份');
+        openSyncConflict(remote, cloudAt, localAt);
+        return;
       }
-      else if(!localIsEmpty()){ await fbPushField(); }     // 本機比較完整 → 推上去
     } else {
       // 讀不到 meta：可能雲端真的空的，也可能是規則過期／離線／被擋 —— 分不出來，
       // 所以只有「本機有資料」才敢當成初次建立並上傳；本機空的就什麼都不做。
@@ -498,12 +568,20 @@ function setCloudStatus(s, kind){ const el = document.getElementById('syncPill')
 let _cloudRead = false;      // 這次開機有沒有成功讀到雲端（含「確認雲端真的是空的」）
 let _pushBlocked = '';       // 被擋的原因，顯示在橫幅上
 function localIsEmpty(){ return !(D.items||[]).length && !(D.projects||[]).length; }
+// 這台有沒有「改過但還沒上傳」的東西
+function localDirty(){ return !!D.updatedAt && D.updatedAt !== D.syncedAt; }
+function whenTxt(iso){ if(!iso) return '（沒有時間）'; const d=new Date(iso); return isNaN(d)?String(iso):
+  `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
+function countsOf(o){ return { 材料:(o.items||[]).length, 送料:(o.deliveries||[]).length,
+  盤點:(o.counts||[]).length, 調撥:(o.transfers||[]).length, 待到貨:(o.orders||[]).length }; }
 function pushAllowed(){
+  if(_pushBlocked)   return _pushBlocked;        // 已經被鎖住（含「兩邊都有改動，等你選」）
   if(localIsEmpty()) return '本機目前沒有任何資料';
   if(!_cloudRead)    return '還沒成功讀到雲端';
   return '';
 }
 function blockPush(why){
+  if(_pushBlocked===why && document.getElementById('cloudBanner')) return;
   _pushBlocked = why;
   setCloudStatus('🔒 已暫停上傳（保護資料）','err');
   showCloudBanner(why);
