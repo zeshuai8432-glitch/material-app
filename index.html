@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v98</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v99</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -231,6 +231,7 @@
         <button class="btn gray sm" onclick="document.getElementById('imp-file').click()">還原備份</button>
       </div>
       <input type="file" id="imp-file" accept="application/json" style="display:none" onchange="importBackup(this.files[0])">
+      <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="openHistSheet()">🕘 本機備份紀錄（自動留的快照）</button>
       <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="openCountRescue()">🛟 找回盤點（從流水帳撈回那天盤的數字）</button>
       <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="restorePreImport()">↩︎ 還原「匯入前」狀態</button>
       <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="forceCloudRestore()">☁️↓ 強制從雲端拉回（誤刪救援）</button>
@@ -331,7 +332,7 @@ function nameTone(name){ return NAME_TONES[hashStr(name) % NAME_TONES.length]; }
 let _needCache = {};
 function clearNeedCache(){ _needCache = {}; }
 function saveLocalOnly(){ clearNeedCache(); try{ localStorage.setItem('fieldmat_v1', JSON.stringify(D)); }catch(e){} }
-function save(){ D.updatedAt = new Date().toISOString(); stampChanges(); saveLocalOnly(); schedulePush(); }
+function save(){ D.updatedAt = new Date().toISOString(); stampChanges(); saveLocalOnly(); histSnap(); schedulePush(); }
 function normalize(x){
   ['projects','archived','rooms','cats','mats','items','deliveries','transfers','counts','orders','drafts'].forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; });
   ['recipes','progress'].forEach(k=>{ if(!x[k] || typeof x[k]!=='object' || Array.isArray(x[k])) x[k]={}; });
@@ -1769,6 +1770,68 @@ function renderCount(){
   html += `<button class="btn" onclick="saveCount()">💾 儲存盤點</button>`;
   el.innerHTML = html;
 }
+// ════════════════════════════════════════════
+//  🕘 本機備份紀錄：每次存檔順手留快照，最多 6 份、至少隔 30 分鐘
+//  雲端再怎麼出事，這台至少留得住前幾天的樣子
+// ════════════════════════════════════════════
+const HIST_KEY = 'fieldmat_hist', HIST_MAX = 6, HIST_GAP = 30*60*1000;
+function histRead(){ try{ const a = JSON.parse(localStorage.getItem(HIST_KEY)||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function histWrite(a){
+  for(let keep=a.length; keep>=1; keep--){
+    try{ localStorage.setItem(HIST_KEY, JSON.stringify(a.slice(0, keep))); return true; }
+    catch(e){ /* 空間不夠 → 少留幾份再試 */ }
+  }
+  try{ localStorage.removeItem(HIST_KEY); }catch(e){}
+  return false;
+}
+function histSnap(force){
+  try{
+    if(localIsEmpty()) return;                       // 空的不值得留，也免得把好的擠掉
+    const a = histRead();
+    const now = Date.now();
+    if(!force && a.length && (now - (a[0].t||0)) < HIST_GAP) return;
+    const c = recTotals();
+    a.unshift({ t:now, at:new Date().toISOString(), n:c.total, c, data:JSON.stringify(D) });
+    histWrite(a.slice(0, HIST_MAX));
+  }catch(e){}
+}
+function openHistSheet(){
+  const a = histRead();
+  if(!a.length){
+    openSheet(`<h3>🕘 本機備份紀錄<span class="x" onclick="closeSheet()">✕</span></h3>
+      <div class="muted" style="padding:10px 0">這台還沒有快照。從現在開始，每動到資料就會自動留一份（最多 6 份、至少隔 30 分鐘）。</div>`);
+    return;
+  }
+  const nowC = recTotals();
+  const rows = a.map((h,i)=>{
+    const c = h.c||{}; const d = (h.n||0) - nowC.total;
+    return `<div class="listitem" style="padding:8px 10px;gap:8px">
+      <div class="li-m" style="min-width:0">
+        <div class="li-t" style="font-size:13px">${esc(whenTxt(h.at))}　<span style="font-weight:400;color:var(--text2)">${h.n} 筆</span>
+          ${d>0?`<span class="tag over-bg" style="font-size:10px;padding:1px 7px">比現在多 ${d}</span>`:''}</div>
+        <div class="li-s">材料 ${c.items||0}・送料 ${c.deliveries||0}・盤點 ${c.counts||0}・調撥 ${c.transfers||0}</div>
+      </div>
+      <button class="btn mini" onclick="histRestore(${i})">還原</button>
+    </div>`; }).join('');
+  openSheet(`<h3>🕘 本機備份紀錄<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="hint">這台自己留的快照，跟雲端無關。雲端出事時可以從這裡拉回來。目前 ${nowC.total} 筆。</div>
+    ${rows}
+    <button class="btn gray sm" style="width:100%;margin-top:10px" onclick="histSnap(1);closeSheet();toast('✅ 已另存一份快照')">📌 現在再存一份</button>`);
+}
+function histRestore(i){
+  const a = histRead(); const h = a[i]; if(!h) return;
+  const nowC = recTotals();
+  if(!confirm('用 '+whenTxt(h.at)+' 那份（'+h.n+' 筆）覆蓋目前這台的資料？\n\n目前是 '+nowC.total+' 筆。\n覆蓋前會先把現在這份也存成一個快照。')) return;
+  histSnap(1);                                        // 先留下現況，反悔還有得救
+  try{
+    D = normalize(JSON.parse(h.data));
+    initStamps();
+    if(!D.projects.includes(cur.project)) cur.project = D.projects[0]||null;
+    clearNeedCache(); save(); fillProjSel(); renderAll(); closeSheet();
+    toast('✅ 已還原 '+whenTxt(h.at)+' 那份');
+  }catch(e){ toast('❌ 這份快照讀不出來'); }
+}
+
 // ════════════════════════════════════════════
 //  🛟 找回盤點：從盤點流水帳（counts）把某一天盤的數字撈回來，寫回現場剩餘
 //  盤點紀錄只增不刪，就算 items 的 remaining 被別台蓋掉，這裡還留著原始數字
