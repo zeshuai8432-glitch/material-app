@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v96</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v97</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -330,7 +330,7 @@ function nameTone(name){ return NAME_TONES[hashStr(name) % NAME_TONES.length]; }
 let _needCache = {};
 function clearNeedCache(){ _needCache = {}; }
 function saveLocalOnly(){ clearNeedCache(); try{ localStorage.setItem('fieldmat_v1', JSON.stringify(D)); }catch(e){} }
-function save(){ D.updatedAt = new Date().toISOString(); saveLocalOnly(); schedulePush(); }
+function save(){ D.updatedAt = new Date().toISOString(); stampChanges(); saveLocalOnly(); schedulePush(); }
 function normalize(x){
   ['projects','archived','rooms','cats','mats','items','deliveries','transfers','counts','orders','drafts'].forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; });
   ['recipes','progress'].forEach(k=>{ if(!x[k] || typeof x[k]!=='object' || Array.isArray(x[k])) x[k]={}; });
@@ -355,6 +355,7 @@ function load(){
     if(raw){ const p = JSON.parse(raw); if(p && typeof p==='object') D = Object.assign(D, p); }
   }catch(e){}
   normalize(D);
+  initStamps();
   if(!cur.project) cur.project = D.projects[0] || null;
 }
 
@@ -378,7 +379,10 @@ function fbP(){ const {db,doc,collection}=window.FB; return {
 function fbSplitField(){
   const out = { meta:{}, byProj:{} };
   FB_GLOBAL.forEach(k=> out.meta[k] = D[k]||[]);
-  out.meta.updatedAt = D.updatedAt || '';      // 誰比較新，靠這個判斷（不再比筆數）
+  out.meta.updatedAt = D.updatedAt || '';
+  out.meta.tomb  = D.tomb  || {};              // 刪除墓碑（跨裝置才知道是刪掉還是沒同步到）
+  out.meta.strAt = D.strAt || {};
+  out.meta.objAt = D.objAt || {};
   const projs = [...new Set([...(D.projects||[]), ...(D.items||[]).map(i=>i.project)])].filter(Boolean);
   projs.forEach(p=>{
     const o = {};
@@ -424,7 +428,9 @@ async function fbPullField(){
   const out = {projects:meta.projects||[],archived:meta.archived||[],cats:meta.cats||[],mats:meta.mats||[],
     rooms:[],items:[],deliveries:[],counts:[],transfers:[],orders:[],drafts:[],recipes:{},progress:{}};
   out.__updatedAt = meta.updatedAt || '';
-  const _core = {projects:out.projects,archived:out.archived,cats:out.cats,mats:out.mats};
+  out.tomb = meta.tomb || {}; out.strAt = meta.strAt || {}; out.objAt = meta.objAt || {};
+  const _core = {projects:out.projects,archived:out.archived,cats:out.cats,mats:out.mats,
+                 tomb:out.tomb,strAt:out.strAt,objAt:out.objAt};
   _fbLast = { metaCore: JSON.stringify(_core), meta: JSON.stringify(Object.assign({}, _core, {updatedAt:out.__updatedAt})) };
   for(const p of out.projects){
     const snap = await getDocs(P.parts(p));
@@ -450,63 +456,61 @@ function fbWatchField(){
         const key='p:'+p+':'+k, sig=JSON.stringify(v);
         if(_fbLast[key]===sig) return;
         _fbLast[key]=sig;
-        if(FB_PROJ.includes(k)){ D[k]=(D[k]||[]).filter(x=>x.project!==p).concat(v||[]); ch++; }
+        if(FB_PROJ.includes(k)){
+          // 別的裝置改了這個案場的某個分片 → 逐筆併進來（不要整段換掉，會吃掉這台剛改的）
+          const rem = {}; rem[k] = v||[]; rem.__updatedAt = new Date().toISOString();
+          rem.tomb = D.tomb||{}; rem.strAt = D.strAt||{}; rem.objAt = D.objAt||{};
+          const keepOther = (D[k]||[]).filter(x=>x.project!==p);
+          const mineThis  = (D[k]||[]).filter(x=>x.project===p);
+          const saveAll = D[k]; D[k] = mineThis;
+          try{ mergeField(rem); }catch(e){ D[k] = saveAll; }
+          D[k] = keepOther.concat(D[k]||[]);
+          ch++;
+        }
         else if(FB_PROJ_O.includes(k)){ D[k]=D[k]||{}; D[k][p]=v; ch++; }
       });
       if(ch){ migrateMatSpecs(); clearNeedCache(); saveLocalOnly(); renderAll(); setCloudStatus('☁ 已同步其他裝置','ok'); }
     }, ()=>{}));
   });
 }
-// 把雲端那份套進來（含既有的兩個一次性遷移），並把本機標記成「跟雲端同一版」
-function applyRemoteField(remote, cloudAt){
-  const r = Object.assign({}, remote); delete r.__updatedAt;
-  D = normalize(Object.assign(D, r));
-  D.updatedAt = cloudAt || D.updatedAt; D.syncedAt = D.updatedAt;
-  const n = migrateMatSpecs();
-  const k = migrateUsedAt();
-  if(n||k){ saveLocalOnly(); fbPushField().catch(()=>{}); if(n) toast('✅ 已把 '+n+' 項材料的規格獨立出來'); }
-  else saveLocalOnly();
+function recTotals(){
+  const c = {}; let total = 0;
+  ID_ARRAYS.forEach(k=>{ c[k] = (D[k]||[]).length; total += c[k]; });
+  return Object.assign(c, {total});
 }
-let _syncRemote = null;
-function openSyncConflict(remote, cloudAt, localAt){
-  _syncRemote = remote;
-  const L = countsOf(D), C = countsOf(remote);
-  const keys = Object.keys(L);
-  const row = k=>{ const l=L[k], c=C[k], diff=l!==c;
+let _shrinkRemote = null;
+function showShrinkChoice(remote, before, after){
+  _shrinkRemote = remote;
+  const rows = ID_ARRAYS.filter(k=>before[k]||after[k]).map(k=>{
+    const lbl = {rooms:'房間',mats:'材料庫',items:'材料項',deliveries:'送料',counts:'盤點',transfers:'調撥',orders:'待到貨',drafts:'草稿'}[k]||k;
+    const d = after[k]-before[k];
     return `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line)">
-      <span style="flex:1;color:var(--text2)">${k}</span>
-      <b style="width:56px;text-align:right;color:${diff&&l>c?'var(--blue)':'var(--text)'}">${l}</b>
-      <b style="width:56px;text-align:right;color:${diff&&c>l?'var(--blue)':'var(--text)'}">${c}</b></div>`; };
-  openSheet(`<h3>⚠️ 兩邊都有改動<span class="x" onclick="syncKeep('none')">✕</span></h3>
-    <div class="hint">這台有<b>還沒上傳</b>的修改，雲端也比這台新。我不會自己決定要留哪一份 —— 你選。</div>
+      <span style="flex:1;color:var(--text2)">${lbl}</span>
+      <b style="width:52px;text-align:right">${before[k]}</b>
+      <b style="width:52px;text-align:right;color:${d<0?'var(--red)':'var(--text)'}">${after[k]}</b></div>`; }).join('');
+  openSheet(`<h3>⚠️ 雲端資料變少了<span class="x" onclick="shrinkKeep('local')">✕</span></h3>
+    <div class="hint">跟雲端合併之後，筆數會從 <b>${before.total}</b> 掉到 <b>${after.total}</b>。
+    這可能是別台正常刪掉的，也可能是雲端被洗掉了。<b>我先不套用</b>，等你確認。</div>
     <div style="display:flex;gap:8px;font-size:12px;font-weight:800;color:var(--text2);padding:6px 0 2px">
-      <span style="flex:1"></span><span style="width:56px;text-align:right">這台</span><span style="width:56px;text-align:right">雲端</span></div>
-    ${keys.map(row).join('')}
-    <div style="display:flex;gap:8px;font-size:12px;padding:7px 0;color:var(--text2)">
-      <span style="flex:1">最後修改</span><span style="width:56px;text-align:right">${whenTxt(localAt)}</span><span style="width:56px;text-align:right">${whenTxt(cloudAt)}</span></div>
+      <span style="flex:1"></span><span style="width:52px;text-align:right">現在</span><span style="width:52px;text-align:right">合併後</span></div>
+    ${rows}
     <div class="divider"></div>
-    <button class="btn" onclick="syncKeep('cloud')">☁️ 用雲端這份（丟掉這台沒上傳的修改）</button>
-    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="syncKeep('local')">📱 用這台這份（覆蓋雲端）</button>
-    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="syncKeep('none')">⏸ 先都不要動（維持離線，不上傳）</button>
-    <div class="muted" style="margin-top:9px;font-size:12px">不確定就選「先都不要動」，到另一台確認過再回來。這台在你決定前不會上傳任何東西。</div>`);
+    <button class="btn" onclick="shrinkKeep('local')">🛡 保留這台的（先不要動雲端，也不上傳）</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="shrinkKeep('merge')">☁️ 確定，照雲端合併（會少 ${before.total-after.total} 筆）</button>
+    <div class="muted" style="margin-top:9px;font-size:12px">不確定就按上面那顆。去另一台看一眼，確定那些是你自己刪的，再回來選下面那顆。</div>`);
 }
-function syncKeep(which){
-  const remote = _syncRemote;
-  closeSheet();
-  if(which==='cloud' && remote){
-    applyRemoteField(remote, remote.__updatedAt||'');
+async function shrinkKeep(which){
+  const remote = _shrinkRemote; _shrinkRemote = null; closeSheet();
+  if(which==='merge' && remote){
     clearPushBlock(); _cloudRead = true;
-    clearNeedCache(); fillProjSel(); renderAll();
-    setCloudStatus('✅ 已同步 '+timeStr(),'ok'); toast('☁️ 已改用雲端那份');
-  } else if(which==='local'){
-    clearPushBlock(); _cloudRead = true;
-    fbPushField().then(()=>{ setCloudStatus('✅ 已同步 '+timeStr(),'ok'); toast('📱 已用這台覆蓋雲端'); })
-                 .catch(()=>{ setCloudStatus('⚠ 上傳失敗','err'); });
+    mergeField(remote); migrateMatSpecs(); migrateUsedAt(); saveLocalOnly();
+    _fbOn = true; try{ await fbPushField(); }catch(e){}
+    clearNeedCache(); fillProjSel(); renderAll(); fbWatchField();
+    setCloudStatus('✅ 已同步 '+timeStr(),'ok'); toast('☁️ 已照雲端合併');
   } else {
-    blockPush('你選了先不要動（這台不會上傳，畫面也不是最新的）');
-    toast('⏸ 維持現狀，沒有上傳也沒有覆蓋');
+    blockPush('你選了保留這台的資料（先不上傳，也沒有套用雲端）');
+    toast('🛡 已保留這台的資料');
   }
-  _syncRemote = null;
 }
 async function fbInitField(){
   await fbReady();
@@ -514,21 +518,25 @@ async function fbInitField(){
     const remote = await fbPullField();
     if(remote){
       _cloudRead = true;                                  // 真的讀到雲端了
-      // ── 誰說了算？比「時間」和「這台有沒有沒上傳的修改」，絕不比筆數 ──
-      //  舊裝置的筆數可能比較多（新裝置清過幽靈／刪過料），比筆數會讓舊的蓋掉新的。
-      const cloudAt = remote.__updatedAt || '', localAt = D.updatedAt || '';
-      const dirty = localDirty();
-      if(!dirty){
-        applyRemoteField(remote, cloudAt);                 // 這台沒有未上傳的修改 → 一律以雲端為準
-      } else if(cloudAt && cloudAt <= localAt){
-        await fbPushField();                               // 只有這台有新東西 → 推上去
-      } else {
-        // 兩邊都有新東西（或雲端沒時間戳記，分不出來）→ 絕不自己決定，問人
-        _fbOn = true; clearNeedCache(); fillProjSel(); renderAll(); fbWatchField();
-        blockPush('兩邊都有改動，等你選要用哪一份');
-        openSyncConflict(remote, cloudAt, localAt);
+      // 逐筆合併：兩邊各自改的東西都留著，只有「同一筆」才用時間決勝。
+      // 離線期間改的也是在這裡併進去，不會互相蓋。
+      const before = recTotals(), snap = JSON.stringify(D);
+      mergeField(remote);
+      const after = recTotals();
+      // 防縮水：雲端若少了一大塊（別台被洗掉、或雲端出過事），不要默默照單全收
+      const lost = before.total - after.total;
+      if(before.total>=20 && lost > before.total*0.3){
+        D = normalize(JSON.parse(snap)); initStamps();
+        _fbOn = false;
+        blockPush('雲端比這台少了 '+lost+' 筆（'+before.total+' → '+after.total+'），已先停住不套用');
+        showShrinkChoice(remote, before, after);
+        clearNeedCache(); fillProjSel(); renderAll();
         return;
       }
+      const n = migrateMatSpecs(); const k = migrateUsedAt();
+      if(n) toast('✅ 已把 '+n+' 項材料的規格獨立出來');
+      saveLocalOnly();
+      await fbPushField();                                // 把合併結果推回雲端
     } else {
       // 讀不到 meta：可能雲端真的空的，也可能是規則過期／離線／被擋 —— 分不出來，
       // 所以只有「本機有資料」才敢當成初次建立並上傳；本機空的就什麼都不做。
@@ -568,6 +576,143 @@ function setCloudStatus(s, kind){ const el = document.getElementById('syncPill')
 let _cloudRead = false;      // 這次開機有沒有成功讀到雲端（含「確認雲端真的是空的」）
 let _pushBlocked = '';       // 被擋的原因，顯示在橫幅上
 function localIsEmpty(){ return !(D.items||[]).length && !(D.projects||[]).length; }
+
+// ════════════════════════════════════════════
+//  逐筆合併（不再二選一、不再問你）
+//  每筆紀錄帶 _t（最後改動時間），刪除留墓碑。合併時同一筆取比較新的那份，
+//  墓碑比留下的那份新才算真的刪掉。所以：離線改的東西會在有網時自己併進去，
+//  兩台同時改不同東西也各自保留，只有「同一筆」才用時間決勝。
+// ════════════════════════════════════════════
+const ID_ARRAYS  = ['rooms','mats','items','deliveries','counts','transfers','orders','drafts'];
+const STR_ARRAYS = ['projects','archived','cats'];
+const OLD_T = '1970-01-01T00:00:00.000Z';
+let _sig = {};                       // k -> {key: 內容簽章}，用來偵測哪幾筆被改過
+
+function recKey(k, r){
+  if(!r) return null;
+  if(k==='rooms') return (r.project||'')+'||'+(r.name||'');
+  return r.id!=null ? String(r.id) : null;
+}
+function sigOf(r){ const c = Object.assign({}, r); delete c._t; return JSON.stringify(c); }
+function pruneTombs(){
+  const t = D.tomb||{}; const keys = Object.keys(t);
+  if(keys.length<=4000) return;
+  keys.sort((a,b)=>String(t[a]).localeCompare(String(t[b])));      // 舊的先丟
+  keys.slice(0, keys.length-3000).forEach(k=>delete t[k]);
+}
+// 開機時：沒有 _t 的舊資料一律繼承「這份資料的最後修改時間」，
+// 不要蓋成現在 —— 否則舊裝置一開就把每一筆都變成最新的，反而變成它說了算。
+function initStamps(){
+  const base = D.updatedAt || OLD_T;
+  D.tomb = (D.tomb && typeof D.tomb==='object') ? D.tomb : {};
+  D.strAt = (D.strAt && typeof D.strAt==='object') ? D.strAt : {};
+  D.objAt = (D.objAt && typeof D.objAt==='object') ? D.objAt : {};
+  _sig = {};
+  ID_ARRAYS.forEach(k=>{
+    const m = {};
+    (D[k]||[]).forEach(r=>{ const id=recKey(k,r); if(id==null) return; if(!r._t) r._t = base; m[id]=sigOf(r); });
+    _sig[k] = m;
+  });
+  STR_ARRAYS.forEach(k=> (D[k]||[]).forEach(v=>{ const kk=k+':'+v; if(!D.strAt[kk]) D.strAt[kk]=base; }));
+  stampObjMaps(base);
+}
+// recipes 以案場為單位、progress 以「案場+樓層」為單位記時間（不同樓層各改各的不會互相蓋）
+function objKeys(){
+  const out = [];
+  Object.keys(D.recipes||{}).forEach(p=> out.push(['recipes:'+p, JSON.stringify(D.recipes[p])]));
+  Object.entries(D.progress||{}).forEach(([p,fl])=> Object.keys(fl||{}).forEach(f=>
+    out.push(['progress:'+p+'||'+f, JSON.stringify(fl[f])])));
+  return out;
+}
+function stampObjMaps(now){
+  _sig.__obj = _sig.__obj || {};
+  objKeys().forEach(([k,j])=>{
+    if(_sig.__obj[k]!==j){ D.objAt[k] = now; _sig.__obj[k] = j; }
+    else if(!D.objAt[k]) D.objAt[k] = now;
+  });
+}
+// 每次存檔：把「這次改到的那幾筆」蓋上時間，刪掉的留墓碑
+function stampChanges(){
+  const now = new Date().toISOString();
+  D.tomb = D.tomb||{}; D.strAt = D.strAt||{}; D.objAt = D.objAt||{};
+  ID_ARRAYS.forEach(k=>{
+    const prev = _sig[k]||{}, cur = {};
+    (D[k]||[]).forEach(r=>{
+      const id = recKey(k,r); if(id==null) return;
+      const sg = sigOf(r); cur[id] = sg;
+      if(prev[id]!==sg || !r._t) r._t = now;
+      delete D.tomb[k+':'+id];                       // 又出現了 → 撤掉墓碑
+    });
+    Object.keys(prev).forEach(id=>{ if(!(id in cur)) D.tomb[k+':'+id] = now; });
+    _sig[k] = cur;
+  });
+  STR_ARRAYS.forEach(k=>{
+    const have = new Set((D[k]||[]).map(String));
+    have.forEach(v=>{ const kk=k+':'+v; if(!D.strAt[kk]) D.strAt[kk]=now; delete D.tomb[kk]; });
+    Object.keys(D.strAt).forEach(kk=>{ if(kk.startsWith(k+':') && !have.has(kk.slice(k.length+1))) {
+      if(!D.tomb[kk]) D.tomb[kk] = now; } });
+  });
+  stampObjMaps(now);
+  pruneTombs();
+}
+// ── 合併：本機 ⊕ 雲端 ──
+function mergeField(remote){
+  const rt = remote.__updatedAt || OLD_T;
+  // 這台沒有「改過但還沒上傳」的東西 → 它手上的紀錄雲端一定都收過了。
+  // 那本機才有、雲端沒有的，就是別台刪掉的 → 不要把它們併回去（否則刪掉的會復活）。
+  const contribute = localDirty();
+  const tomb = Object.assign({}, remote.tomb||{});
+  Object.entries(D.tomb||{}).forEach(([k,t])=>{ if(!tomb[k] || t > tomb[k]) tomb[k] = t; });
+  const strAt = Object.assign({}, remote.strAt||{});
+  Object.entries(D.strAt||{}).forEach(([k,t])=>{ if(!strAt[k] || t > strAt[k]) strAt[k] = t; });
+  const objAt = Object.assign({}, remote.objAt||{});
+  Object.entries(D.objAt||{}).forEach(([k,t])=>{ if(!objAt[k] || t > objAt[k]) objAt[k] = t; });
+
+  ID_ARRAYS.forEach(k=>{
+    const best = new Map();
+    const take = (r, fallbackT)=>{
+      const id = recKey(k,r); if(id==null) return;
+      const rec = r._t ? r : Object.assign({}, r, {_t:fallbackT});
+      const ex = best.get(id);
+      if(!ex || (rec._t||'') > (ex._t||'')) best.set(id, rec);
+    };
+    (remote[k]||[]).forEach(r=>take(r, rt));
+    if(contribute) (D[k]||[]).forEach(r=>take(r, D.updatedAt||OLD_T));
+    else { const seen=new Set((remote[k]||[]).map(r=>recKey(k,r)));
+           (D[k]||[]).forEach(r=>{ if(seen.has(recKey(k,r))) take(r, D.updatedAt||OLD_T); }); }
+    const out = [];
+    best.forEach((r,id)=>{ const t = tomb[k+':'+id]; if(t && t > (r._t||'')) return; out.push(r); });
+    D[k] = out;
+  });
+  STR_ARRAYS.forEach(k=>{
+    const set = new Set(contribute ? [].concat(remote[k]||[], D[k]||[]).map(String)
+                                   : (remote[k]||[]).map(String));
+    D[k] = [...set].filter(v=>{ const kk=k+':'+v; const t=tomb[kk]; return !(t && t > (strAt[kk]||OLD_T)); });
+  });
+  // recipes / progress：同一個 key 取時間新的那份
+  const rRec = remote.recipes||{}, rPro = remote.progress||{};
+  Object.keys(rRec).forEach(p=>{
+    const mine = (D.recipes||{})[p];
+    const kk = 'recipes:'+p;
+    const theirT = (remote.objAt||{})[kk] || rt, myT = (D.objAt||{})[kk] || OLD_T;
+    if(mine===undefined || theirT > myT){ D.recipes = D.recipes||{}; D.recipes[p] = rRec[p]; }
+  });
+  Object.entries(rPro).forEach(([p,fl])=>{
+    D.progress = D.progress||{}; D.progress[p] = D.progress[p]||{};
+    Object.keys(fl||{}).forEach(f=>{
+      const kk = 'progress:'+p+'||'+f;
+      const theirT = (remote.objAt||{})[kk] || rt, myT = (D.objAt||{})[kk] || OLD_T;
+      if(D.progress[p][f]===undefined || theirT > myT) D.progress[p][f] = fl[f];
+    });
+  });
+  D.tomb = tomb; D.strAt = strAt; D.objAt = objAt;
+  D.updatedAt = (D.updatedAt||OLD_T) > rt ? D.updatedAt : rt;
+  normalize(D);
+  // 合併後重建簽章，避免下一次存檔把每一筆都當成改過
+  _sig = {}; ID_ARRAYS.forEach(k=>{ const m={}; (D[k]||[]).forEach(r=>{ const id=recKey(k,r); if(id!=null) m[id]=sigOf(r); }); _sig[k]=m; });
+  _sig.__obj = {}; objKeys().forEach(([k,j])=>{ _sig.__obj[k]=j; });
+}
+
 // 這台有沒有「改過但還沒上傳」的東西
 function localDirty(){ return !!D.updatedAt && D.updatedAt !== D.syncedAt; }
 function whenTxt(iso){ if(!iso) return '（沒有時間）'; const d=new Date(iso); return isNaN(d)?String(iso):
@@ -3255,7 +3400,9 @@ fillProjSel(); go('board');
 fbInitField();                       // Firestore：拉回雲端 + 開即時同步
 applyDueDeliveries();                // 預定送料到期自動入帳
 checkPendingImport();
-document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ applyDueDeliveries(); checkPendingImport(); } });
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ applyDueDeliveries(); checkPendingImport(); if(!_fbOn) fbInitField(); } });
+window.addEventListener('online', ()=>{ if(!_fbOn) fbInitField(); });   // 一有網路就自己接回去併
+setInterval(()=>{ if(!_fbOn && navigator.onLine) fbInitField(); }, 60000);
 
 // ── service worker ──
 if('serviceWorker' in navigator){
