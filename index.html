@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v99</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v100</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -176,6 +176,7 @@
       <div class="hint">選一個房間，把每種材料「現在還剩多少」重新數一次填進去。「需求量」是這房間總共要用多少，可現場改。</div>
       <div class="fg"><label>房間</label><select id="ct-room" onchange="renderCount()"></select></div>
     </div>
+    <div id="ct-prog"></div>
     <div id="ct-list"></div>
   </div>
 
@@ -1654,7 +1655,65 @@ function delDelivery(id){
 // ════════════════════════════════════════════
 //  盤點 COUNT
 // ════════════════════════════════════════════
-function renderCountPage(){ fillRoomSel('ct-room'); renderCount(); }
+// ════════════════════════════════════════════
+//  📊 本輪盤點進度：重盤一整案時，看得出哪層盤完了、哪層還沒
+//  「這一輪」的起算日可自己設（存在 cur.ctRound），跨天跨裝置都接得上
+// ════════════════════════════════════════════
+function ctRoundFrom(){ return cur.ctRound || todayStr(); }
+function setCtRound(v){ cur.ctRound = v; save(); renderCountProgress(); renderCount(); }
+function countedInRound(it){
+  const from = ctRoundFrom();
+  const at = it.countAt ? String(it.countAt).slice(0,10) : '';
+  return !!at && at >= from;
+}
+function renderCountProgress(){
+  const el = document.getElementById('ct-prog'); if(!el) return;
+  const p = cur.project;
+  if(!p){ el.innerHTML=''; return; }
+  const its = projItems(p);
+  if(!its.length){ el.innerHTML=''; return; }
+  const byFl = {};
+  its.forEach(it=>{ const f = roomFloor(p, it.room); (byFl[f]=byFl[f]||[]).push(it); });
+  const floors = Object.keys(byFl).sort(cmpFloor);
+  const doneAll = its.filter(countedInRound).length;
+  const from = ctRoundFrom();
+  const chip = f=>{
+    const g = byFl[f], d = g.filter(countedInRound).length, all = g.length;
+    const full = d>=all, none = d===0;
+    const bg = full?'var(--green,#16a34a)':(none?'transparent':'var(--amber)');
+    const fg = full?'#fff':(none?'var(--text2)':'#fff');
+    return `<a onclick="jumpCount('${esc(f).replace(/'/g,"\\'")}')" style="font-size:12px;font-weight:700;padding:5px 10px;border-radius:9px;cursor:pointer;border:1px solid ${none?'var(--line)':bg};background:${bg};color:${fg};white-space:nowrap">${full?'✅ ':''}${esc(f)} ${d}/${all}</a>`;
+  };
+  const pct = its.length ? Math.round(doneAll/its.length*100) : 0;
+  el.innerHTML = `<div class="card" style="padding:12px 14px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
+      <div style="font-weight:800;font-size:14px">📊 本輪盤點進度</div>
+      <div style="font-size:13px;font-weight:800;color:${pct>=100?'var(--green,#16a34a)':'var(--blue)'}">${doneAll} / ${its.length}　${pct}%</div>
+    </div>
+    <div style="height:8px;border-radius:6px;background:var(--line);margin:8px 0 10px;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:${pct>=100?'var(--green,#16a34a)':'var(--blue)'}"></div></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">${floors.map(chip).join('')}</div>
+    <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--text2)">
+      <span>這一輪從</span>
+      <input type="date" value="${esc(from)}" onchange="setCtRound(this.value)" style="width:auto;padding:4px 7px;font-size:12px">
+      <span>起算</span>
+      <a onclick="setCtRound(todayStr())" style="color:var(--blue);font-weight:700;cursor:pointer">今天開始新一輪</a>
+    </div>
+    <div class="muted" style="margin-top:6px;font-size:12px">點樓層直接跳過去盤。灰=還沒動、橘=盤一部分、綠=這層盤完了。</div>
+  </div>`;
+}
+function jumpCount(floor){
+  const p = cur.project;
+  const sel = document.getElementById('ct-room'); if(!sel) return;
+  // 該樓層第一個「還沒盤」的房間優先，全盤完就跳第一個房間
+  const rooms = projRooms(p).filter(r=>(r.floor||r.name)===floor).map(r=>r.name).sort(cmpFloor);
+  if(!rooms.length) return;
+  const undone = rooms.find(rn=> D.items.some(i=>i.project===p&&i.room===rn&&!countedInRound(i)));
+  sel.value = undone || rooms[0];
+  renderCount();
+  document.getElementById('ct-list').scrollIntoView({behavior:'smooth', block:'start'});
+}
+function renderCountPage(){ fillRoomSel('ct-room'); renderCountProgress(); renderCount(); }
 
 // 🖨️ 空白盤點表：帶去現場手寫（可選本層或全部樓層）
 function printCountSheet(){
@@ -1688,7 +1747,7 @@ function printCountSheet(){
       if(g!==lastG){ rows += `<tr><td colspan="6" style="background:#f6f9fd;font-weight:700;font-size:11.5px;color:#334155">${esc(g)}</td></tr>`; lastG = g; }
       const sp = (m&&m.spec) ? {name:m.name, spec:m.spec} : splitSpec(m?m.name:'');
       const thick = (m&&m.thick)?esc(m.thick):'';
-      rows += `<tr><td>${esc(sp.name||'?')}</td><td class="sp">${esc(sp.spec||'')}</td><td>${thick}</td>`
+      rows += `<tr><td>${esc(sp.name||'?')}${countedInRound(it)?' ✅':''}</td><td class="sp">${esc(sp.spec||'')}</td><td>${thick}</td>`
         + `<td style="color:#888">${itemNeed(it)}${esc(u)}</td>`
         + `<td style="border-bottom:1px solid #94a3b8;min-width:76px">&nbsp;</td>`
         + `<td style="border-bottom:1px solid #94a3b8;min-width:90px">&nbsp;</td></tr>`;
@@ -1754,7 +1813,7 @@ function renderCount(){
     const defVal = itemRemaining(it);
     html += `<div class="card" style="padding:11px 13px;margin-bottom:8px;border-left:4px solid ${ctn.c}">
       <div style="font-weight:800;font-size:14px;color:${ctn.c}">${matDisp(m)}</div>
-      <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 已送 ${num(it.delivered)}${esc(unit)}${used>0?(' · 已用 '+used+esc(unit)):''} · ${countAgeHTML(it)}${used>0?` · <a onclick="openReconSheet('${it.id}')" style="color:var(--text2);cursor:pointer;text-decoration:underline">對帳</a>`:''}</div>
+      <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 已送 ${num(it.delivered)}${esc(unit)}${used>0?(' · 已用 '+used+esc(unit)):''} · ${countAgeHTML(it)}${countedInRound(it)?' · <span style="color:var(--green,#16a34a);font-weight:700">✅ 本輪已盤</span>':''}${used>0?` · <a onclick="openReconSheet('${it.id}')" style="color:var(--text2);cursor:pointer;text-decoration:underline">對帳</a>`:''}</div>
       <div class="row">
         <div><label>現場剩餘・可用算式</label>
           <div class="stepper"><button type="button" onclick="stepQty('ct-rem-${it.id}',-1)">−</button>
@@ -1996,7 +2055,7 @@ function saveCount(){
     // 需求量編輯存成手動增減（相對依進度的還需要），不動原計算基準、也不會被重新匯出蓋掉
     if(n){ const adj = round(num(n.value) - baseNeed(it)); it.needAdj = adj===0 ? null : adj; }
   });
-  save(); toast('✅ 盤點已儲存'); renderCount();
+  save(); toast('✅ 盤點已儲存'); renderCountProgress(); renderCount();
 }
 
 // ════════════════════════════════════════════
