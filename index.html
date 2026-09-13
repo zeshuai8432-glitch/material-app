@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v97</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v98</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -231,6 +231,7 @@
         <button class="btn gray sm" onclick="document.getElementById('imp-file').click()">還原備份</button>
       </div>
       <input type="file" id="imp-file" accept="application/json" style="display:none" onchange="importBackup(this.files[0])">
+      <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="openCountRescue()">🛟 找回盤點（從流水帳撈回那天盤的數字）</button>
       <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="restorePreImport()">↩︎ 還原「匯入前」狀態</button>
       <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="forceCloudRestore()">☁️↓ 強制從雲端拉回（誤刪救援）</button>
       <div class="muted" style="margin-top:8px">每次從計算程式匯入前會自動備份一份，對不上時可用上面按鈕還原。「強制拉回」會先告訴你雲端有幾筆，再讓你決定要不要覆蓋。</div>
@@ -1729,6 +1730,7 @@ function openCountLog(){
   });
   openSheet(`<h3>🗒️ 盤點紀錄<span class="x" onclick="closeSheet()">✕</span></h3>
     <div class="muted" style="margin-bottom:4px">只記「有改到數字」的盤點（原本 → 盤成）。共 ${logs.length} 筆，顯示最近 30 天份。</div>
+    <button class="btn gray sm" style="width:100%;margin-bottom:8px" onclick="openCountRescue()">🛟 找回盤點：把某一天盤的數字寫回現場剩餘</button>
     ${body}`);
 }
 function renderCount(){
@@ -1767,6 +1769,84 @@ function renderCount(){
   html += `<button class="btn" onclick="saveCount()">💾 儲存盤點</button>`;
   el.innerHTML = html;
 }
+// ════════════════════════════════════════════
+//  🛟 找回盤點：從盤點流水帳（counts）把某一天盤的數字撈回來，寫回現場剩餘
+//  盤點紀錄只增不刪，就算 items 的 remaining 被別台蓋掉，這裡還留著原始數字
+// ════════════════════════════════════════════
+function openCountRescue(day){
+  const p = cur.project;
+  if(!p){ toast('⚠️ 先選案場'); return; }
+  const logs = (D.counts||[]).filter(c=>c.project===p);
+  if(!logs.length){
+    openSheet(`<h3>🛟 找回盤點<span class="x" onclick="closeSheet()">✕</span></h3>
+      <div class="muted" style="padding:10px 0">這個案場沒有盤點流水帳。<br><br>
+      如果盤點是在別台裝置做的，把那台打開（同一個帳號、同一個雲端），它的紀錄會自己併回來。</div>`);
+    return;
+  }
+  const byDay = {};
+  logs.forEach(c=>{ const d=String(c.at||'').slice(0,10); (byDay[d]=byDay[d]||[]).push(c); });
+  const days = Object.keys(byDay).sort().reverse();
+  if(!day || !byDay[day]) day = days[0];
+  // 同一天同一筆材料可能盤好幾次 → 取當天最後一次
+  const last = {};
+  byDay[day].slice().sort((a,b)=>String(a.at).localeCompare(String(b.at)))
+    .forEach(c=>{ last[c.room+'||'+c.matId] = c; });
+  const rows = Object.values(last).sort((a,b)=> cmpFloor(a.room,b.room)
+    || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''}));
+  let nDiff = 0;
+  const body = rows.map(c=>{
+    const m = mat(c.matId), u = m?m.unit:'';
+    const it = D.items.find(i=>i.project===p&&i.room===c.room&&i.matId===c.matId);
+    const now = it ? itemRemaining(it) : null;
+    const diff = now===null || round(now)!==round(num(c.rem));
+    if(diff) nDiff++;
+    return `<div class="listitem" style="padding:6px 10px;gap:8px">
+      <label style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;cursor:pointer">
+        <input type="checkbox" class="cr-it" value="${c.room}||${c.matId}" ${diff?'checked':''} style="width:18px;height:18px;flex:0 0 auto">
+        <span style="min-width:0"><span class="li-t" style="font-size:13px">${matDisp(m)}</span>
+        <span class="li-s" style="display:block">🏢 ${esc(c.room)}・${esc(String(c.at).slice(11,16))}</span></span>
+      </label>
+      <div style="flex:0 0 auto;text-align:right;white-space:nowrap;font-size:12px">
+        <div>那天盤 <b style="font-size:14px;color:var(--blue)">${round(num(c.rem))}</b>${esc(u)}</div>
+        <div style="color:${diff?'var(--amber)':'var(--text2)'}">現在 ${now===null?'（無此料）':round(now)+esc(u)}</div>
+      </div>
+    </div>`; }).join('');
+  const dayBtn = d=>`<a onclick="openCountRescue('${d}')" style="font-size:12px;font-weight:700;padding:4px 9px;border-radius:8px;cursor:pointer;border:1px solid ${d===day?'var(--blue)':'var(--line)'};color:${d===day?'#fff':'var(--text2)'};background:${d===day?'var(--blue)':'transparent'}">${d.slice(5)}（${Object.keys(byDay[d].reduce((a,c)=>{a[c.room+'||'+c.matId]=1;return a;},{})).length}）</a>`;
+  openSheet(`<h3>🛟 找回盤點<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="hint">盤點流水帳只增不刪。就算現場剩餘被別台蓋掉，這裡還留著你那天盤的原始數字，可以挑一天寫回去。</div>
+    <div class="fg"><label>哪一天盤的</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${days.slice(0,14).map(dayBtn).join('')}</div></div>
+    <div class="muted" style="margin:4px 0 2px">${rows.length} 筆・其中 <b style="color:var(--amber)">${nDiff}</b> 筆跟現在不一樣（已自動勾起來）</div>
+    ${body}
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:8px 0;cursor:pointer">
+      <input type="checkbox" onclick="document.querySelectorAll('.cr-it').forEach(c=>c.checked=this.checked)" style="width:18px;height:18px"> 全選／全不選</label>
+    <button class="btn" onclick="applyCountRescue('${day}')">✅ 把勾選的寫回現場剩餘</button>
+    <div class="muted" style="margin-top:8px;font-size:12px">寫回去會重新對齊進度基準，之後施工進度往前走才從這些數字繼續扣。</div>`);
+}
+function applyCountRescue(day){
+  const p = cur.project;
+  const picked = new Set([...document.querySelectorAll('.cr-it:checked')].map(x=>x.value));
+  if(!picked.size){ toast('⚠️ 至少勾一筆'); return; }
+  const logs = (D.counts||[]).filter(c=>c.project===p && String(c.at||'').slice(0,10)===day);
+  const last = {};
+  logs.slice().sort((a,b)=>String(a.at).localeCompare(String(b.at))).forEach(c=>{ last[c.room+'||'+c.matId]=c; });
+  let n=0, made=0;
+  picked.forEach(k=>{
+    const c = last[k]; if(!c) return;
+    let it = D.items.find(i=>i.project===p&&i.room===c.room&&i.matId===c.matId);
+    if(!it){ it = {id:uid(), project:p, room:c.room, matId:c.matId, demand:0, remaining:0, delivered:0, manualAdd:1}; D.items.push(it); made++; }
+    const prevRem = itemRemaining(it);
+    it.remaining = round(num(c.rem));
+    if(c.restock!=null) it.restock = c.restock;
+    markUsed(it);
+    it.countAt = c.at;
+    logCount(it, prevRem, it.restock);
+    n++;
+  });
+  save(); closeSheet(); renderAll();
+  toast('✅ 已寫回 '+n+' 筆'+(made?('（新建 '+made+' 項材料）'):''));
+}
+
 // 🔍 對帳：把「送料 / 調撥 / 已用 / 實盤」整條帳攤開，並指出差額最可能出在哪
 function openReconSheet(id){
   const it = D.items.find(x=>x.id===id); if(!it) return;
