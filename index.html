@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v104</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v105</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -304,7 +304,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 104;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 105;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -2210,22 +2210,38 @@ function renderProgress(){
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">
         <div style="font-size:20px;font-weight:900;letter-spacing:.5px">🏠 ${esc(room.type)}</div>
         <div style="font-size:13px;font-weight:700;color:var(--text2);background:var(--line);border-radius:99px;padding:2px 10px">${esc(floor)}・共 ${room.count} 間</div>
-        <div style="margin-left:auto;font-size:22px;font-weight:900;color:${rpct>=100?'var(--green)':'var(--blue)'}">${rpct}%</div>
+        <div style="margin-left:auto;font-size:22px;font-weight:900;color:${rpct>=100?'var(--green)':'var(--blue)'}" id="pr-pct-${ri}">${rpct}%</div>
       </div>
-      ${pctBar(rpct,8)}
-      <div style="height:6px"></div>`;
+      <div id="pr-bar-${ri}">${pctBar(rpct,8)}</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:9px;padding:8px 10px;background:var(--bg2,#f8fafc);border-radius:10px">
+        <span style="font-size:12px;font-weight:800;color:var(--text2)">整個房型</span>
+        <button class="btn mini" onclick="prFill(${ri},null,0)">✅ 全做完</button>
+        <button class="btn mini gray" onclick="prFill(${ri},null,${room.count})">↺ 全未做</button>
+        <span style="font-size:12px;color:var(--text2);margin-left:4px">統一剩</span>
+        <input type="number" inputmode="numeric" placeholder="間" min="0" max="${room.count}"
+          style="width:56px;text-align:center;padding:5px 4px" onchange="prFill(${ri},null,this.value);this.value=''">
+      </div>`;
     room.walls.forEach((wall, wi)=>{
       const stages = wallStages(wall);
       if(!stages.length) return;
       const wp = (rp[wall.name] && typeof rp[wall.name]==='object') ? rp[wall.name] : {};
       html += `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--line)">
-        <div style="font-weight:800;font-size:13px;color:var(--blue)">🧱 ${esc(wall.name)}${wall.sides==='double'?' <span class="pill" style="background:#eef2ff;color:#3730a3">雙面</span>':''}</div>`;
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <div style="font-weight:800;font-size:13px;color:var(--blue)">🧱 ${esc(wall.name)}${wall.sides==='double'?' <span class="pill" style="background:#eef2ff;color:#3730a3">雙面</span>':''}</div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:5px">
+            <button class="btn mini" onclick="prFill(${ri},${wi},0)">✅ 做完</button>
+            <button class="btn mini gray" onclick="prFill(${ri},${wi},${room.count})">↺ 未做</button>
+            <input type="number" inputmode="numeric" placeholder="剩" min="0" max="${room.count}"
+              style="width:50px;text-align:center;padding:4px 3px" onchange="prFill(${ri},${wi},this.value);this.value=''">
+          </div>
+        </div>`;
       stages.forEach(st=>{
         const undone = wp[st.key]!=null ? Math.max(0, Math.min(num(wp[st.key]), num(room.count))) : room.count;
         html += `<div style="display:flex;align-items:center;gap:10px;padding:5px 0 5px 6px">
           <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${st.label}</div><div class="muted" style="font-size:11px">還沒做幾間（共 ${room.count}）</div></div>
           <div class="stepper"><button type="button" onclick="stepProg('prg-${ri}-${wi}-${st.key}',-1)">−</button>
-          <input type="number" id="prg-${ri}-${wi}-${st.key}" inputmode="numeric" value="${undone}" data-max="${room.count}" style="flex:0 0 60px;width:60px;text-align:center">
+          <input type="number" id="prg-${ri}-${wi}-${st.key}" inputmode="numeric" value="${undone}" data-max="${room.count}"
+            data-ri="${ri}" data-wi="${wi}" oninput="prLivePct(${ri})" style="flex:0 0 60px;width:60px;text-align:center">
           <button type="button" onclick="stepProg('prg-${ri}-${wi}-${st.key}',1)">＋</button></div>
         </div>`;
       });
@@ -2240,6 +2256,7 @@ function stepProg(id, d){
   const el = document.getElementById(id); if(!el) return;
   const mx = num(el.dataset.max);
   el.value = Math.max(0, Math.min(Math.round(num(el.value)+d), mx||999999));
+  if(el.dataset && el.dataset.ri!=null) prLivePct(el.dataset.ri);
 }
 // 把畫面上那些輸入框收回資料裡（只收看得到的，所以分頁切換不會動到別的房型）
 function collectProgress(){
@@ -2265,6 +2282,39 @@ function collectProgress(){
 function saveProgress(){
   if(!collectProgress()) return;
   save(); toast('✅ 進度已儲存'); renderProgress(); renderBoard();
+}
+// 一次填一整道牆（或整個房型）：通常一道牆就是「統一剩幾間」或「整道做完」，
+// 不用每個階段各點一次。wi 給 null 代表整個房型的每一道牆。
+function prFill(ri, wi, val){
+  const sel = wi==null ? `[data-ri="${ri}"]` : `[data-ri="${ri}"][data-wi="${wi}"]`;
+  const inputs = [...document.querySelectorAll('#pr-list input'+sel)];
+  if(!inputs.length) return;
+  let n = 0;
+  inputs.forEach(inp=>{
+    const max = parseInt(inp.dataset.max)||0;
+    let v = parseInt(val); if(isNaN(v)) return;
+    v = Math.max(0, Math.min(v, max));
+    inp.value = v; n++;
+  });
+  if(!n) return;
+  prLivePct(ri);
+  toast(wi==null ? ('已套用到整個房型（'+n+' 個階段）') : ('這道牆 '+n+' 個階段都填好了'));
+}
+// 即時算目前畫面上的完成度（還沒按儲存也看得到）
+function prLivePct(ri){
+  const inputs = [...document.querySelectorAll(`#pr-list input[data-ri="${ri}"]`)];
+  if(!inputs.length) return;
+  let done=0, total=0;
+  inputs.forEach(inp=>{
+    const max = parseInt(inp.dataset.max)||0;
+    let v = parseInt(inp.value); if(isNaN(v)) v = max;
+    v = Math.max(0, Math.min(v, max));
+    total += max; done += max - v;
+  });
+  const pct = total ? Math.round(done/total*100) : 0;
+  const pe = document.getElementById('pr-pct-'+ri), be = document.getElementById('pr-bar-'+ri);
+  if(pe){ pe.textContent = pct+'%'; pe.style.color = pct>=100 ? 'var(--green)' : 'var(--blue)'; }
+  if(be) be.innerHTML = pctBar(pct,8);
 }
 // 切房型分頁：先把目前這頁填的收起來存好，再換頁（不會白填）
 function setPrType(t){
