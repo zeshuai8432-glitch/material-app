@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v73</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v74</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v73</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v74</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -3054,7 +3054,21 @@ function updateBraceFields() {
 
 // 查材料庫名稱（找不到就回傳代號）
 // 名稱去掉結尾的類別字，避免「C41 骨架 骨架（下料…）」這種重複
-function matBase(kind, id, word){ return String(matName(kind, id)).replace(new RegExp(' ?' + word + '$'), ''); }
+// 切掉名稱結尾的類別字（呼叫端會再接回去，好統一成「N38 加強橫枝 243cm」這種格式）。
+// 名稱是使用者自己在材料資料庫打的，常見同義字（橫支／橫枝）或空白差異：
+// 舊版只比對完全相同的字，切不掉就直接接上去 → 產生「N38 加強橫支 加強橫枝」這種疊字，
+// 而且每換一種寫法就在材料管理多生一筆材料。這裡改成容忍同義字與空白。
+function matSynNorm(s){ return String(s||'').replace(/\s+/g,'').replace(/支/g,'枝'); }
+function matBase(kind, id, word){
+  const raw = String(matName(kind, id)).trim();
+  const w = matSynNorm(word);
+  if(!w) return raw;
+  if(!matSynNorm(raw).endsWith(w)) return raw;      // 名稱裡沒有那個字 → 原樣傳回
+  // 有（含同義字／空白差異）→ 依「去空白後的字數」回推要切掉幾個字
+  let cut = raw.length, left = w.length;
+  while(cut > 0 && left > 0){ if(!/\s/.test(raw[cut-1])) left--; cut--; }
+  return raw.slice(0, cut).trim();
+}
 function matName(coll, id) { const m = (state.materials[coll] || []).find(x => x.id === id); return m ? m.name : (id || ''); }
 // 數字規則自動搭配：槽鐵 = U(骨架號碼+2)；橫枝 ≤41→N19，其餘→N38
 // 例：C41→U43,N19 ; C65→U67,N38 ; C75→U77,N38 ; C92→U94,N38
