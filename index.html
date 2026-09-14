@@ -133,7 +133,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v115</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v116</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -312,7 +312,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 115;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 116;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -1026,6 +1026,10 @@ function needAdj(it){ return num(it.needAdj); } // 手動需求增減（換料/�
 function itemNeed(it){ return round(baseNeed(it) + needAdj(it)); } // 需求量（含手動增減）
 function itemTotal(it){ return round(num(it.demand) + needAdj(it)); } // 總需求量（含手動增減）
 function itemManual(it){ return it.restock!=null && it.restock!==''; } // 有手動指定要補數量
+// 計算已經不要這個料了（需求歸零），但手動追加還在撐著 → 畫面上還是會看到「總需」
+function itemAdjOnly(it){
+  return round(num(it.demand))===0 && round(needAdj(it))!==0;
+}
 // 這層「全做完要多少」— 直接由牆食譜算（進度當作全沒做），不受需求量被手改影響
 function itemFullNeed(it){
   if(!hasRecipe(it.project, it.room)) return num(it.demand);
@@ -1292,6 +1296,8 @@ function renderBoard(){
             <div class="mn" style="color:${tn.c}">${matDisp(m)}${(m&&m.sys==='共用')?' <span class="pill" style="background:#dbeafe;color:#1d4ed8;font-size:10px">🔗 共用</span>':''}</div>
             <div class="ms">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''}</div>
             <div class="nums">總需 ${total}${esc(unit)}　送 ${num(it.delivered)}${esc(unit)}${tTag}　剩 ${rem}${esc(unit)}　${countAgeHTML(it)}</div>
+            ${itemAdjOnly(it)?`<div onclick="event.stopPropagation();clearAdj('${it.id}')" style="margin-top:3px;font-size:11.5px;font-weight:700;color:var(--amber);cursor:pointer">
+              ⚠️ 計算已不用這個料，這 ${round(needAdj(it))}${esc(unit)} 是手動追加撐著 —— 點我清掉</div>`:''}
             ${noteHTML(it)}
           </div>
           <div class="val">
@@ -4144,6 +4150,7 @@ async function checkPendingImport(){
   const vanished = importGhosts(pl);
   const vSurplus = vanished.filter(it=> num(it.delivered)>0 || num(it.remaining)>0 || (it.restock!=null && it.restock!=='') || needAdj(it)!==0).length;
   const vRemove = vanished.length - vSurplus;
+  const vAdj = vanished.filter(it=> round(needAdj(it))!==0).length;   // 這幾項清完之後還是會顯示需求
   const vRow = it=>{ const m=mat(it.matId); const u=m?m.unit:'';
     const phys = num(it.delivered)>0 || num(it.remaining)>0 || (it.restock!=null && it.restock!=='') || needAdj(it)!==0;
     return `<div class="listitem" style="padding:6px 10px">
@@ -4158,6 +4165,12 @@ async function checkPendingImport(){
       ${vRemove?`· <b>${vRemove}</b> 項沒送過料 → 直接移除<br>`:''}
       · 現場手動「換料／追加」<b>保留</b>，疊在新需求上（追加紀錄可查可清）
     </div>
+    ${vAdj?`<label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;font-weight:700;margin:8px 0 0;cursor:pointer;
+      background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:9px 11px">
+      <input type="checkbox" id="imp-clradj" style="width:18px;height:18px;flex:0 0 auto;margin-top:1px">
+      <span>連手動追加一起清掉（這 ${vAdj} 項）
+        <span class="muted" style="font-weight:400;display:block;margin-top:2px">
+          不清的話，計算已經不用的料還是會顯示「總需」—— 因為手動追加還掛在上面。</span></span></label>`:''}
     <details style="margin-top:6px"><summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--blue)">📋 點開看全部 ${vanished.length} 項名單</summary>
       <div style="max-height:280px;overflow-y:auto;margin-top:6px">${vanished.slice().sort((a,b)=>cmpFloor(a.room,b.room)||String(mat(a.matId)?.name).localeCompare(String(mat(b.matId)?.name),'zh-Hant',{numeric:true})).map(vRow).join('')}</div>
     </details>` : '';
@@ -4346,6 +4359,11 @@ function applyCalcImport(pl){
 let _lastRecon = {surplus:0, removed:0};
 function confirmCalcImport(){
   if(!_pendingImport) return;
+  const clrAdj = !!(document.getElementById('imp-clradj')||{}).checked;
+  if(clrAdj){
+    const ghosts = importGhosts(_pendingImport);
+    ghosts.forEach(it=>{ if(round(needAdj(it))!==0) it.needAdj = null; });
+  }
   applyCalcImport(_pendingImport);
   try{ localStorage.removeItem('fieldmat_pending_import'); }catch(e){}
   idbDel('pending_import');
