@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fieldmat-v102';
+const CACHE_NAME = 'fieldmat-v103';
 const ASSETS = [
   './index.html',
   './manifest.json',

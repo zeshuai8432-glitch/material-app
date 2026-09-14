@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v102</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v103</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -304,7 +304,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 102;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 103;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -2157,10 +2157,35 @@ function renderProgress(){
     <div style="margin-top:10px">${floorRows}</div>
   </div>`;
   html += `<div class="hint">每道牆、每個階段填「還沒做幾間」：骨架立好就把骨架減下去、板還沒封就留著。全做完填 0。改完按下面儲存。</div>`;
+  // ── 房型分頁：一次只填一個房型，切換時自動先存 ──
+  const types = rec.rooms.map(r=>r.type);
+  if(types.length && types.indexOf(cur.prType)<0) cur.prType = types[0];
+  if(types.length>1){
+    html += `<div class="card" style="padding:10px 12px">
+      <div style="font-size:12px;font-weight:800;color:var(--text2);margin-bottom:7px">🏠 房型（點一下切換，會自動先存目前這頁）</div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px">${rec.rooms.map(r=>{
+        const on = r.type===cur.prType;
+        const pc = roomProgressPct(project, floor, r);
+        const done = pc>=100;
+        return `<a onclick="setPrType('${esc(r.type).replace(/'/g,"\\'")}')" style="display:flex;flex-direction:column;gap:2px;min-width:96px;padding:8px 11px;border-radius:11px;cursor:pointer;
+          border:2px solid ${on?'var(--blue)':(done?'var(--green)':'var(--line)')};
+          background:${on?'var(--blue)':(done?'#ecfdf5':'transparent')};color:${on?'#fff':'var(--text)'}">
+          <span style="font-weight:800;font-size:14px">${done&&!on?'✅ ':''}${esc(r.type)}</span>
+          <span style="font-size:11px;opacity:.85">${r.count} 間・<b>${pc}%</b></span></a>`;
+      }).join('')}</div></div>`;
+  }
   rec.rooms.forEach((room, ri)=>{
+    if(types.length>1 && room.type!==cur.prType) return;      // 只畫目前這個房型
     const rp = prog[room.type] || {};
     const rpct = roomProgressPct(project, floor, room);
-    html += `<div class="card"><h2 style="margin-bottom:2px;display:flex;justify-content:space-between;align-items:baseline">${esc(room.type)} <span class="muted" style="font-weight:400">· 共 ${room.count} 間</span><span style="font-size:14px;font-weight:900;color:${rpct>=100?'var(--green)':'var(--blue)'};margin-left:auto">${rpct}%</span></h2>`;
+    html += `<div class="card" style="border-top:4px solid ${rpct>=100?'var(--green)':'var(--blue)'}">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">
+        <div style="font-size:20px;font-weight:900;letter-spacing:.5px">🏠 ${esc(room.type)}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--text2);background:var(--line);border-radius:99px;padding:2px 10px">${esc(floor)}・共 ${room.count} 間</div>
+        <div style="margin-left:auto;font-size:22px;font-weight:900;color:${rpct>=100?'var(--green)':'var(--blue)'}">${rpct}%</div>
+      </div>
+      ${pctBar(rpct,8)}
+      <div style="height:6px"></div>`;
     room.walls.forEach((wall, wi)=>{
       const stages = wallStages(wall);
       if(!stages.length) return;
@@ -2180,7 +2205,7 @@ function renderProgress(){
     });
     html += `</div>`;
   });
-  html += `<button class="btn" onclick="saveProgress()">💾 儲存進度</button>`;
+  html += `<button class="btn" onclick="saveProgress()">💾 儲存進度${(types.length>1&&cur.prType)?`（${esc(cur.prType)}）`:''}</button>`;
   el.innerHTML = html;
 }
 function stepProg(id, d){
@@ -2188,22 +2213,35 @@ function stepProg(id, d){
   const mx = num(el.dataset.max);
   el.value = Math.max(0, Math.min(Math.round(num(el.value)+d), mx||999999));
 }
-function saveProgress(){
-  const project = cur.project; const floor = document.getElementById('pr-floor').value;
-  const rec = (D.recipes[project]||[]).find(f=>f.floor===floor); if(!rec) return;
+// 把畫面上那些輸入框收回資料裡（只收看得到的，所以分頁切換不會動到別的房型）
+function collectProgress(){
+  const project = cur.project; const fsel = document.getElementById('pr-floor');
+  if(!fsel) return false;
+  const floor = fsel.value;
+  const rec = (D.recipes[project]||[]).find(f=>f.floor===floor); if(!rec) return false;
   D.progress[project] = D.progress[project] || {};
   const fp = D.progress[project][floor] = D.progress[project][floor] || {};
+  let n = 0;
   rec.rooms.forEach((room, ri)=>{
     const rp = fp[room.type] = fp[room.type] || {};
     room.walls.forEach((wall, wi)=>{
       const wp = rp[wall.name] = (rp[wall.name] && typeof rp[wall.name]==='object') ? rp[wall.name] : {};
       wallStages(wall).forEach(st=>{
         const inp = document.getElementById('prg-'+ri+'-'+wi+'-'+st.key);
-        if(inp){ let v = parseInt(inp.value); if(isNaN(v)) v = room.count; v = Math.max(0, Math.min(v, room.count)); wp[st.key] = v; }
+        if(inp){ let v = parseInt(inp.value); if(isNaN(v)) v = room.count; v = Math.max(0, Math.min(v, room.count)); wp[st.key] = v; n++; }
       });
     });
   });
+  return n>0;
+}
+function saveProgress(){
+  if(!collectProgress()) return;
   save(); toast('✅ 進度已儲存'); renderProgress(); renderBoard();
+}
+// 切房型分頁：先把目前這頁填的收起來存好，再換頁（不會白填）
+function setPrType(t){
+  if(collectProgress()) save();
+  cur.prType = t; renderProgress();
 }
 
 // ════════════════════════════════════════════
@@ -3645,6 +3683,7 @@ if('serviceWorker' in navigator){
 // ── 版本檢查：卡在舊版時自己看得到，而且一鍵就能脫困 ──
 // sw.js 是用 updateViaCache:'none' 抓的，一定拿得到最新的，所以拿它當「線上版本」的依據
 async function checkAppVersion(){
+  if(location.protocol==='file:') return;      // 本機開檔案時沒有伺服器可問
   try{
     const r = await fetch('sw.js?_=' + Date.now(), {cache:'no-store'});
     const t = await r.text();
