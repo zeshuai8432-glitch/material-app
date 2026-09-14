@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v109</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v110</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -306,7 +306,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 109;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 110;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -382,6 +382,12 @@ function fbP(){ const {db,doc,collection}=window.FB; return {
   part: (p,k)=>doc(db,'field','proj_'+p,'parts',k),
   parts: p=>collection(db,'field','proj_'+p,'parts'),
 }; }
+// 分片內容：舊格式直接放物件（v），新格式存成 JSON 字串（s）
+function partValue(data){
+  const d = data || {};
+  if(typeof d.s === 'string'){ try{ return JSON.parse(d.s); }catch(e){ return undefined; } }
+  return d.v;
+}
 function fbSplitField(){
   const out = { meta:{}, byProj:{} };
   FB_GLOBAL.forEach(k=> out.meta[k] = D[k]||[]);
@@ -413,6 +419,9 @@ async function fbPushField(){
       if(_fbLast[key]!==sig) partWrites.push({ref:P.part(p,k), v, key, sig});
     });
   });
+  // 註：Firestore 單一文件上限 1MiB。實測這個案場最大的 recipes 只有 233KB（22%），
+  // 所以「儲存失敗」不是大小問題；bodyOf 保留單純的物件格式，partValue 仍相容字串格式。
+  const bodyOf = w => ({v:w.v});
   // meta 只在「內容真的變了」或「有分片要寫」時才動。
   // 否則只是 updatedAt 跳動 —— 舊裝置開一下就把時間戳蓋新，會誤導其他裝置。
   const core = Object.assign({}, meta); delete core.updatedAt;
@@ -421,7 +430,7 @@ async function fbPushField(){
     batch.set(P.meta, meta);
     _fbLast['metaCore'] = coreSig; _fbLast['meta'] = JSON.stringify(meta); n++;
   }
-  partWrites.forEach(w=>{ batch.set(w.ref, {v:w.v}); _fbLast[w.key]=w.sig; n++; });
+  partWrites.forEach(w=>{ batch.set(w.ref, bodyOf(w)); _fbLast[w.key]=w.sig; n++; });
   if(!n){ D.syncedAt = D.updatedAt; return {ok:true,skipped:true}; }
   _fbSelfAt = Date.now();
   await batch.commit();
@@ -460,7 +469,7 @@ async function fbPullField(){
   for(const p of out.projects){
     const snap = await getDocs(P.parts(p));
     snap.forEach(d=>{
-      const v = (d.data()||{}).v;
+      const v = partValue(d.data());
       if(v===undefined) return;
       _fbLast['p:'+p+':'+d.id] = JSON.stringify(v);
       if(FB_PROJ.includes(d.id)) out[d.id] = out[d.id].concat(v||[]);
@@ -477,7 +486,7 @@ function fbWatchField(){
       if(Date.now()-_fbSelfAt < 1500) return;
       let ch=0;
       snap.docChanges().forEach(c=>{
-        const k=c.doc.id, v=(c.doc.data()||{}).v; if(v===undefined) return;
+        const k=c.doc.id, v=partValue(c.doc.data()); if(v===undefined) return;
         const key='p:'+p+':'+k, sig=JSON.stringify(v);
         if(_fbLast[key]===sig) return;
         _fbLast[key]=sig;
@@ -580,6 +589,7 @@ async function fbInitField(){
     setCloudStatus('✅ 已同步 '+timeStr(),'ok');
   }catch(e){
     _fbOn = false;
+    _lastSyncErr = { at:new Date().toISOString(), code:(e&&e.code)||'', msg:String((e&&e.message)||e) };
     // 讀取失敗時最危險的就是「以為雲端沒東西」而把本機推上去 → 直接鎖住上傳
     blockPush(String((e&&e.code)||(e&&e.message)||e).includes('permission')
       ? 'Firestore 權限被拒（測試模式規則已到期，需要到 Firebase 重新發布規則）'
@@ -599,6 +609,7 @@ function setCloudStatus(s, kind){ const el = document.getElementById('syncPill')
 //    以前會把這份空白推上去把雲端蓋掉。現在寧可不同步，也不覆蓋。）
 // ════════════════════════════════════════════
 let _cloudRead = false;      // 這次開機有沒有成功讀到雲端（含「確認雲端真的是空的」）
+let _lastSyncErr = null, _syncFails = 0;   // 最後一次同步失敗的真正原因（給使用者看，不用開 console）
 let _pushBlocked = '';       // 被擋的原因，顯示在橫幅上
 function localIsEmpty(){ return !(D.items||[]).length && !(D.projects||[]).length; }
 
@@ -793,8 +804,13 @@ function schedulePush(){
     if(why){ blockPush(why); return; }          // 沒讀到雲端／本機空的 → 絕對不上傳
     if(_fbOn && window.FB){
       setCloudStatus('⏳ 上傳中…','busy');
-      try{ await fbPushField(); setCloudStatus('✅ 已同步 '+timeStr(),'ok'); }
-      catch(e){ setCloudStatus('⚠ 儲存失敗（已存本機，稍後重試）','err'); setTimeout(schedulePush, 8000); }
+      try{ await fbPushField(); setCloudStatus('✅ 已同步 '+timeStr(),'ok'); _lastSyncErr=null; _syncFails=0; }
+      catch(e){
+        _lastSyncErr = { at:new Date().toISOString(), code:(e&&e.code)||'', msg:String((e&&e.message)||e) };
+        _syncFails++;
+        setCloudStatus('⚠ 儲存失敗（點我看原因）','err');
+        setTimeout(schedulePush, Math.min(8000*_syncFails, 60000));
+      }
       return;
     }
     if(CLOUD_URL) cloudPush();
@@ -831,7 +847,56 @@ function cloudPull(manual){
     }
   }).catch(e=>{ pulling=false; setCloudStatus('⚠️ 離線（點我重試）','err'); if(manual)toast('❌ 雲端讀取失敗'); });
 }
-function manualSync(){ cloudPush(true); }
+function manualSync(){
+  if(_lastSyncErr || _pushBlocked){ openSyncDiag(); return; }
+  cloudPush(true);
+}
+// ☁ 同步診斷：直接把真正的錯誤、各分片大小、本機空間攤出來，不用開 console
+function openSyncDiag(){
+  const p = cur.project;
+  const parts = {};
+  if(p){
+    FB_PROJ.forEach(k=> parts[k] = (D[k]||[]).filter(x=>x.project===p));
+    FB_PROJ_O.forEach(k=> parts[k] = (D[k]||{})[p] || (k==='recipes'?[]:{}));
+  }
+  const LIMIT = 1048576;
+  const rows = Object.entries(parts).map(([k,v])=>{
+    const b = new Blob([JSON.stringify(v)]).size;
+    const n = Array.isArray(v) ? v.length : Object.keys(v||{}).length;
+    return `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line);font-size:12.5px">
+      <span style="flex:1">${esc(k)} <span class="muted">${n} 筆</span></span>
+      <b style="white-space:nowrap;color:${b>LIMIT*0.8?'var(--red)':'var(--text)'}">${b>=1024?Math.round(b/1024)+' KB':b+' B'}</b></div>`;
+  }).join('');
+  let ls = 0; try{ for(const k of Object.keys(localStorage)) ls += (k.length + (localStorage.getItem(k)||'').length)*2; }catch(e){}
+  const e = _lastSyncErr;
+  openSheet(`<h3>☁ 同步診斷<span class="x" onclick="closeSheet()">✕</span></h3>
+    ${e ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:10px 12px;margin-bottom:10px">
+      <div style="font-weight:800;color:#b91c1c;margin-bottom:4px">最後一次上傳失敗</div>
+      <div style="font-size:12.5px;line-height:1.7;word-break:break-all">
+        時間：${esc(whenTxt(e.at))}${e.code?`<br>代碼：<b>${esc(e.code)}</b>`:''}<br>訊息：${esc(e.msg)}</div></div>`
+    : '<div class="hint">目前沒有記錄到上傳失敗。</div>'}
+    ${_pushBlocked ? `<div class="hint">目前上傳被鎖住：${esc(_pushBlocked)}</div>` : ''}
+    <div style="font-weight:800;font-size:13px;margin:10px 0 4px">這個案場各分片大小（雲端單筆上限 1 MB）</div>
+    ${rows || '<div class="muted">（沒有案場）</div>'}
+    <div style="display:flex;gap:8px;padding:6px 0;font-size:12.5px">
+      <span style="flex:1">本機 localStorage 用量</span>
+      <b style="color:${ls>4*1024*1024?'var(--red)':'var(--text)'}">${(ls/1048576).toFixed(2)} MB / 5 MB</b></div>
+    <div class="divider"></div>
+    <button class="btn" onclick="retrySyncNow()">🔄 立刻重試上傳</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="closeSheet();openStorageSheet()">💾 看本機儲存空間</button>`);
+}
+async function retrySyncNow(){
+  setCloudStatus('⏳ 上傳中…','busy');
+  try{
+    if(!_fbOn){ await fbInitField(); }
+    else { await fbPushField(); setCloudStatus('✅ 已同步 '+timeStr(),'ok'); }
+    _lastSyncErr=null; _syncFails=0; closeSheet(); toast('✅ 已上傳');
+  }catch(err){
+    _lastSyncErr = { at:new Date().toISOString(), code:(err&&err.code)||'', msg:String((err&&err.message)||err) };
+    setCloudStatus('⚠ 儲存失敗（點我看原因）','err');
+    openSyncDiag(); toast('❌ 還是失敗，原因在上面');
+  }
+}
 function timeStr(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 
 // ── helpers ──
