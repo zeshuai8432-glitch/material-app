@@ -133,7 +133,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v113</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v114</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -312,7 +312,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 113;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 114;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -1479,10 +1479,12 @@ function undoTransfer(id){
     let fromMatId = t.fromMatId;
     if(!fromMatId){ const nm=(String(t.from).match(/（(.+) 裁）/)||[])[1]; const fm=nm && D.mats.find(x=>x.name===nm); fromMatId = fm && fm.id; }
     if(!fromMatId){ toast('這筆是舊裁切紀錄，找不到來源材料，無法自動撤銷'); return; }
-    if(!confirm('撤銷這筆裁切？\n'+(mat(fromMatId)?.name||'')+' +'+t.qty+' ← '+(m?m.name:'')+' −'+t.qty+'（'+t.to+'）')) return;
+    const back = round(num(t.use) || t.qty);      // 短接長：當初耗掉幾支就還幾支
+    if(!confirm('撤銷這筆'+(t.mode==='join'?'接料':'裁切')+'？\n'
+      +(mat(fromMatId)?.name||'')+' +'+back+' ← '+(m?m.name:'')+' −'+t.qty+'（'+t.to+'）')) return;
     const toIt = mkIt(t.to, t.matId), fromIt = mkIt(t.to, fromMatId);
     setRem(toIt, itemRemaining(toIt)-t.qty);
-    setRem(fromIt, itemRemaining(fromIt)+t.qty);
+    setRem(fromIt, itemRemaining(fromIt)+back);
   } else {
     if(!confirm('撤銷這筆調撥？\n'+(m?m.name:'')+' '+t.qty+unit+'：'+t.to+' 退回 '+t.from)) return;
     const dst = mkIt(t.to, t.matId), src = mkIt(t.from, t.matId);
@@ -3500,7 +3502,10 @@ function itemSurplus(it){ // 這層這材料的溢料（現場剩餘超過整體
 }
 // ── 同層「同型號通用」：同一支型號(N38/C65/U67…)不管做隔間或天花可互相補
 //    預設：同長度直接用、長裁短；只有 JOINABLE_PROFILES 的型號可「短頂長」(水平會接) ──
-const JOINABLE_PROFILES = ['N38']; // 只有 N38 允許短的頂長的
+const JOINABLE_DEFAULT = ['N38'];   // 預設只有 N38 允許短的接長的（水平向、受力小）
+function joinableProfiles(){ return Array.isArray(D.joinable) ? D.joinable : JOINABLE_DEFAULT; }
+// 短接長要幾支：270cm 接成 395cm → ceil(395/270)=2 支。長裁短或同長度都是 1 支換 1 支。
+function joinPer(srcLen, needLen){ return srcLen >= needLen ? 1 : Math.max(2, Math.ceil(needLen / srcLen)); }
 function cutKey(m){
   const cutCats = ['骨架立柱','槽鐵','加強橫枝','主架']; // 這些是同型號可跨用途的結構料
   if(!m || !cutCats.includes(m.cat)) return null;
@@ -3519,7 +3524,7 @@ function floorCuts(p, floor){
   const cuts=[];
   Object.entries(groups).forEach(([base, arr])=>{
     // 只有這些型號允許「短頂長」（水平會接）；其餘一律只能長裁短/同長度
-    const canJoin = JOINABLE_PROFILES.includes(base);
+    const canJoin = joinableProfiles().includes(base);
     const S = arr.map(x=>({matId:x.matId, len:x.len, amt:itemSurplus(x.it)})).filter(x=>x.amt>0);
     const H = arr.map(x=>({matId:x.matId, len:x.len, amt:Math.max(itemLack(x.it),0)})).filter(x=>x.amt>0);
     if(!S.length || !H.length) return;
@@ -3532,11 +3537,16 @@ function floorCuts(p, floor){
         return aOk ? a.len-b.len : b.len-a.len; // 都夠：短的先少浪費；都不夠：最接近的先
       }).forEach(c=>{
         if(need<=0 || c.amt<=0) return;
-        const q=Math.min(c.amt, need);
         const mode = c.len>short.len ? 'cut' : (c.len<short.len ? 'join' : 'same');
-        c.amt-=q; need-=q;
+        const per  = joinPer(c.len, short.len);        // 做出 1 支目標要耗幾支來源
+        const q    = Math.min(Math.floor(c.amt / per), need);   // 做得出幾支
+        if(q<=0) return;
+        const use  = q * per;                          // 實際耗掉幾支來源
+        c.amt -= use; need -= q;
         // fromLeft/stillLack：這筆套用後，來源還溢多少、目標還缺多少（給建議列預告結果）
-        cuts.push({floor, fromMatId:c.matId, toMatId:short.matId, qty:q, cut:c.len>short.len, mode, fromLeft:round(c.amt), stillLack:round(need)});
+        cuts.push({floor, fromMatId:c.matId, toMatId:short.matId, qty:q, use, per,
+                   fromLen:c.len, toLen:short.len, cut:c.len>short.len, mode,
+                   fromLeft:round(c.amt), stillLack:round(need)});
       });
     });
   });
@@ -3547,9 +3557,13 @@ function doCuts(p, cuts){
   cuts.forEach(c=>{
     const from=D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.fromMatId);
     const to=D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.toMatId);
-    if(from){ from.remaining = round(Math.max(itemRemaining(from)-c.qty, 0)); markUsed(from); }
+    const use = round(num(c.use) || c.qty);          // 短接長時耗掉的來源支數 ≠ 做出來的支數
+    if(from){ from.remaining = round(Math.max(itemRemaining(from)-use, 0)); markUsed(from); }
     if(to){ to.remaining = round(itemRemaining(to)+c.qty); markUsed(to); }
-    D.transfers.push({id:uid(), date:todayStr(), project:p, matId:c.toMatId, fromMatId:c.fromMatId, from:c.floor+'（'+(mat(c.fromMatId)?.name||'')+' 裁）', to:c.floor, qty:round(c.qty), cut:true});
+    const verb = c.mode==='join' ? '接' : '裁';
+    D.transfers.push({id:uid(), date:todayStr(), project:p, matId:c.toMatId, fromMatId:c.fromMatId,
+      from:c.floor+'（'+(mat(c.fromMatId)?.name||'')+' '+verb+'）', to:c.floor,
+      qty:round(c.qty), use, per:c.per||1, mode:c.mode, cut:true});
   });
 }
 function applyAllCuts(){
@@ -3615,8 +3629,10 @@ function openAllocSheet(){
   const cutRows = cuts.map(c=>{
     const fromIt = D.items.find(i=>i.project===p && i.room===c.floor && i.matId===c.fromMatId);
     const reserve = fromIt ? itemNeed(fromIt) : 0;
-    const verb = c.mode==='cut' ? '裁' : '改用';
-    const note = c.mode==='cut' ? '（裁短）' : c.mode==='join' ? '（長度較短，現場接／不夠再補）' : '（同長度直接用）';
+    const verb = c.mode==='cut' ? '裁' : (c.mode==='join' ? '接' : '改用');
+    const note = c.mode==='cut' ? '（長裁短）'
+      : c.mode==='join' ? `（短接長：${c.fromLen}cm × <b>${c.per}</b> 支接成 1 支 ${c.toLen}cm）`
+      : '（同長度直接用）';
     // 跨系統（隔間↔天花）同型號通用：明確標出來，例如 隔間 N38 拿去天花板
     const fs = catSystem(mat(c.fromMatId)?.cat), ts = catSystem(mat(c.toMatId)?.cat);
     const cross = fs!==ts && fs!=='共用' && ts!=='共用';
@@ -3627,7 +3643,7 @@ function openAllocSheet(){
         ? `<span class="lack" style="font-weight:800">${esc(matPlain(mat(c.toMatId)))} 仍缺 ${c.stillLack}</span>`
         : `<span class="ok" style="font-weight:800">${esc(matPlain(mat(c.toMatId)))} 補滿 ✅</span>`}　·　來源${c.fromLeft>0?`還溢 <b>${c.fromLeft}</b> 支`:'剛好用完'}`;
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;${cross?'background:var(--amber-bg);border-radius:8px;padding:6px 8px':''}">
-      <div style="flex:1;min-width:0;font-size:13px">🏢 ${esc(c.floor)}${sysBadge}：<b>${esc(matPlain(mat(c.fromMatId)))}</b> ${verb} <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(matPlain(mat(c.toMatId)))}</b>${crossNote}<br><span style="font-size:12px">${after}</span><br><span style="color:var(--text2);font-size:12px">這料自己還要 ${reserve} 支已先留著，只用多的${note}</span></div>
+      <div style="flex:1;min-width:0;font-size:13px">🏢 ${esc(c.floor)}${sysBadge}：<b>${esc(matPlain(mat(c.fromMatId)))}</b> 用 <span style="color:var(--blue)">${c.use||c.qty}</span> 支 ${verb} 成 <span style="color:var(--blue)">${c.qty}</span> 支 <b>${esc(matPlain(mat(c.toMatId)))}</b>${crossNote}<br><span style="font-size:12px">${after}</span><br><span style="color:var(--text2);font-size:12px">這料自己還要 ${reserve} 支已先留著，只用多的${note}</span></div>
       <div style="flex:0 0 auto;display:flex;flex-direction:column;gap:4px">
         <button class="btn mini" onclick="applyCut('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">${verb}</button>
         <button class="btn mini gray" onclick="addCutToPlan('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">🚚 排單</button>
@@ -3636,7 +3652,9 @@ function openAllocSheet(){
   }).join('');
   const cutsCard = cuts.length ? `<div class="card" style="padding:12px;border-left:4px solid var(--amber)">
     <div style="font-weight:800;margin-bottom:4px">🔧 同型號通用（先做這個最省）</div>
-    <div class="muted" style="margin-bottom:8px">同一支型號（N38/C65…）不分隔間/天花，<b>1 支＝1 支</b>互相補：同長度直接用、長的裁短、短的先頂（現場接、不夠最後再補料）。只用「自己整體用完還多出來」的。</div>
+    <div class="muted" style="margin-bottom:8px">同一支型號（N38/C65…）不分隔間/天花互相補：<b>同長度直接用、長的裁短（1 支＝1 支）</b>；
+      <b>短的接長的</b>要看幾支才夠（例：270cm × 2 支接成 1 支 395cm），只有設定裡允許接的型號才會建議。只用「自己整體用完還多出來」的。
+      <a onclick="openJoinSet()" style="color:var(--blue);font-weight:700;cursor:pointer">⚙ 哪些型號可以接</a></div>
     ${cutRows}
     <button class="btn sm gray" style="margin-top:4px" onclick="applyAllCuts()">✅ 全部套用</button>
   </div>` : '';
@@ -3666,12 +3684,36 @@ function addMove(matId, from, to, qty, kind, memo){
   else D.moves.push({id:uid(), project:p, matId, from, to, qty, kind:kind||'', memo:memo||'', at:todayStr()});
   return true;
 }
+// ⚙ 哪些型號可以「短接長」：預設只有 N38（水平向、受力小），其餘只能長裁短
+function openJoinSet(){
+  const p = cur.project;
+  const bases = [...new Set(projItems(p).map(i=>cutKey(mat(i.matId))).filter(Boolean).map(k=>k.base))].sort();
+  const on = joinableProfiles();
+  openSheet(`<h3>⚙ 可以「短接長」的型號<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="hint">長的裁成短的一定可以，不用設定。<b>短的接成長的</b>要看這支料受不受得了接頭，
+      所以由你決定哪些型號可以。勾起來的才會出現在建議裡。</div>
+    ${bases.length ? bases.map(bs=>`<label class="listitem" style="padding:8px 10px;gap:9px;cursor:pointer">
+        <input type="checkbox" class="jn-p" value="${esc(bs)}" ${on.includes(bs)?'checked':''} style="width:19px;height:19px;flex:0 0 auto">
+        <div class="li-m"><div class="li-t" style="font-size:13px">${esc(bs)}</div>
+        <div class="li-s">${on.includes(bs)?'可以短接長':'只能長裁短／同長度'}</div></div></label>`).join('')
+      : '<div class="muted" style="padding:8px 0">這個案場還沒有可辨識型號的結構料。</div>'}
+    <button class="btn" style="margin-top:10px" onclick="saveJoinSet()">💾 儲存</button>`);
+}
+function saveJoinSet(){
+  D.joinable = [...document.querySelectorAll('.jn-p:checked')].map(x=>x.value);
+  save(); closeSheet(); renderAll(); openAllocSheet();
+  toast(D.joinable.length ? ('✅ 可短接長：'+D.joinable.join('、')) : '✅ 已設為都不可短接長');
+}
 function addCutToPlan(floor, fromMatId, toMatId){
   const c = floorCuts(cur.project, floor).find(x=>x.fromMatId===fromMatId && x.toMatId===toMatId);
   if(!c){ toast('已無此裁切'); return; }
   const fm = mat(fromMatId), tm = mat(toMatId);
-  // 同層裁切：搬運單上寫成「這層自己裁」，備註寫清楚裁成什麼
-  addMove(fromMatId, floor, floor, c.qty, 'cut', (fm?matPlain(fm):'')+' → '+(tm?matPlain(tm):''));
+  // 同層加工：搬運單上寫成「這層自己裁／接」，數量是要拿幾支來源，備註寫清楚做成什麼
+  const verb = c.mode==='join' ? '接' : '裁';
+  const memo = (fm?matPlain(fm):'') + ' ' + (c.use||c.qty) + ' 支 ' + verb + ' 成 '
+             + (c.qty) + ' 支 ' + (tm?matPlain(tm):'')
+             + (c.mode==='join' ? `（${c.per} 支接 1 支）` : '');
+  addMove(fromMatId, floor, floor, (c.use||c.qty), c.mode==='join'?'join':'cut', memo);
   save(); renderAll(); openAllocSheet(); toast('🚚 已排入搬運單');
 }
 function addAllocToPlan(mid){
@@ -3715,7 +3757,7 @@ function openMovePlan(){
         const short = num(x.qty) > have;
         return `<div class="listitem" style="padding:6px 10px;gap:8px">
           <div class="li-m" style="min-width:0">
-            <div class="li-t" style="font-size:13px">${matDisp(m)}${x.kind==='cut'?' <span class="tag" style="background:#fef3c7;color:#b45309;font-size:10px;padding:1px 6px">裁切</span>':''}</div>
+            <div class="li-t" style="font-size:13px">${matDisp(m)}${x.kind==='cut'?' <span class="tag" style="background:#fef3c7;color:#b45309;font-size:10px;padding:1px 6px">裁切</span>':''}${x.kind==='join'?' <span class="tag" style="background:#dbeafe;color:#1d4ed8;font-size:10px;padding:1px 6px">接料</span>':''}</div>
             <div class="li-s">${esc(x.from)} 現場剩 ${have}${esc(u)}${short?` <span style="color:var(--red);font-weight:700">・不夠搬！</span>`:''}</div>
             ${x.memo?`<div style="font-size:12px;color:var(--purple,#7c3aed);font-weight:700;margin-top:2px">📌 ${esc(x.memo)}</div>`:''}
           </div>
