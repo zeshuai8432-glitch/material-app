@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v103</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v104</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -304,7 +304,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 103;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 104;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -1058,16 +1058,23 @@ function itemLack(it){ // >0 需補：手動優先，否則用 需求−有效�
 function catOrder(c){ const i = D.cats.indexOf(c); return i<0?999:i; }
 // 隔間系統 / 天花系統 分類（板材類共用）
 const SYS_PARTITION = ['骨架立柱','槽鐵','加強橫枝','補強鋼板','玻璃棉','岩棉'];
-const SYS_CEILING = ['主架','副架','螺桿','收邊','五金'];
+const SYS_CEILING   = ['主架','副架','螺桿','收邊'];     // 暗架天花的骨料
+const SYS_HARDWARE  = ['五金'];                          // 五金獨立一類，盤點與總覽都可單獨看
+const SYS_LIST = [['隔間','🧱 隔間'],['暗架','🔲 暗架'],['五金','🔩 五金']];
 function catSystem(c){
   if(SYS_PARTITION.includes(c)) return '隔間';
-  if(SYS_CEILING.includes(c)) return '天花';
+  if(SYS_CEILING.includes(c))   return '暗架';
+  if(SYS_HARDWARE.includes(c))  return '五金';
   return '共用'; // 板材、其他 兩邊都會用到
 }
+function sysOf(matId){ return catSystem((mat(matId)||{}).cat); }
+// 舊的「天花」選項改名為「暗架」
+function migrateSysLabel(v){ return v==='天花' ? '暗架' : v; }
 function sysMatch(c){ // 是否通過目前系統篩選
-  const f = cur.sysFilter || '全部';
+  const f = migrateSysLabel(cur.sysFilter || '全部');
   if(f==='全部') return true;
   const s = catSystem(c);
+  if(f==='五金') return s==='五金';        // 五金只看五金，不摻板材那些共用料
   return s===f || s==='共用';
 }
 
@@ -1125,11 +1132,11 @@ function renderBoard(){
   const noteItems = allItems.filter(it=>it.note);                      // 有備註/提醒的材料
   const noteCount = noteItems.length;
   const noteDue = noteItems.some(it=>it.noteDate && it.noteDate <= todayStr()); // 有到期的 → 紅色徽章
-  const sysBtn = (f,lbl)=>`<button class="segbtn ${(cur.sysFilter||'全部')===f?'on':''}" onclick="setSysFilter('${f}')">${lbl}</button>`;
+  const sysBtn = (f,lbl)=>`<button class="segbtn ${migrateSysLabel(cur.sysFilter||'全部')===f?'on':''}" onclick="setSysFilter('${f}')">${lbl}</button>`;
   let html = `<div class="card" style="padding:13px 15px">
     <div style="display:flex;gap:10px;align-items:center">
       <div style="flex:1">
-        <div style="font-size:13px;color:var(--text2);font-weight:700">現場狀態${(cur.sysFilter&&cur.sysFilter!=='全部')?`　<span style="color:var(--blue)">· ${cur.sysFilter}系統</span>`:''}</div>
+        <div style="font-size:13px;color:var(--text2);font-weight:700">現場狀態${(cur.sysFilter&&cur.sysFilter!=='全部')?`　<span style="color:var(--blue)">· ${esc(migrateSysLabel(cur.sysFilter))}</span>`:''}</div>
         <div style="font-size:15px;font-weight:800;margin-top:2px">${lackRooms.size? `<span class="lack">${lackRooms.size} 個房間要補料</span>` : '<span class="ok">全部房間庫存充足 ✅</span>'}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;flex:0 0 auto">
@@ -1143,7 +1150,7 @@ function renderBoard(){
         <button class="btn sm gray" onclick="openMatSearch()">🔍 查材料</button>
       </div>
     </div>
-    <div class="seg" style="margin-top:11px">${sysBtn('全部','全部')}${sysBtn('隔間','🧱 隔間')}${sysBtn('天花','🔲 天花')}</div>
+    <div class="seg" style="margin-top:11px">${sysBtn('全部','全部')}${SYS_LIST.map(([k,l])=>sysBtn(k,l)).join('')}</div>
   </div>`;
   if(!items.length){ el.innerHTML = html + emptyBox('🔍','此系統沒有材料','切換到其他系統，或選「全部」'); return; }
 
@@ -1194,7 +1201,7 @@ function renderBoard(){
   el.innerHTML = html;
 }
 function toggleGrp(id){ if(collapsed.has(id))collapsed.delete(id); else collapsed.add(id); renderBoard(); }
-function setSysFilter(f){ cur.sysFilter = f; save(); renderBoard(); }
+function setSysFilter(f){ cur.sysFilter = f; renderBoard(); }
 // 🔍 查材料：一種材料在全案各樓層的狀況（需求/送/剩/缺溢）＋總計
 let _msKeep = '';
 function openMatSearch(kw){
@@ -1689,6 +1696,7 @@ function delDelivery(id){
 //  「這一輪」的起算日可自己設（存在 cur.ctRound），跨天跨裝置都接得上
 // ════════════════════════════════════════════
 function ctRoundFrom(){ return cur.ctRound || todayStr(); }
+function curFLabel(){ const f = migrateSysLabel(cur.ctSys||'全部'); return f==='全部' ? '' : `<span style="color:var(--blue)"> · ${esc(f)}</span>`; }
 function setCtRound(v){ cur.ctRound = v; save(); renderCountProgress(); renderCount(); }
 function countedInRound(it){
   const from = ctRoundFrom();
@@ -1699,7 +1707,7 @@ function renderCountProgress(){
   const el = document.getElementById('ct-prog'); if(!el) return;
   const p = cur.project;
   if(!p){ el.innerHTML=''; return; }
-  const its = projItems(p);
+  const its = projItems(p).filter(it=>ctSysMatch(it.matId));
   if(!its.length){ el.innerHTML=''; return; }
   const byFl = {};
   its.forEach(it=>{ const f = roomFloor(p, it.room); (byFl[f]=byFl[f]||[]).push(it); });
@@ -1716,7 +1724,7 @@ function renderCountProgress(){
   const pct = its.length ? Math.round(doneAll/its.length*100) : 0;
   el.innerHTML = `<div class="card" style="padding:12px 14px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
-      <div style="font-weight:800;font-size:14px">📊 本輪盤點進度</div>
+      <div style="font-weight:800;font-size:14px">📊 本輪盤點進度${curFLabel()}</div>
       <div style="font-size:13px;font-weight:800;color:${pct>=100?'var(--green,#16a34a)':'var(--blue)'}">${doneAll} / ${its.length}　${pct}%</div>
     </div>
     <div style="height:8px;border-radius:6px;background:var(--line);margin:8px 0 10px;overflow:hidden">
@@ -1759,10 +1767,11 @@ function printCountSheet(){
   pick = pick.filter(Boolean);
   if(!pick.length){ toast('沒有可列印的房間'); return; }
   pick.sort(cmpFloor);
-  let body = `<h1>現場盤點表</h1><div class="meta">案場：${esc(p)}　列印日期：${todayStr()}　盤點人：____________</div>`;
+  const fLbl = migrateSysLabel(cur.ctSys||'全部');
+  let body = `<h1>現場盤點表${fLbl==='全部'?'':'　'+esc(fLbl)}</h1><div class="meta">案場：${esc(p)}　列印日期：${todayStr()}　盤點人：____________</div>`;
   let any = false;
   pick.forEach(room=>{
-    const its = D.items.filter(i=>i.project===p && i.room===room)
+    const its = D.items.filter(i=>i.project===p && i.room===room && ctSysMatch(i.matId))
       .sort((a,b)=>{ const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
         return ga.sort-gb.sort || ga.label.localeCompare(gb.label)
           || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''}); });
@@ -1822,16 +1831,35 @@ function openCountLog(){
     <button class="btn gray sm" style="width:100%;margin-bottom:8px" onclick="openCountRescue()">🛟 找回盤點：把某一天盤的數字寫回現場剩餘</button>
     ${body}`);
 }
+function ctSysMatch(matId){
+  const f = migrateSysLabel(cur.ctSys || '全部');
+  if(f==='全部') return true;
+  const sy = sysOf(matId);
+  if(f==='五金') return sy==='五金';
+  return sy===f || sy==='共用';
+}
+function setCtSys(f){ cur.ctSys = f; renderCountProgress(); renderCount(); }
 function renderCount(){
   const p = cur.project; const room = document.getElementById('ct-room').value;
   const el = document.getElementById('ct-list');
   if(!p || !room){ el.innerHTML = emptyBox('📋','沒有房間','到「設定」新增房間'); return; }
   // 智慧排序：依系統分組（C41+U43=41系統），組內先類別再自然排序，與送料/總覽一致
-  const its = D.items.filter(i=>i.project===p && i.room===room)
+  const all = D.items.filter(i=>i.project===p && i.room===room)
     .sort((a,b)=>{ const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
       return ga.sort-gb.sort || ga.label.localeCompare(gb.label) || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''}); });
-  if(!its.length){ el.innerHTML = emptyBox('📦','此房間尚無材料','到「設定 → 需求量」加材料，或直接送料'); return; }
-  let html = '', lastG=null;
+  if(!all.length){ el.innerHTML = emptyBox('📦','此房間尚無材料','到「設定 → 需求量」加材料，或直接送料'); return; }
+  // 分類篩選：隔間 / 暗架 / 五金（板材那些共用料會跟著隔間與暗架一起出現）
+  const curF = migrateSysLabel(cur.ctSys || '全部');
+  const nOf = f => all.filter(it=>{ const sy=sysOf(it.matId);
+    return f==='全部' ? true : (f==='五金' ? sy==='五金' : (sy===f || sy==='共用')); }).length;
+  const btn = (f,lbl)=>{ const n=nOf(f); if(f!=='全部' && !n) return '';
+    return `<button class="segbtn ${curF===f?'on':''}" onclick="setCtSys('${f}')">${lbl}${n?` <span style="opacity:.75;font-weight:700">${n}</span>`:''}</button>`; };
+  let html = `<div class="card" style="padding:10px 12px">
+    <div class="seg">${btn('全部','全部')}${SYS_LIST.map(([k,l])=>btn(k,l)).join('')}</div>
+  </div>`;
+  const its = all.filter(it=>ctSysMatch(it.matId));
+  if(!its.length){ el.innerHTML = html + emptyBox('🔍','這個分類沒有材料','切到其他分類，或選「全部」'); return; }
+  let lastG=null;
   its.forEach(it=>{
     const m = mat(it.matId); const unit=m?m.unit:'';
     const g = deliverGroupKey(m).label;
