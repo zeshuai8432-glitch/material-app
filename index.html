@@ -133,7 +133,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v116</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v117</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -220,6 +220,7 @@
         <button class="btn ghost sm" onclick="openCleanupSheet()">🧹 清理幽靈</button>
         <button class="btn ghost sm" onclick="mergeDupMats()">🔗 合併重複材料</button>
         <button class="btn ghost sm" onclick="openSameMat()">🔗 其實是同一種料</button>
+        <button class="btn ghost sm" onclick="openJoinSet()">⚙ 可短接長的型號</button>
       </div>
     </div>
     <div class="card">
@@ -312,7 +313,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 116;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 117;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -3547,7 +3548,7 @@ function cutKey(m){
   const pm = s.match(/([A-Za-z]+\d+)/); if(!pm) return null;      // 型號：N38、C65、U67…（蜈蚣腳等無型號的不併）
   return { base: pm[1].toUpperCase(), len:+lm[1] };              // 以型號為底，跨用途通用
 }
-function floorCuts(p, floor){
+function floorCuts(p, floor, forceJoin){
   const its = D.items.filter(i=>i.project===p && i.room===floor)
     .map(it=>({it, k:cutKey(mat(it.matId))})).filter(x=>x.k);
   const groups={};
@@ -3555,7 +3556,7 @@ function floorCuts(p, floor){
   const cuts=[];
   Object.entries(groups).forEach(([base, arr])=>{
     // 只有這些型號允許「短頂長」（水平會接）；其餘一律只能長裁短/同長度
-    const canJoin = joinableProfiles().includes(base);
+    const canJoin = forceJoin || joinableProfiles().includes(base);
     const S = arr.map(x=>({matId:x.matId, len:x.len, amt:itemSurplus(x.it)})).filter(x=>x.amt>0);
     const H = arr.map(x=>({matId:x.matId, len:x.len, amt:Math.max(itemLack(x.it),0)})).filter(x=>x.amt>0);
     if(!S.length || !H.length) return;
@@ -3582,6 +3583,20 @@ function floorCuts(p, floor){
     });
   });
   return cuts;
+}
+// 哪些型號其實有「短料可以接成長料」的機會，只是設定沒開
+function potentialJoins(p){
+  const on = joinableProfiles(), out = {};
+  projRooms(p).forEach(r=>{
+    floorCuts(p, r.name, true).forEach(c=>{
+      if(c.mode!=='join') return;
+      const k = cutKey(mat(c.fromMatId)); if(!k || on.includes(k.base)) return;
+      const e = out[k.base] = out[k.base] || {base:k.base, n:0, qty:0, sample:null};
+      e.n++; e.qty = round(e.qty + c.qty);
+      if(!e.sample) e.sample = `${c.fromLen}cm × ${c.per} 支 → 1 支 ${c.toLen}cm`;
+    });
+  });
+  return Object.values(out);
 }
 function projectCuts(p){ let all=[]; projRooms(p).forEach(r=>{ all=all.concat(floorCuts(p, r.name)); }); return all; }
 function doCuts(p, cuts){
@@ -3684,13 +3699,23 @@ function openAllocSheet(){
   const cutsCard = cuts.length ? `<div class="card" style="padding:12px;border-left:4px solid var(--amber)">
     <div style="font-weight:800;margin-bottom:4px">🔧 同型號通用（先做這個最省）</div>
     <div class="muted" style="margin-bottom:8px">同一支型號（N38/C65…）不分隔間/天花互相補：<b>同長度直接用、長的裁短（1 支＝1 支）</b>；
-      <b>短的接長的</b>要看幾支才夠（例：270cm × 2 支接成 1 支 395cm），只有設定裡允許接的型號才會建議。只用「自己整體用完還多出來」的。
-      <a onclick="openJoinSet()" style="color:var(--blue);font-weight:700;cursor:pointer">⚙ 哪些型號可以接</a></div>
+      <b>短的接長的</b>要看幾支才夠（例：270cm × 2 支接成 1 支 395cm），只有設定裡允許接的型號才會建議。只用「自己整體用完還多出來」的。</div>
     ${cutRows}
     <button class="btn sm gray" style="margin-top:4px" onclick="applyAllCuts()">✅ 全部套用</button>
   </div>` : '';
   openSheet(`<h3>🔄 調撥建議<span class="x" onclick="closeSheet()">✕</span></h3>
-    <div class="muted" style="margin-bottom:10px">順序：<b>先同層裁切 → 再跨樓層調撥 → 最後才叫料</b>。只動「超過該樓層整體需求」的量。</div>
+    <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px">
+      <div class="muted" style="flex:1">順序：<b>先同層裁切 → 再跨樓層調撥 → 最後才叫料</b>。只動「超過該樓層整體需求」的量。</div>
+      <button class="btn mini gray" style="flex:0 0 auto" onclick="openJoinSet()">⚙ 可接型號</button>
+    </div>
+    ${(()=>{ const pj = potentialJoins(p); if(!pj.length) return '';
+      return `<div class="card" style="padding:11px 13px;border-left:4px solid var(--blue);background:#eff6ff">
+        <div style="font-weight:800;margin-bottom:4px">🔗 有短料可以接成長料，但目前設為不可接</div>
+        ${pj.map(x=>`<div style="font-size:13px;padding:2px 0">
+          <b>${esc(x.base)}</b>：可以接出 <b>${x.qty}</b> 支（${esc(x.sample)}）</div>`).join('')}
+        <div class="muted" style="font-size:12px;margin:6px 0 8px">短的接成長的要看這支料受不受得了接頭，所以預設只開 N38。確定可以接就把型號打開。</div>
+        <button class="btn sm" onclick="openJoinSet()">⚙ 去開啟</button>
+      </div>`; })()}
     ${moveList(p).length?`<button class="btn" style="margin-bottom:12px" onclick="closeSheet();openMovePlan()">🚚 看搬運單（${moveList(p).length} 項待搬）</button>`
       :`<div class="hint">不想馬上動庫存的話，用「🚚 排入搬運單」先排好，印出來給師傅照著搬，搬完再確認。</div>`}
     ${cutsCard}
@@ -3723,11 +3748,17 @@ function openJoinSet(){
   openSheet(`<h3>⚙ 可以「短接長」的型號<span class="x" onclick="closeSheet()">✕</span></h3>
     <div class="hint">長的裁成短的一定可以，不用設定。<b>短的接成長的</b>要看這支料受不受得了接頭，
       所以由你決定哪些型號可以。勾起來的才會出現在建議裡。</div>
-    ${bases.length ? bases.map(bs=>`<label class="listitem" style="padding:8px 10px;gap:9px;cursor:pointer">
+    ${bases.length ? bases.map(bs=>{
+        const pj = potentialJoins(p).find(x=>x.base===bs);
+        return `<label class="listitem" style="padding:8px 10px;gap:9px;cursor:pointer">
         <input type="checkbox" class="jn-p" value="${esc(bs)}" ${on.includes(bs)?'checked':''} style="width:19px;height:19px;flex:0 0 auto">
-        <div class="li-m"><div class="li-t" style="font-size:13px">${esc(bs)}</div>
-        <div class="li-s">${on.includes(bs)?'可以短接長':'只能長裁短／同長度'}</div></div></label>`).join('')
-      : '<div class="muted" style="padding:8px 0">這個案場還沒有可辨識型號的結構料。</div>'}
+        <div class="li-m" style="min-width:0"><div class="li-t" style="font-size:13px">${esc(bs)}</div>
+        <div class="li-s">${on.includes(bs)?'✅ 可以短接長':'只能長裁短／同長度'}</div>
+        ${pj?`<div style="font-size:12px;color:var(--blue);font-weight:700;margin-top:2px">🔗 打開的話可以接出 ${pj.qty} 支（${esc(pj.sample)}）</div>`:''}
+        </div></label>`; }).join('')
+      : `<div class="muted" style="padding:8px 0">這個案場還沒有可辨識型號的結構料。<br><br>
+         只有<b>骨架立柱／槽鐵／加強橫枝／主架</b>這幾類、而且名稱或規格看得出型號與長度
+         （像 <b>N38 加強橫枝｜243cm</b>）的材料才會出現在這裡。</div>`}
     <button class="btn" style="margin-top:10px" onclick="saveJoinSet()">💾 儲存</button>`);
 }
 function saveJoinSet(){
