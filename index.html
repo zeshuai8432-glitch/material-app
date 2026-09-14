@@ -133,7 +133,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v117</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v118</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -313,7 +313,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 117;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 118;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -402,6 +402,7 @@ function fbSplitField(){
   out.meta.tomb  = D.tomb  || {};              // 刪除墓碑（跨裝置才知道是刪掉還是沒同步到）
   out.meta.alias = D.alias || {};              // 「其實是同一種料」的對照表
   out.meta.aliasLbl = D.aliasLbl || {};
+  out.meta.joinable = joinableProfiles();      // 哪些型號可以「短接長」
   out.meta.strAt = D.strAt || {};
   out.meta.objAt = D.objAt || {};
   const projs = [...new Set([...(D.projects||[]), ...(D.items||[]).map(i=>i.project)])].filter(Boolean);
@@ -460,8 +461,10 @@ async function fbPullField(){
   out.__updatedAt = meta.updatedAt || '';
   out.tomb = meta.tomb || {}; out.strAt = meta.strAt || {}; out.objAt = meta.objAt || {};
   out.alias = meta.alias || {}; out.aliasLbl = meta.aliasLbl || {};
+  out.joinable = Array.isArray(meta.joinable) ? meta.joinable : null;
   const _core = {projects:out.projects,archived:out.archived,cats:out.cats,mats:out.mats,
-                 tomb:out.tomb,strAt:out.strAt,objAt:out.objAt,alias:out.alias,aliasLbl:out.aliasLbl};
+                 tomb:out.tomb,strAt:out.strAt,objAt:out.objAt,alias:out.alias,aliasLbl:out.aliasLbl,
+                 joinable:out.joinable};
   _fbLast = { metaCore: JSON.stringify(_core), meta: JSON.stringify(Object.assign({}, _core, {updatedAt:out.__updatedAt})) };
   // 案場清單掉了（像這次墓碑出包），但分片還在 → 靠 strAt 記得的名字把它們救回來
   if(!out.projects.length){
@@ -788,6 +791,8 @@ function mergeField(remote){
   D.tomb = tomb; D.strAt = strAt; D.objAt = objAt;
   D.alias = Object.assign({}, remote.alias||{}, D.alias||{});
   D.aliasLbl = Object.assign({}, remote.aliasLbl||{}, D.aliasLbl||{});
+  // joinable：這台自己設過就以這台為準（剛改完不該被雲端蓋回去），否則接受雲端的
+  if(!Array.isArray(D.joinable) && Array.isArray(remote.joinable)) D.joinable = remote.joinable;
   D.updatedAt = (D.updatedAt||OLD_T) > rt ? D.updatedAt : rt;
   normalize(D);
   // 合併後重建簽章，避免下一次存檔把每一筆都當成改過
@@ -3764,7 +3769,9 @@ function openJoinSet(){
 function saveJoinSet(){
   D.joinable = [...document.querySelectorAll('.jn-p:checked')].map(x=>x.value);
   save(); closeSheet(); renderAll(); openAllocSheet();
-  toast(D.joinable.length ? ('✅ 可短接長：'+D.joinable.join('、')) : '✅ 已設為都不可短接長');
+  const n = projectCuts(cur.project).filter(c=>c.mode==='join').length;
+  toast((D.joinable.length ? ('✅ 可短接長：'+D.joinable.join('、')) : '✅ 已設為都不可短接長')
+        + (D.joinable.length ? ('　目前有 '+n+' 筆接料建議') : ''));
 }
 function addCutToPlan(floor, fromMatId, toMatId){
   const c = floorCuts(cur.project, floor).find(x=>x.fromMatId===fromMatId && x.toMatId===toMatId);
