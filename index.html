@@ -133,7 +133,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v120</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v121</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -174,6 +174,7 @@
     <div class="card">
       <h2 style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">📋 現場盤點
         <span style="display:flex;gap:6px">
+          <button class="btn ghost sm" onclick="openWrapUp(document.getElementById('ct-room')?document.getElementById('ct-room').value:null)">🎯 收尾點料</button>
           <button class="btn ghost sm" onclick="printCountSheet()">🖨️ 列印盤點表</button>
           <button class="btn ghost sm" onclick="openCountLog()">🗒️ 盤點紀錄</button>
         </span></h2>
@@ -313,7 +314,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 120;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 121;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -1257,6 +1258,7 @@ function renderBoard(){
         <button class="btn sm" onclick="openQuickAdd()">➕ 直接叫料</button>
         <button class="btn sm gray" onclick="openDraftSheet()">📝 叫料草稿${draftList(p).length?` <span style="background:var(--amber);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${draftList(p).length}</span>`:''}</button>
         <button class="btn sm gray" onclick="openAllocSheet()">🔄 調撥建議</button>
+        <button class="btn sm gray" onclick="openWrapUp()">🎯 收尾點料</button>
         <button class="btn sm gray" onclick="openRefillSheet()">📄 補料單</button>
         <button class="btn sm gray" onclick="openAdjLog()">📝 追加紀錄${adjCount?` <span style="background:var(--amber);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${adjCount}</span>`:''}</button>
         <button class="btn sm gray" onclick="openMovePlan()">🚚 搬運單${moveList(p).length?` <span style="background:var(--amber);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${moveList(p).length}</span>`:''}</button>
@@ -1308,7 +1310,7 @@ function renderBoard(){
           </div>
           <div class="val">
             <div class="big ${lack>0?'lack':(over>0?'over':'ok')}">${lack>0?('缺'+lack):(over>0?('溢'+over):'✅')}</div>
-            <div class="tag ${lack>0?'lack-bg':(over>0?'over-bg':'ok-bg')}">${lack>0?'要補':(over>0?'溢料':'剛好')}</div>
+            <div class="tag ${itemManual(it)?'':(lack>0?'lack-bg':(over>0?'over-bg':'ok-bg'))}" ${itemManual(it)?'style="background:#dbeafe;color:#1d4ed8"':''}>${itemManual(it)?'🎯 自己填的':(lack>0?'要補':(over>0?'溢料':'剛好'))}</div>
           </div>
         </div>`;
       });
@@ -2217,6 +2219,110 @@ function histRestore(i){
     clearNeedCache(); save(); fillProjSel(); renderAll(); closeSheet();
     toast('✅ 已還原 '+whenTxt(h.at)+' 那份');
   }catch(e){ toast('❌ 這份快照讀不出來'); }
+}
+
+// ════════════════════════════════════════════
+//  🎯 收尾點料：工程收尾時現場最亂，乾脆不管系統怎麼算 ——
+//  一層一層走，每種料直接填「我還要多少」，填完直接出補料單
+// ════════════════════════════════════════════
+let _wuRoom = null, _wuSys = null;
+function openWrapUp(room){
+  const p = cur.project;
+  if(!p){ toast('⚠️ 先選案場'); return; }
+  const rooms = projRooms(p);
+  if(!rooms.length){ toast('⚠️ 先新增樓層／房間'); return; }
+  if(room) _wuRoom = room;
+  if(!_wuRoom || !rooms.some(r=>r.name===_wuRoom)) _wuRoom = rooms[0].name;
+  const all = D.items.filter(i=>i.project===p && i.room===_wuRoom);
+  const f = migrateSysLabel(_wuSys || '全部');
+  const pass = it => { if(f==='全部') return true; const sy=sysOf(it.matId);
+                       return f==='五金' ? sy==='五金' : (sy===f || sy==='共用'); };
+  const its = all.filter(pass).sort((a,b)=>{
+    const ga=deliverGroupKey(mat(a.matId)), gb=deliverGroupKey(mat(b.matId));
+    return ga.sort-gb.sort || ga.label.localeCompare(gb.label)
+      || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''});
+  });
+  const roomOpts = rooms.slice().sort((a,b)=>cmpFloor(a.floor||a.name,b.floor||b.name)||cmpFloor(a.name,b.name))
+    .map(r=>`<option value="${esc(r.name)}" ${r.name===_wuRoom?'selected':''}>${esc(r.floor&&r.floor!==r.name?(r.floor+' / '):'')}${esc(r.name)}</option>`).join('');
+  const nOf = ff => all.filter(it=>{ if(ff==='全部') return true; const sy=sysOf(it.matId);
+    return ff==='五金' ? sy==='五金' : (sy===ff || sy==='共用'); }).length;
+  const sbtn = (ff,lbl)=>{ const n=nOf(ff); if(ff!=='全部' && !n) return '';
+    return `<button class="segbtn ${f===ff?'on':''}" onclick="setWuSys('${ff}')">${lbl}${n?` <span style="opacity:.75">${n}</span>`:''}</button>`; };
+  let lastG = null, body = '';
+  its.forEach(it=>{
+    const m = mat(it.matId), u = m?m.unit:'';
+    const g = deliverGroupKey(m).label;
+    if(g!==lastG){ body += `<div class="catrow" style="padding-left:12px">${esc(g)}</div>`; lastG=g; }
+    const manual = itemManual(it);
+    const autoLack = round(itemNeed(it) - itemRemaining(it));
+    body += `<div class="listitem" style="padding:7px 10px;gap:8px;${manual?'background:#eff6ff':''}">
+      <div class="li-m" style="min-width:0">
+        <div class="li-t" style="font-size:13px">${matDisp(m)}</div>
+        <div class="li-s">現場剩 ${itemRemaining(it)}${esc(u)}${autoLack>0?`・系統算還缺 ${autoLack}${esc(u)}`:'・系統算夠了'}</div>
+      </div>
+      <div style="flex:0 0 auto;display:flex;align-items:center;gap:5px;white-space:nowrap">
+        <span style="font-size:12px;font-weight:800;color:var(--blue)">還要</span>
+        <input type="text" inputmode="text" class="wu-q" data-id="${it.id}" value="${manual?round(num(it.restock)):''}"
+          placeholder="－" style="width:66px;text-align:center;font-weight:800;padding:6px 4px"
+          oninput="wuSum()" onchange="normQtyEl(this);wuSum()">
+        <span style="font-size:12px;color:var(--text2)">${esc(u)}</span>
+      </div>
+    </div>`;
+  });
+  openSheet(`<h3>🎯 收尾點料<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="hint">現場太亂、跟系統對不起來時用這個。<b>不管系統怎麼算</b>，你走一趟現場，每種料直接填「還要多少」，填完直接出補料單。
+    留空＝照系統自動算。可用算式，例 20+30。</div>
+    <div class="fg"><label>樓層／房間</label><select onchange="openWrapUp(this.value)">${roomOpts}</select></div>
+    <div class="seg" style="margin-bottom:8px">${sbtn('全部','全部')}${SYS_LIST.map(([k,l])=>sbtn(k,l)).join('')}</div>
+    ${its.length ? body : '<div class="muted" style="padding:10px 0">這個分類沒有材料。</div>'}
+    <div class="divider"></div>
+    <div id="wu-sum" style="font-weight:800;font-size:14px;padding:2px 2px 10px"></div>
+    <button class="btn" onclick="saveWrapUp(1)">📄 存起來並出補料單</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="saveWrapUp(0)">💾 只儲存</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="clearWrapUp()">🧹 清掉這層的手動指定（回到系統自動算）</button>`);
+  wuSum();
+}
+function setWuSys(f){ _wuSys = f; openWrapUp(); }
+function normQtyEl(el){ if(el) el.value = el.value.trim()==='' ? '' : evalQty(el.value); }
+function wuSum(){
+  const el = document.getElementById('wu-sum'); if(!el) return;
+  let n = 0, tot = 0;
+  document.querySelectorAll('.wu-q').forEach(i=>{
+    const v = String(i.value||'').trim(); if(v==='') return;
+    const q = evalQty(v); if(q>0){ n++; tot = round(tot+q); }
+  });
+  el.innerHTML = n ? `這層填了 <span style="color:var(--blue)">${n}</span> 項要補・合計 <span style="color:var(--blue)">${tot}</span>`
+                   : '<span class="muted" style="font-weight:400">還沒填任何數量（留空的維持系統自動算）</span>';
+}
+function saveWrapUp(andPdf){
+  const p = cur.project, room = _wuRoom;
+  let n = 0;
+  document.querySelectorAll('.wu-q').forEach(i=>{
+    const it = D.items.find(x=>x.id===i.dataset.id); if(!it) return;
+    const v = String(i.value||'').trim();
+    const prevRem = itemRemaining(it), prevRst = it.restock;
+    it.restock = v==='' ? null : evalQty(v);
+    if(String(prevRst??'')!==String(it.restock??'')){ n++; logCount(it, prevRem, prevRst); }
+  });
+  save(); renderAll();
+  if(andPdf){
+    const its = D.items.filter(i=>i.project===p && i.room===room && itemLack(i)>0);
+    if(!its.length){ toast('這層沒有要補的料'); closeSheet(); return; }
+    const cats = new Set(its.map(i=>mat(i.matId)?.cat||'其他'));
+    _rfCut = false;                      // 你已經實地點過了，不要再自動扣裁切
+    closeSheet(); openRefillPreview(new Set([roomFloor(p,room)]), cats);
+    toast('✅ 已存 '+n+' 項，補料單帶出來了');
+  } else {
+    closeSheet(); toast('✅ 已儲存 '+n+' 項');
+  }
+}
+function clearWrapUp(){
+  const p = cur.project, room = _wuRoom;
+  const its = D.items.filter(i=>i.project===p && i.room===room && itemManual(i));
+  if(!its.length){ toast('這層沒有手動指定的'); return; }
+  if(!confirm('清掉「'+room+'」這 '+its.length+' 項的手動指定？\n\n之後這些料會回到「需求 − 現場剩餘」自動算。')) return;
+  its.forEach(it=>{ const prevRem=itemRemaining(it), prevRst=it.restock; it.restock=null; logCount(it, prevRem, prevRst); });
+  save(); renderAll(); openWrapUp(); toast('已清掉 '+its.length+' 項');
 }
 
 // ════════════════════════════════════════════
