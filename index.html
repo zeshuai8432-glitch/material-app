@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v106</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v107</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -215,6 +215,7 @@
         <button class="btn ghost sm" onclick="openMatSheet()">＋ 材料</button>
         <button class="btn ghost sm" onclick="openCleanupSheet()">🧹 清理幽靈</button>
         <button class="btn ghost sm" onclick="mergeDupMats()">🔗 合併重複材料</button>
+        <button class="btn ghost sm" onclick="openSameMat()">🔗 其實是同一種料</button>
       </div>
     </div>
     <div class="card">
@@ -305,7 +306,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 106;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 107;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -386,6 +387,7 @@ function fbSplitField(){
   FB_GLOBAL.forEach(k=> out.meta[k] = D[k]||[]);
   out.meta.updatedAt = D.updatedAt || '';
   out.meta.tomb  = D.tomb  || {};              // 刪除墓碑（跨裝置才知道是刪掉還是沒同步到）
+  out.meta.alias = D.alias || {};              // 「其實是同一種料」的對照表
   out.meta.strAt = D.strAt || {};
   out.meta.objAt = D.objAt || {};
   const projs = [...new Set([...(D.projects||[]), ...(D.items||[]).map(i=>i.project)])].filter(Boolean);
@@ -434,8 +436,9 @@ async function fbPullField(){
     rooms:[],items:[],deliveries:[],counts:[],transfers:[],orders:[],drafts:[],recipes:{},progress:{}};
   out.__updatedAt = meta.updatedAt || '';
   out.tomb = meta.tomb || {}; out.strAt = meta.strAt || {}; out.objAt = meta.objAt || {};
+  out.alias = meta.alias || {};
   const _core = {projects:out.projects,archived:out.archived,cats:out.cats,mats:out.mats,
-                 tomb:out.tomb,strAt:out.strAt,objAt:out.objAt};
+                 tomb:out.tomb,strAt:out.strAt,objAt:out.objAt,alias:out.alias};
   _fbLast = { metaCore: JSON.stringify(_core), meta: JSON.stringify(Object.assign({}, _core, {updatedAt:out.__updatedAt})) };
   // 案場清單掉了（像這次墓碑出包），但分片還在 → 靠 strAt 記得的名字把它們救回來
   if(!out.projects.length){
@@ -739,6 +742,7 @@ function mergeField(remote){
     });
   });
   D.tomb = tomb; D.strAt = strAt; D.objAt = objAt;
+  D.alias = Object.assign({}, remote.alias||{}, D.alias||{});
   D.updatedAt = (D.updatedAt||OLD_T) > rt ? D.updatedAt : rt;
   normalize(D);
   // 合併後重建簽章，避免下一次存檔把每一筆都當成改過
@@ -1068,13 +1072,13 @@ function catSystem(c){
   if(SYS_HARDWARE.includes(c))  return '五金';
   return '共用'; // 板材、其他 兩邊都會用到
 }
-function sysOf(matId){ return catSystem((mat(matId)||{}).cat); }
+function sysOf(matId){ const m = mat(matId)||{}; return m.sys || catSystem(m.cat); }
 // 舊的「天花」選項改名為「暗架」
 function migrateSysLabel(v){ return v==='天花' ? '暗架' : v; }
-function sysMatch(c){ // 是否通過目前系統篩選
+function sysMatch(c, m){ // 是否通過目前系統篩選（m 可覆寫：合併過的料常是兩邊共用）
   const f = migrateSysLabel(cur.sysFilter || '全部');
   if(f==='全部') return true;
-  const s = catSystem(c);
+  const s = (m && m.sys) || catSystem(c);
   if(f==='五金') return s==='五金';        // 五金只看五金，不摻板材那些共用料
   return s===f || s==='共用';
 }
@@ -1117,7 +1121,7 @@ function renderBoard(){
     el.innerHTML = emptyBox('📋','此案場尚無材料','從「材料計算」匯入，或直接自己加<br><button class="btn sm" style="margin-top:10px" onclick="openQuickAdd()">➕ 直接叫料</button>'
       + (nd?`<br><button class="btn gray sm" style="margin-top:8px" onclick="openDraftSheet()">📝 叫料草稿（${nd} 筆）</button>`:'')); return; }
   // 系統篩選（隔間 / 天花 / 全部）
-  const items = allItems.filter(it=> sysMatch(mat(it.matId)?.cat));
+  const items = allItems.filter(it=>{ const m = mat(it.matId); return sysMatch(m?.cat, m); });
 
   // group by 樓層 -> 房間 -> 分類
   const floors = {};
@@ -2103,6 +2107,70 @@ function applyCountRescue(day){
   });
   save(); closeSheet(); renderAll();
   toast('✅ 已寫回 '+n+' 筆'+(made?('（新建 '+made+' 項材料）'):''));
+}
+
+// 🔗 指定「其實是同一種料」：像天花的 N38 主架 與隔間的 N38 加強橫枝，
+//    產品一樣、只是用在不同位置。合併後庫存共用、需求相加，下次匯入也不會再被拆開。
+function openSameMat(step2){
+  const groups = {};
+  D.mats.forEach(m=>{ (groups[m.cat||'其他'] = groups[m.cat||'其他'] || []).push(m); });
+  const cats = Object.keys(groups).sort((a,b)=>catOrder(a)-catOrder(b));
+  if(!step2){
+    const body = cats.map(c=>`<div class="catrow">${esc(c)}</div>`+
+      groups[c].slice().sort((a,b)=>matLabel(a).localeCompare(matLabel(b),'zh-Hant',{numeric:true})).map(m=>{
+        const used = D.items.filter(i=>i.matId===m.id).length;
+        return `<label class="listitem" style="padding:6px 10px;gap:9px;cursor:pointer">
+          <input type="checkbox" class="sm-pick" value="${m.id}" style="width:19px;height:19px;flex:0 0 auto">
+          <div class="li-m" style="min-width:0"><div class="li-t" style="font-size:13px">${matDisp(m)}</div>
+          <div class="li-s">${esc(c)}・用在 ${used} 個樓層</div></div></label>`; }).join('')).join('');
+    openSheet(`<h3>🔗 這幾種其實是同一種料<span class="x" onclick="closeSheet()">✕</span></h3>
+      <div class="hint">勾選<b>同一個產品但被拆成好幾筆</b>的材料（例：天花的 N38 主架 和 隔間的 N38 加強橫枝）。
+      合併後庫存共用、需求相加，<b>下次從材料計算匯入也不會再被拆開</b>。</div>
+      <div style="max-height:52vh;overflow-y:auto">${body}</div>
+      <button class="btn" style="margin-top:10px" onclick="openSameMat(1)">下一步：選要保留哪個名稱</button>`);
+    return;
+  }
+  const ids = [...document.querySelectorAll('.sm-pick:checked')].map(x=>x.value);
+  if(ids.length<2){ toast('⚠️ 至少勾兩筆'); return; }
+  _smIds = ids;
+  const picked = ids.map(id=>mat(id)).filter(Boolean);
+  const catOpts = D.cats.map(c=>`<option>${esc(c)}</option>`).join('');
+  openSheet(`<h3>🔗 合併成一種料<span class="x" onclick="openSameMat()">✕</span></h3>
+    <div class="hint">選一個要保留的名稱，其他的紀錄（送料／盤點／調撥／待到貨）全部併進來，需求量相加。</div>
+    ${picked.map((m,i)=>{
+      const used = D.items.filter(x=>x.matId===m.id).length;
+      const dem  = round(D.items.filter(x=>x.matId===m.id).reduce((a,x)=>a+num(x.demand),0));
+      const del  = round(D.items.filter(x=>x.matId===m.id).reduce((a,x)=>a+num(x.delivered),0));
+      return `<label class="listitem" style="padding:7px 10px;gap:9px;cursor:pointer">
+        <input type="radio" name="sm-keep" value="${m.id}" ${i===0?'checked':''} style="width:19px;height:19px;flex:0 0 auto">
+        <div class="li-m" style="min-width:0"><div class="li-t" style="font-size:13px">${matDisp(m)}</div>
+        <div class="li-s">${esc(m.cat||'')}・${used} 層・需求合計 ${dem}・已送 ${del}</div></div></label>`; }).join('')}
+    <div class="fg" style="margin-top:10px"><label>合併後歸到哪個分類</label><select id="sm-cat">${catOpts}</select></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:8px 0;cursor:pointer">
+      <input type="checkbox" id="sm-both" checked style="width:18px;height:18px"> 隔間和暗架都會用到
+      <span class="muted" style="font-weight:400">（兩個篩選都看得到）</span></label>
+    <button class="btn" onclick="doSameMat()">🔗 合併成一種料</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="openSameMat()">⬅ 回上一步</button>`);
+  const sel = document.getElementById('sm-cat');
+  if(sel && picked[0] && picked[0].cat) sel.value = picked[0].cat;
+}
+let _smIds = [];
+function doSameMat(){
+  const keepId = (document.querySelector('input[name="sm-keep"]:checked')||{}).value;
+  const keep = mat(keepId); if(!keep){ toast('⚠️ 選一個要保留的'); return; }
+  const deads = _smIds.filter(id=>id!==keepId).map(id=>mat(id)).filter(Boolean);
+  if(!deads.length){ toast('⚠️ 至少要有一筆併進來'); return; }
+  const cat = (document.getElementById('sm-cat')||{}).value || keep.cat;
+  const both = !!(document.getElementById('sm-both')||{}).checked;
+  const names = deads.map(m=>matLabel(m)).join('、');
+  if(!confirm('把「'+names+'」併進「'+matLabel(keep)+'」？\n\n送料／盤點／調撥／待到貨紀錄全部保留併入，各樓層需求量相加。\n可用「還原匯入前」退回。')) return;
+  try{ localStorage.setItem('fieldmat_preimport', JSON.stringify({at:new Date().toISOString(), data:JSON.parse(JSON.stringify(D))})); }catch(e){}
+  deads.forEach(dead=> absorbMat(keep, dead, {addDemand:true}));
+  keep.cat = cat;
+  keep.sys = both ? '共用' : null;      // 共用 → 隔間與暗架兩個篩選都看得到
+  _smIds = [];
+  save(); closeSheet(); renderAll(); renderSettings();
+  toast('✅ 已合併成「'+matLabel(keep)+'」');
 }
 
 // 🔍 對帳：把「送料 / 調撥 / 已用 / 實盤」整條帳攤開，並指出差額最可能出在哪
@@ -3499,6 +3567,33 @@ function restorePreImport(){
   clearNeedCache(); save(); renderAll(); toast('✅ 已還原到匯入前');
 }
 // 🔗 合併重複材料：同名材料自動併成一筆，送料/盤點/需求/調撥全部改掛到保留的那筆
+// 把 dead 這筆材料的所有紀錄併到 keep，並讓下次匯入也認得（寫進 D.alias）
+function absorbMat(keep, dead, opts){
+  opts = opts || {};
+  D.deliveries.forEach(d=>{ if(d.matId===dead.id) d.matId=keep.id; });
+  (D.transfers||[]).forEach(t=>{ if(t.matId===dead.id) t.matId=keep.id; if(t.fromMatId===dead.id) t.fromMatId=keep.id; if(t.toMatId===dead.id) t.toMatId=keep.id; });
+  (D.counts||[]).forEach(c=>{ if(c.matId===dead.id) c.matId=keep.id; });
+  (D.orders||[]).forEach(o=>(o.lines||[]).forEach(l=>{ if(l.matId===dead.id) l.matId=keep.id; }));
+  (D.drafts||[]).forEach(d=>{ if(d.matId===dead.id) d.matId=keep.id; });
+  D.items.filter(i=>i.matId===dead.id).forEach(di=>{
+    const ki = D.items.find(i=>i.matId===keep.id && i.project===di.project && i.room===di.room);
+    if(!ki){ di.matId = keep.id; return; }
+    ki.delivered = round(num(ki.delivered)+num(di.delivered));
+    ki.remaining = round(num(ki.remaining)+num(di.remaining));
+    // 同名重複：需求取大（本來就是同一筆的兩個分身）
+    // 不同名的「其實是同一種料」：需求要相加（主架 300 ＋ 加強橫枝 40 = 340）
+    ki.demand = opts.addDemand ? round(num(ki.demand)+num(di.demand)) : Math.max(num(ki.demand), num(di.demand));
+    const adj = num(ki.needAdj)+num(di.needAdj); ki.needAdj = adj||null;
+    ki.restock=null; ki.usedAt=null; ki.uv2=1;
+    ki.countAt = (ki.countAt||'') > (di.countAt||'') ? ki.countAt : di.countAt;
+    D.items = D.items.filter(x=>x!==di);
+  });
+  // 下次從材料計算匯入時，這個名字要對到 keep，不然又會被拆回兩筆
+  D.alias = D.alias || {};
+  D.alias[matKey(dead.name, dead.spec)] = keep.id;
+  D.mats = D.mats.filter(m=>m.id!==dead.id);
+}
+
 function mergeDupMats(){
   // 同名判定：先去疊字、再拿掉「所有空格」（含全形），一個空格之差也算同一筆
   const normKey = m => String(m.name||'').replace(/(\S+) \1/g,'$1').replace(/\s+/g,'') + '|' + String(m.spec||'').replace(/\s+/g,'');
@@ -3517,27 +3612,7 @@ function mergeDupMats(){
     const keep=g[0];
     // 名字用「最乾淨」的版本（空格最少的那個），之後匯入才對得上、不會再生雙胞胎
     keep.name = g.map(m=>m.name).sort((a,b)=>a.length-b.length)[0];
-    g.slice(1).forEach(dead=>{
-      D.deliveries.forEach(d=>{ if(d.matId===dead.id) d.matId=keep.id; });
-      (D.transfers||[]).forEach(t=>{ if(t.matId===dead.id) t.matId=keep.id; if(t.fromMatId===dead.id) t.fromMatId=keep.id; if(t.toMatId===dead.id) t.toMatId=keep.id; });
-      (D.counts||[]).forEach(c=>{ if(c.matId===dead.id) c.matId=keep.id; });
-      (D.orders||[]).forEach(o=>(o.lines||[]).forEach(l=>{ if(l.matId===dead.id) l.matId=keep.id; }));
-      (D.drafts||[]).forEach(d=>{ if(d.matId===dead.id) d.matId=keep.id; });
-      D.items.filter(i=>i.matId===dead.id).forEach(di=>{
-        const ki=D.items.find(i=>i.matId===keep.id && i.project===di.project && i.room===di.room);
-        if(!ki){ di.matId=keep.id; return; }
-        // 同樓層兩筆 → 實體量相加、需求取大、手動加減相加
-        ki.delivered = round(num(ki.delivered)+num(di.delivered));
-        ki.remaining = round(num(ki.remaining)+num(di.remaining));
-        ki.demand    = Math.max(num(ki.demand), num(di.demand));
-        const adj = num(ki.needAdj)+num(di.needAdj); ki.needAdj = adj||null;
-        ki.restock=null; ki.usedAt=null;
-        ki.countAt = (ki.countAt||'') > (di.countAt||'') ? ki.countAt : di.countAt;
-        D.items = D.items.filter(x=>x!==di);
-      });
-      D.mats = D.mats.filter(m=>m.id!==dead.id);
-      n++;
-    });
+    g.slice(1).forEach(dead=>{ absorbMat(keep, dead); n++; });
   });
   clearNeedCache(); save(); renderAll(); renderSettings();
   toast('✅ 已合併 '+n+' 筆重複材料（可用「還原匯入前」退回）');
@@ -3726,6 +3801,7 @@ function applyCalcImport(pl){
   cur.project = project;
   if(!D.recipes) D.recipes = {}; if(!D.progress) D.progress = {};
   // 記住舊的間數（floor→type→count），用來偵測新增的房間
+  const _impSeen = new Set();      // 這次匯入已經寫過的 (樓層,材料)，第二次起改為相加
   const oldCount = {};
   ((D.recipes && D.recipes[project]) || []).forEach(f=>{ (f.rooms||[]).forEach(room=>{ (oldCount[f.floor]=oldCount[f.floor]||{})[room.type]=num(room.count); }); });
   // 存牆用量食譜（供進度計算）
@@ -3742,7 +3818,9 @@ function applyCalcImport(pl){
       const inSp = (m.spec!=null) ? {name:m.name, spec:m.spec} : splitSpec(m.name);
       const wantKey = matKey(inSp.name, inSp.spec);
       const normDup = s=>String(s).replace(/(\S+) \1/g,'$1').replace(/\s+/g,'');
-      let mt = D.mats.find(x=>matKeyOf(x)===wantKey);
+      // 你指定過「其實是同一種料」的，直接對到那一筆，不要又生一個分身
+      let mt = (D.alias && D.alias[wantKey]) ? mat(D.alias[wantKey]) : null;
+      if(!mt) mt = D.mats.find(x=>matKeyOf(x)===wantKey);
       if(!mt){
         // 舊資料規格還黏在名稱裡（或有疊字/空格差）→ 認出來就改成新格式沿用，不生幽靈
         const legacy = D.mats.find(x=>{
@@ -3755,7 +3833,10 @@ function applyCalcImport(pl){
       }
       let it = D.items.find(i=>i.project===project && i.room===floorName && i.matId===mt.id);
       if(!it){ it = {id:uid(), project, room:floorName, matId:mt.id, demand:0, remaining:0, delivered:0}; D.items.push(it); }
-      it.demand = round(num(m.qty)); // 全做完的量（無施工資料時的後備）
+      // 合併過的料，同一層可能對到好幾條計算線（主架 300 ＋ 加強橫枝 40）→ 第二條之後要相加
+      const wkey = floorName+'||'+mt.id;
+      if(_impSeen.has(wkey)) it.demand = round(num(it.demand) + num(m.qty));
+      else { it.demand = round(num(m.qty)); _impSeen.add(wkey); }
     });
     // 初始化進度（每道牆 × 階段）：新的＝全部還沒做；已存保留；間數變多時自動加進「還沒做」
     const fp = D.progress[project][floorName] = D.progress[project][floorName] || {};
@@ -3777,7 +3858,14 @@ function applyCalcImport(pl){
   //  計算已移除的材料 → 有送過料/盤過/有手動加減的「需求歸零保留」；完全沒碰過的移除
   //  送料/現場剩餘/施工進度 一律保留（計算不知道這些現場事實）
   const liveKeys = new Set();
-  (pl.floors||[]).forEach(fl=>(fl.materials||[]).forEach(m=> liveKeys.add(fl.floor+'||'+m.name)));
+  (pl.floors||[]).forEach(fl=>(fl.materials||[]).forEach(m=>{
+    liveKeys.add(fl.floor+'||'+m.name);
+    // 這條計算線如果被你指到別筆材料（同一種料），那筆的名字也算「計算裡還有」
+    const sp = (m.spec!=null) ? {name:m.name, spec:m.spec} : splitSpec(m.name);
+    const al = D.alias && D.alias[matKey(sp.name, sp.spec)];
+    const am = al && mat(al);
+    if(am) liveKeys.add(fl.floor+'||'+am.name);
+  }));
   let nSurplus=0, nRemoved=0;
   D.items = D.items.filter(it=>{
     if(it.project!==project) return true;                 // 別的案場不動
