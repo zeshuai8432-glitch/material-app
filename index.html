@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v107</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v108</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -306,7 +306,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 107;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 108;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -388,6 +388,7 @@ function fbSplitField(){
   out.meta.updatedAt = D.updatedAt || '';
   out.meta.tomb  = D.tomb  || {};              // 刪除墓碑（跨裝置才知道是刪掉還是沒同步到）
   out.meta.alias = D.alias || {};              // 「其實是同一種料」的對照表
+  out.meta.aliasLbl = D.aliasLbl || {};
   out.meta.strAt = D.strAt || {};
   out.meta.objAt = D.objAt || {};
   const projs = [...new Set([...(D.projects||[]), ...(D.items||[]).map(i=>i.project)])].filter(Boolean);
@@ -436,9 +437,9 @@ async function fbPullField(){
     rooms:[],items:[],deliveries:[],counts:[],transfers:[],orders:[],drafts:[],recipes:{},progress:{}};
   out.__updatedAt = meta.updatedAt || '';
   out.tomb = meta.tomb || {}; out.strAt = meta.strAt || {}; out.objAt = meta.objAt || {};
-  out.alias = meta.alias || {};
+  out.alias = meta.alias || {}; out.aliasLbl = meta.aliasLbl || {};
   const _core = {projects:out.projects,archived:out.archived,cats:out.cats,mats:out.mats,
-                 tomb:out.tomb,strAt:out.strAt,objAt:out.objAt,alias:out.alias};
+                 tomb:out.tomb,strAt:out.strAt,objAt:out.objAt,alias:out.alias,aliasLbl:out.aliasLbl};
   _fbLast = { metaCore: JSON.stringify(_core), meta: JSON.stringify(Object.assign({}, _core, {updatedAt:out.__updatedAt})) };
   // 案場清單掉了（像這次墓碑出包），但分片還在 → 靠 strAt 記得的名字把它們救回來
   if(!out.projects.length){
@@ -743,6 +744,7 @@ function mergeField(remote){
   });
   D.tomb = tomb; D.strAt = strAt; D.objAt = objAt;
   D.alias = Object.assign({}, remote.alias||{}, D.alias||{});
+  D.aliasLbl = Object.assign({}, remote.aliasLbl||{}, D.aliasLbl||{});
   D.updatedAt = (D.updatedAt||OLD_T) > rt ? D.updatedAt : rt;
   normalize(D);
   // 合併後重建簽章，避免下一次存檔把每一筆都當成改過
@@ -1189,7 +1191,7 @@ function renderBoard(){
         const tTag = tnet.net>0?`<span style="color:var(--blue);font-weight:700">＋調${tnet.net}</span>`:(tnet.net<0?`<span style="color:var(--amber);font-weight:700">−調${-tnet.net}</span>`:'');
         html += `<div class="mrow" onclick="quickCount('${it.id}')" style="border-left:4px solid ${tn.c};padding-left:9px;background:${tn.b}">
           <div class="mi">
-            <div class="mn" style="color:${tn.c}">${matDisp(m)}</div>
+            <div class="mn" style="color:${tn.c}">${matDisp(m)}${(m&&m.sys==='共用')?' <span class="pill" style="background:#dbeafe;color:#1d4ed8;font-size:10px">🔗 共用</span>':''}</div>
             <div class="ms">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''}</div>
             <div class="nums">總需 ${total}${esc(unit)}　送 ${num(it.delivered)}${esc(unit)}${tTag}　剩 ${rem}${esc(unit)}　${countAgeHTML(it)}</div>
             ${noteHTML(it)}
@@ -1790,7 +1792,7 @@ function printCountSheet(){
       if(g!==lastG){ rows += `<tr><td colspan="6" style="background:#f6f9fd;font-weight:700;font-size:11.5px;color:#334155">${esc(g)}</td></tr>`; lastG = g; }
       const sp = (m&&m.spec) ? {name:m.name, spec:m.spec} : splitSpec(m?m.name:'');
       const thick = (m&&m.thick)?esc(m.thick):'';
-      rows += `<tr><td>${esc(sp.name||'?')}${countedInRound(it)?' ✅':''}</td><td class="sp">${esc(sp.spec||'')}</td><td>${thick}</td>`
+      rows += `<tr><td>${esc(sp.name||'?')}${(m&&m.sys==='共用')?' 🔗':''}${countedInRound(it)?' ✅':''}</td><td class="sp">${esc(sp.spec||'')}</td><td>${thick}</td>`
         + `<td style="color:#888">${itemNeed(it)}${esc(u)}</td>`
         + `<td style="border-bottom:1px solid #94a3b8;min-width:76px">&nbsp;</td>`
         + `<td style="border-bottom:1px solid #94a3b8;min-width:90px">&nbsp;</td></tr>`;
@@ -1876,6 +1878,7 @@ function renderCount(){
     html += `<div class="card" style="padding:11px 13px;margin-bottom:8px;border-left:4px solid ${ctn.c}">
       <div style="font-weight:800;font-size:14px;color:${ctn.c}">${matDisp(m)}</div>
       <div class="muted" style="margin-bottom:8px">${esc((m&&m.spec)||'')}${m&&m.thick?(' · '+esc(m.thick)):''} · 已送 ${num(it.delivered)}${esc(unit)}${used>0?(' · 已用 '+used+esc(unit)):''} · ${countAgeHTML(it)}${countedInRound(it)?' · <span style="color:var(--green,#16a34a);font-weight:700">✅ 本輪已盤</span>':''}${used>0?` · <a onclick="openReconSheet('${it.id}')" style="color:var(--text2);cursor:pointer;text-decoration:underline">對帳</a>`:''}</div>
+      ${aliasNote(m)}
       <div class="row">
         <div><label>現場剩餘・可用算式</label>
           <div class="stepper"><button type="button" onclick="stepQty('ct-rem-${it.id}',-1)">−</button>
@@ -2107,6 +2110,29 @@ function applyCountRescue(day){
   });
   save(); closeSheet(); renderAll();
   toast('✅ 已寫回 '+n+' 筆'+(made?('（新建 '+made+' 項材料）'):''));
+}
+
+// 合併過的料（隔間／暗架共用同一批）在盤點時只要數一次 —— 講清楚，免得以為要分開數兩次
+function aliasNames(m){
+  if(!m || !D.alias) return [];
+  const out = [];
+  Object.entries(D.alias).forEach(([k, id])=>{ if(id!==m.id) return;
+    const lbl = (D.aliasLbl||{})[k];
+    if(lbl){ out.push(lbl); return; }
+    const p = String(k).split('|'); out.push(p[0] + (p[1]?(' '+p[1]):''));   // 舊資料沒存名字時的後備
+  });
+  return out;
+}
+function aliasNote(m){
+  const names = aliasNames(m);
+  const shared = m && m.sys==='共用';
+  if(!names.length && !shared) return '';
+  return `<div style="display:flex;gap:7px;align-items:flex-start;background:#eff6ff;border-left:3px solid var(--blue);
+      border-radius:8px;padding:7px 9px;margin-bottom:8px;font-size:12px;line-height:1.6">
+    <span style="flex:0 0 auto">🔗</span>
+    <span><b>現場同一批，數一次就好</b>${shared?'（隔間／暗架都會用到，兩個分類都看得到這一列）':''}
+      ${names.length?`<br><span style="color:var(--text2)">包含：${names.map(esc).join('、')}</span>`:''}</span>
+  </div>`;
 }
 
 // 🔗 指定「其實是同一種料」：像天花的 N38 主架 與隔間的 N38 加強橫枝，
@@ -3589,8 +3615,10 @@ function absorbMat(keep, dead, opts){
     D.items = D.items.filter(x=>x!==di);
   });
   // 下次從材料計算匯入時，這個名字要對到 keep，不然又會被拆回兩筆
-  D.alias = D.alias || {};
-  D.alias[matKey(dead.name, dead.spec)] = keep.id;
+  D.alias = D.alias || {}; D.aliasLbl = D.aliasLbl || {};
+  const ak = matKey(dead.name, dead.spec);
+  D.alias[ak] = keep.id;
+  D.aliasLbl[ak] = matLabel(dead);            // 留原本好看的名字，提示才讀得順
   D.mats = D.mats.filter(m=>m.id!==dead.id);
 }
 
