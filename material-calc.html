@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v74</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v75</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v74</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v75</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -4519,6 +4519,30 @@ function renderResults() {
     <div style="padding:0 14px 12px">${splitTotalsHTML((agg, type) => { spaces.forEach(s => { const m = spaceTotalCount(s); zonesOf(s).forEach(z => { if (z.type === type) aggregateZone(z, m, agg); }); if (type === 'partition') aggregateReinf(s.id, m, agg); }); }, true)}
     ${extras.length?`<div style="font-weight:700;font-size:13px;color:#b45309;margin:12px 0 4px">➕ 自訂材料</div><table class="totals-table" style="width:100%"><tbody>${extras.map(x=>`<tr><td>${esc(x.name)}</td><td style="text-align:right;font-weight:700">${x.qty} ${esc(x.unit)}</td></tr>`).join('')}</tbody></table>`:''}
     </div></details>`;
+
+  // 1.5) 依房型（一間要用多少）—— 現場點料、備料時最常用的單位
+  const spacesWithZones = spaces.filter(s => zonesOf(s).some(z => sys === 'all' || z.type === sys));
+  if (spacesWithZones.length) {
+    html += '<div class="result-header" style="margin-top:20px">🏠 依房型（一間要用多少）</div>';
+    spacesWithZones.forEach(s => {
+      const tot = spaceTotalCount(s);
+      const flStr = (s.floors || []).filter(f => f.floor && (parseInt(f.count) || 0) > 0)
+        .map(f => `${esc(f.floor)}×${parseInt(f.count) || 0}`).join('・');
+      const body = splitTotalsHTML((agg, type) => {
+        zonesOf(s).forEach(z => { if (z.type === type) aggregateZone(z, 1, agg); });
+        if (type === 'partition') aggregateReinf(s.id, 1, agg);
+      }, false);
+      const zn = zonesOf(s).filter(z => sys === 'all' || z.type === sys).map(z => esc(z.name)).join('、');
+      html += `<details style="border:1px solid var(--border,#e3e8ef);border-radius:10px;margin-bottom:8px;background:var(--card,#fff)">
+        <summary style="cursor:pointer;font-weight:700;padding:11px 14px">🏠 ${esc(s.name)}
+          <span style="color:var(--text-3);font-weight:400;font-size:12px">・<b>一間份</b>${tot > 1 ? `・共 ${tot} 間${flStr ? `（${flStr}）` : ''}` : ''}</span></summary>
+        <div style="padding:0 14px 12px">
+          <div style="font-size:12px;color:var(--text-3);margin:2px 0 8px">
+            這是<b>一間</b>的用量（不乘間數）。現場備料、點一間要拿多少料看這裡。${zn ? `　區塊：${zn}` : ''}</div>
+          ${body}
+        </div></details>`;
+    });
+  }
 
   // 2) 依樓層（母）→ 空間（子）
   const floorList = [];
