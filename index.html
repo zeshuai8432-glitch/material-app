@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v108</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v109</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -306,7 +306,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 108;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 109;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -3081,12 +3081,36 @@ function doRefillPDF(){
   openRefillPreview(fls, cts);
 }
 // 第二步：匯出前逐項確認，知道某層會多的就把那筆勾掉
+// 同層「長料裁短料」能補上多少：回傳 {room: {matId: {qty, from:[來源名稱]}}}
+function cutCoverMap(p, rooms){
+  const out = {};
+  rooms.forEach(rm=>{
+    const m = {};
+    floorCuts(p, rm).forEach(c=>{
+      const e = m[c.toMatId] = m[c.toMatId] || {qty:0, from:new Set()};
+      e.qty = round(e.qty + c.qty);
+      const fm = mat(c.fromMatId);
+      if(fm) e.from.add(matLabel(fm) + (c.mode==='cut' ? ' 裁' : (c.mode==='join' ? ' 接' : '')));
+    });
+    out[rm] = m;
+  });
+  return out;
+}
+let _rfCut = true, _rfFl = null, _rfCat = null;
+function rfToggleCut(on){ _rfCut = !!on; openRefillPreview(_rfFl, _rfCat); }
 function openRefillPreview(flSet, catSet){
   const p = cur.project;
+  _rfFl = flSet; _rfCat = catSet;
   const items = projItems(p).filter(it=> itemLack(it)>0 && flSet.has(roomFloor(p,it.room)) && catSet.has(mat(it.matId)?.cat||'其他'));
   if(!items.length){ toast('✅ 選取範圍內沒有要補的料'); return; }
   const byFl={};
   items.forEach(it=>{ const fl=roomFloor(p,it.room); (byFl[fl]=byFl[fl]||[]).push(it); });
+  // 先算同層可以裁多少 —— 這些不用叫料，扣掉才不會多叫
+  const cover = cutCoverMap(p, [...new Set(items.map(it=>it.room))]);
+  const netOf = it => { const c = _rfCut ? ((cover[it.room]||{})[it.matId]||{}).qty||0 : 0;
+                        return { cut: Math.min(c, itemLack(it)), net: Math.max(round(itemLack(it) - c), 0) }; };
+  let nCut = 0, cutSum = 0;
+  items.forEach(it=>{ const r = netOf(it); if(r.cut>0){ nCut++; cutSum = round(cutSum + r.cut); } });
   let body='';
   Object.keys(byFl).sort(cmpFloor).forEach(fl=>{
     body+=`<div style="font-size:12px;font-weight:800;color:var(--text2);padding:8px 2px 4px">🏢 ${esc(fl)}</div>`;
@@ -3097,25 +3121,36 @@ function openRefillPreview(flSet, catSet){
         || matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''});
     }).forEach(it=>{
       const m=mat(it.matId); const u=m?m.unit:'';
+      const r = netOf(it);
+      const src = [...(((cover[it.room]||{})[it.matId]||{}).from || [])];
       body+=`<div class="listitem" style="gap:10px;padding:8px 11px">
-        <input type="checkbox" class="rf-it" value="${it.id}" checked style="width:20px;height:20px;flex:0 0 auto">
+        <input type="checkbox" class="rf-it" value="${it.id}" ${r.net>0?'checked':''} style="width:20px;height:20px;flex:0 0 auto">
         <div class="li-m" style="min-width:0">
           <div class="li-t" style="font-size:13px">${matDisp(m)}</div>
           <div class="li-s">剩 ${itemRemaining(it)}${esc(u)}・需 ${itemNeed(it)}${esc(u)}・缺 ${itemLack(it)}${esc(u)}</div>
+          ${r.cut>0?`<div style="font-size:12px;font-weight:700;color:#b45309;margin-top:2px">🔪 同層可裁補 ${r.cut}${esc(u)}${src.length?`（${esc(src.join('、'))}）`:''} → ${r.net>0?`實際要補 <b>${r.net}</b>${esc(u)}`:'<b>不用叫料</b>'}</div>`:''}
           ${noteHTML(it)}
         </div>
         <div style="flex:0 0 auto;display:flex;align-items:center;gap:4px;white-space:nowrap">
           <span style="font-weight:800;color:var(--red)">補</span>
-          <input type="number" class="rf-qty" data-id="${it.id}" value="${itemLack(it)}" inputmode="decimal"
-            style="width:64px;text-align:center;font-weight:800;padding:6px 4px"
-            onchange="this.style.background=(num(this.value)!==${itemLack(it)})?'#fef3c7':''">
+          <input type="number" class="rf-qty" data-id="${it.id}" value="${r.net}" inputmode="decimal"
+            style="width:64px;text-align:center;font-weight:800;padding:6px 4px${r.cut>0?';background:#fffbeb':''}"
+            onchange="this.style.background=(num(this.value)!==${r.net})?'#fef3c7':''">
           <span style="font-size:12px;color:var(--text2)">${esc(u)}</span>
         </div>
       </div>`;
     });
   });
+  const hasCut = cutSum > 0;
   openSheet(`<h3>補料單・確認品項<span class="x" onclick="closeSheet()">✕</span></h3>
     <div class="muted" style="margin-bottom:6px">共 ${items.length} 項。不想補的把勾拿掉；「補」的數量可直接改（湊整），改過會變琥珀色，只影響這張單子。</div>
+    <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;font-weight:700;margin:2px 0 10px;cursor:pointer;
+      background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:9px 11px">
+      <input type="checkbox" ${_rfCut?'checked':''} onchange="rfToggleCut(this.checked)" style="width:18px;height:18px;flex:0 0 auto;margin-top:1px">
+      <span>🔪 先用同樓層的長料裁短料，再算要補多少
+        <span class="muted" style="font-weight:400;display:block;margin-top:2px">${
+          hasCut ? `這批可以裁掉 <b>${nCut}</b> 項、共 <b>${cutSum}</b> 支的缺口，不用叫料。`
+                 : '目前這批沒有可以互相裁切的長短料。'}</span></span></label>
     ${body}
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:8px 0;cursor:pointer"><input type="checkbox" checked onclick="document.querySelectorAll('.rf-it').forEach(c=>c.checked=this.checked)" style="width:18px;height:18px"> 全選</label>
     <button class="btn" onclick="confirmRefillPDF()">📄 匯出 PDF</button>
@@ -3128,6 +3163,7 @@ function confirmRefillPDF(){
   document.querySelectorAll('.rf-qty').forEach(inp=>{ const v=round(num(inp.value)); if(v>0) qtyMap[inp.dataset.id]=v; });
   // 同時存成「待到貨清單」：料到了在送料頁一鍵入帳，不用逐筆登記
   const lines = projItems(cur.project).filter(it=>ids.has(it.id)).map(it=>({ room: it.room, matId: it.matId, qty: (qtyMap[it.id]!=null? qtyMap[it.id] : itemLack(it)) })).filter(l=>l.qty>0);
+  if(!lines.length){ toast('⚠️ 勾選的項目數量都是 0（同層裁切就夠了）'); return; }
   if(lines.length){ D.orders.push({ id: uid(), date: todayStr(), project: cur.project, lines }); save(); }
   closeSheet();
   exportRefillPDF(null, null, ids, qtyMap);
@@ -3316,7 +3352,9 @@ const JOINABLE_PROFILES = ['N38']; // 只有 N38 允許短的頂長的
 function cutKey(m){
   const cutCats = ['骨架立柱','槽鐵','加強橫枝','主架']; // 這些是同型號可跨用途的結構料
   if(!m || !cutCats.includes(m.cat)) return null;
-  const s = String(m.name);
+  // 規格從名稱獨立出來之後，長度是存在 spec 的（C92 骨架｜395cm），
+  // 只看 name 會一律找不到長度 → 整個裁切建議形同關掉。兩邊都要看。
+  const s = String(m.name||'') + ' ' + String(m.spec||'');
   const lm = s.match(/([\d.]+)\s*cm/); if(!lm) return null;      // 長度
   const pm = s.match(/([A-Za-z]+\d+)/); if(!pm) return null;      // 型號：N38、C65、U67…（蜈蚣腳等無型號的不併）
   return { base: pm[1].toUpperCase(), len:+lm[1] };              // 以型號為底，跨用途通用
