@@ -133,7 +133,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v119</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v120</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -313,7 +313,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 119;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 120;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -1487,7 +1487,7 @@ function openTransferLog(){
     body+=`<div style="font-size:12px;font-weight:800;color:var(--text2);padding:10px 2px 4px">📅 ${esc(d)}　<span style="font-weight:500">${byDate[d].length} 筆</span></div>`;
     byDate[d].forEach(t=>{
       const m=mat(t.matId); const unit=m?m.unit:'';
-      const tag = t.cut ? '<span class="tag" style="background:#fef3c7;color:#b45309;font-size:10px;padding:1px 6px">裁切</span>'
+      const tag = t.cut ? cutTag(t.mode||'cut', 1)
                 : t.manual ? '<span class="tag" style="background:#e0e7ff;color:#3730a3;font-size:10px;padding:1px 6px">手動</span>'
                 : '<span class="tag ok-bg" style="font-size:10px;padding:1px 6px">自動</span>';
       body+=`<div class="listitem" style="padding:8px 11px;gap:8px">
@@ -3278,8 +3278,9 @@ function cutCoverMap(p, rooms){
   rooms.forEach(rm=>{
     const m = {};
     floorCuts(p, rm).forEach(c=>{
-      const e = m[c.toMatId] = m[c.toMatId] || {qty:0, from:new Set()};
+      const e = m[c.toMatId] = m[c.toMatId] || {qty:0, from:new Set(), join:false};
       e.qty = round(e.qty + c.qty);
+      if(c.mode==='join') e.join = true;
       const fm = mat(c.fromMatId);
       if(fm) e.from.add(matLabel(fm) + (c.mode==='cut' ? ' 裁' : (c.mode==='join' ? ' 接' : '')));
     });
@@ -3298,8 +3299,8 @@ function openRefillPreview(flSet, catSet){
   items.forEach(it=>{ const fl=roomFloor(p,it.room); (byFl[fl]=byFl[fl]||[]).push(it); });
   // 先算同層可以裁多少 —— 這些不用叫料，扣掉才不會多叫
   const cover = cutCoverMap(p, [...new Set(items.map(it=>it.room))]);
-  const netOf = it => { const c = _rfCut ? ((cover[it.room]||{})[it.matId]||{}).qty||0 : 0;
-                        return { cut: Math.min(c, itemLack(it)), net: Math.max(round(itemLack(it) - c), 0) }; };
+  const netOf = it => { const e = (cover[it.room]||{})[it.matId]||{}; const c = _rfCut ? (e.qty||0) : 0;
+                        return { cut: Math.min(c, itemLack(it)), net: Math.max(round(itemLack(it) - c), 0), join: !!e.join }; };
   let nCut = 0, cutSum = 0;
   items.forEach(it=>{ const r = netOf(it); if(r.cut>0){ nCut++; cutSum = round(cutSum + r.cut); } });
   let body='';
@@ -3319,7 +3320,7 @@ function openRefillPreview(flSet, catSet){
         <div class="li-m" style="min-width:0">
           <div class="li-t" style="font-size:13px">${matDisp(m)}</div>
           <div class="li-s">剩 ${itemRemaining(it)}${esc(u)}・需 ${itemNeed(it)}${esc(u)}・缺 ${itemLack(it)}${esc(u)}</div>
-          ${r.cut>0?`<div style="font-size:12px;font-weight:700;color:#b45309;margin-top:2px">🔪 同層可裁補 ${r.cut}${esc(u)}${src.length?`（${esc(src.join('、'))}）`:''} → ${r.net>0?`實際要補 <b>${r.net}</b>${esc(u)}`:'<b>不用叫料</b>'}</div>`:''}
+          ${r.cut>0?`<div style="font-size:12px;font-weight:700;color:${r.join?CUT_STYLE.join.c:CUT_STYLE.cut.c};margin-top:2px">${r.join?'🔗':'🔪'} 同層可${r.join?'接':'裁'}補 ${r.cut}${esc(u)}${src.length?`（${esc(src.join('、'))}）`:''} → ${r.net>0?`實際要補 <b>${r.net}</b>${esc(u)}`:'<b>不用叫料</b>'}</div>`:''}
           ${noteHTML(it)}
         </div>
         <div style="flex:0 0 auto;display:flex;align-items:center;gap:4px;white-space:nowrap">
@@ -3537,6 +3538,17 @@ function itemSurplus(it){ // 這層這材料的溢料（現場剩餘超過整體
   if(!hasNeedBasis(it)) return 0; // 需求沒填 → 不當溢料，免得把之後才要用的料調走
   return Math.max(round(itemRemaining(it) - itemNeed(it)), 0);
 }
+// 🔪裁 / 🔗接 / ↔同長度：三種加工方式用固定的顏色分開，整個 app 一致
+const CUT_STYLE = {
+  cut : {label:'裁', full:'長裁短',   icon:'🔪', c:'#b45309', bg:'#fef3c7', line:'#f59e0b'},
+  join: {label:'接', full:'短接長',   icon:'🔗', c:'#1d4ed8', bg:'#dbeafe', line:'#3b82f6'},
+  same: {label:'直接用', full:'同長度', icon:'↔', c:'#15803d', bg:'#dcfce7', line:'#22c55e'},
+};
+function cutStyle(mode){ return CUT_STYLE[mode] || CUT_STYLE.cut; }
+function cutTag(mode, small){
+  const st = cutStyle(mode);
+  return `<span class="tag" style="background:${st.bg};color:${st.c};font-size:${small?10:11}px;padding:1px 7px;font-weight:800">${st.icon} ${st.full}</span>`;
+}
 // ── 同層「同型號通用」：同一支型號(N38/C65/U67…)不管做隔間或天花可互相補
 //    預設：同長度直接用、長裁短；只有 JOINABLE_PROFILES 的型號可「短頂長」(水平會接) ──
 const JOINABLE_DEFAULT = ['N38'];   // 預設只有 N38 允許短的接長的（水平向、受力小）
@@ -3734,16 +3746,26 @@ function openAllocSheet(){
     const after = `${verb}完 → ${c.stillLack>0
         ? `<span class="lack" style="font-weight:800">${esc(matPlain(mat(c.toMatId)))} 仍缺 ${c.stillLack}</span>`
         : `<span class="ok" style="font-weight:800">${esc(matPlain(mat(c.toMatId)))} 補滿 ✅</span>`}　·　來源${c.fromLeft>0?`還溢 <b>${c.fromLeft}</b> 支`:'剛好用完'}`;
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;${cross?'background:var(--amber-bg);border-radius:8px;padding:6px 8px':''}">
-      <div style="flex:1;min-width:0;font-size:13px">🏢 ${esc(c.floor)}${sysBadge}：<b>${esc(matPlain(mat(c.fromMatId)))}</b> 用 <span style="color:var(--blue)">${c.use||c.qty}</span> 支 ${verb} 成 <span style="color:var(--blue)">${c.qty}</span> 支 <b>${esc(matPlain(mat(c.toMatId)))}</b>${crossNote}<br><span style="font-size:12px">${after}</span><br><span style="color:var(--text2);font-size:12px">這料自己還要 ${reserve} 支已先留著，只用多的${note}</span></div>
+    const st = cutStyle(c.mode);
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;border-left:4px solid ${st.line};
+        background:${cross?'var(--amber-bg)':st.bg}55;border-radius:8px;padding:7px 9px">
+      <div style="flex:1;min-width:0;font-size:13px">
+        ${cutTag(c.mode)} <span style="font-weight:700">🏢 ${esc(c.floor)}</span>${sysBadge}<br>
+        <b>${esc(matPlain(mat(c.fromMatId)))}</b> 用 <span style="color:${st.c};font-weight:800">${c.use||c.qty}</span> 支
+        ${st.label} 成 <span style="color:${st.c};font-weight:800">${c.qty}</span> 支 <b>${esc(matPlain(mat(c.toMatId)))}</b>${crossNote}
+        <br><span style="font-size:12px">${after}</span>
+        <br><span style="color:var(--text2);font-size:12px">這料自己還要 ${reserve} 支已先留著，只用多的${note}</span></div>
       <div style="flex:0 0 auto;display:flex;flex-direction:column;gap:4px">
-        <button class="btn mini" onclick="applyCut('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">${verb}</button>
+        <button class="btn mini" style="background:${st.c};border-color:${st.c}" onclick="applyCut('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">${st.icon} ${st.label}</button>
         <button class="btn mini gray" onclick="addCutToPlan('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">🚚 排單</button>
       </div>
     </div>`;
   }).join('');
   const cutsCard = cuts.length ? `<div class="card" style="padding:12px;border-left:4px solid var(--amber)">
-    <div style="font-weight:800;margin-bottom:4px">🔧 同型號通用（先做這個最省）</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+      <span style="font-weight:800">🔧 同型號通用（先做這個最省）</span>
+      <span style="display:flex;gap:5px;flex-wrap:wrap">${cutTag('cut',1)}${cutTag('join',1)}${cutTag('same',1)}</span>
+    </div>
     <div class="muted" style="margin-bottom:8px">同一支型號（N38/C65…）不分隔間/天花互相補：<b>同長度直接用、長的裁短（1 支＝1 支）</b>；
       <b>短的接長的</b>要看幾支才夠（例：270cm × 2 支接成 1 支 395cm），只有設定裡允許接的型號才會建議。只用「自己整體用完還多出來」的。</div>
     ${cutRows}
@@ -3858,8 +3880,11 @@ function openMovePlan(){
   const body = keys.map(k=>{
     const g = routes[k];
     const n = round(g.reduce((a,x)=>a+num(x.qty),0));
+    const kinds = [...new Set(g.map(x=>x.kind).filter(x=>x==='cut'||x==='join'))];
     return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:13px;font-weight:800;padding:10px 2px 3px">
-        <span>🚚 ${esc(k)}</span><span class="muted" style="font-weight:700">${g.length} 項・共 ${n}</span></div>`
+        <span>${g[0] && g[0].from===g[0].to ? '🔧 '+esc(g[0].from)+' 現場加工' : '🚚 '+esc(k)}
+          ${kinds.map(x=>cutTag(x,1)).join('')}</span>
+        <span class="muted" style="font-weight:700">${g.length} 項・共 ${n}</span></div>`
       + g.slice().sort((a,b)=>matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''})).map(x=>{
         const m = mat(x.matId), u = m?m.unit:'';
         const src = D.items.find(i=>i.project===p&&i.room===x.from&&i.matId===x.matId);
@@ -3867,7 +3892,7 @@ function openMovePlan(){
         const short = num(x.qty) > have;
         return `<div class="listitem" style="padding:6px 10px;gap:8px">
           <div class="li-m" style="min-width:0">
-            <div class="li-t" style="font-size:13px">${matDisp(m)}${x.kind==='cut'?' <span class="tag" style="background:#fef3c7;color:#b45309;font-size:10px;padding:1px 6px">裁切</span>':''}${x.kind==='join'?' <span class="tag" style="background:#dbeafe;color:#1d4ed8;font-size:10px;padding:1px 6px">接料</span>':''}</div>
+            <div class="li-t" style="font-size:13px">${matDisp(m)}${(x.kind==='cut'||x.kind==='join')?' '+cutTag(x.kind,1):''}</div>
             <div class="li-s">${esc(x.from)} 現場剩 ${have}${esc(u)}${short?` <span style="color:var(--red);font-weight:700">・不夠搬！</span>`:''}</div>
             ${x.memo?`<div style="font-size:12px;color:var(--purple,#7c3aed);font-weight:700;margin-top:2px">📌 ${esc(x.memo)}</div>`:''}
           </div>
