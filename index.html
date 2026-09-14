@@ -133,7 +133,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v114</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v115</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -312,7 +312,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 114;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 115;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -432,6 +432,12 @@ async function fbPushField(){
   // 否則只是 updatedAt 跳動 —— 舊裝置開一下就把時間戳蓋新，會誤導其他裝置。
   const core = Object.assign({}, meta); delete core.updatedAt;
   const coreSig = JSON.stringify(core);
+  // 保險：有材料品項在，材料庫或案場清單卻是空的 → 這份 meta 是壞的，寧可不同步也不要推上去
+  const metaBroken = (D.items||[]).length > 0 && (!(meta.mats||[]).length || !(meta.projects||[]).length);
+  if(metaBroken){
+    blockPush('材料庫或案場清單是空的，為避免蓋掉雲端，已停止上傳');
+    throw new Error('meta 不完整（材料庫 '+(meta.mats||[]).length+' 項、案場 '+(meta.projects||[]).length+' 個），拒絕上傳');
+  }
   if(_fbLast['metaCore']!==coreSig || partWrites.length){
     batch.set(P.meta, meta);
     _fbLast['metaCore'] = coreSig; _fbLast['meta'] = JSON.stringify(meta); n++;
@@ -470,6 +476,17 @@ async function fbPullField(){
     if(out.projects.length){
       out.tomb = Object.assign({}, out.tomb);
       out.projects.forEach(p=>delete out.tomb['projects:'+p]);   // 撤掉那個害人的墓碑
+    }
+  }
+  // 材料庫被寫成空的 → 先用本機的，再不行就翻本機快照（品項全靠 matId 對名稱，不能沒有）
+  if(!out.mats.length){
+    if((D.mats||[]).length){ out.mats = D.mats; console.warn('[recover] 雲端材料庫是空的，改用本機的'); }
+    else {
+      for(const h of histRead()){
+        try{ const snap = JSON.parse(h.data);
+          if(snap && (snap.mats||[]).length){ out.mats = snap.mats;
+            console.warn('[recover] 從本機快照救回材料庫 '+snap.mats.length+' 項（'+h.at+'）'); break; } }catch(e){}
+      }
     }
   }
   for(const p of out.projects){
@@ -707,6 +724,7 @@ function stampChanges(){
 }
 // ── 合併：本機 ⊕ 雲端 ──
 function mergeField(remote){
+  remote = Object.assign({}, remote);      // 不動呼叫端那份
   const rt = remote.__updatedAt || OLD_T;
   // 這台沒有「改過但還沒上傳」的東西 → 它手上的紀錄雲端一定都收過了。
   // 那本機才有、雲端沒有的，就是別台刪掉的 → 不要把它們併回去（否則刪掉的會復活）。
@@ -718,6 +736,13 @@ function mergeField(remote){
   const objAt = Object.assign({}, remote.objAt||{});
   Object.entries(D.objAt||{}).forEach(([k,t])=>{ if(!objAt[k] || t > objAt[k]) objAt[k] = t; });
 
+  // 材料庫／案場清單整份變空，一定是壞掉（meta 被寫壞），不可能是「別人全刪了」。
+  // 這種時候雲端不算數，保留本機的，並且等一下也不准把空的推回去。
+  const CORE_NEVER_EMPTY = ['mats'];
+  CORE_NEVER_EMPTY.forEach(k=>{
+    if(!(remote[k]||[]).length && (D[k]||[]).length){ remote[k] = D[k]; console.warn('[guard] 雲端 '+k+' 是空的，保留本機'); }
+  });
+  if(!(remote.projects||[]).length && (D.projects||[]).length){ remote.projects = D.projects; console.warn('[guard] 雲端 projects 是空的，保留本機'); }
   ID_ARRAYS.forEach(k=>{
     const best = new Map();
     const take = (r, fallbackT)=>{
