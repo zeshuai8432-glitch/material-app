@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v110</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v111</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -306,7 +306,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 110;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 111;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -1274,6 +1274,73 @@ function renderBoard(){
 }
 function toggleGrp(id){ if(collapsed.has(id))collapsed.delete(id); else collapsed.add(id); renderBoard(); }
 function setSysFilter(f){ cur.sysFilter = f; renderBoard(); }
+// 一種材料在某樓層「各房型各要用幾支」：直接從牆食譜算，含每間份與整層份
+// （用全做完的量，不受施工進度影響 —— 這是「要用幾支」而不是「還要幾支」）
+function typeBreakdown(project, floor, matId){
+  const rec = ((D.recipes && D.recipes[project]) || []).find(f=>f.floor===floor);
+  if(!rec) return null;
+  const lm = labelMatIdMap();
+  const calcRoom = (room, mult)=>{
+    let totals = 0; const pool = {};
+    (room.walls||[]).forEach(wall=>{
+      (wall.mats||[]).forEach(r=>{
+        if(lookupMatId(lm, r) !== matId) return;
+        if(r.kind === 'total') totals += num(r.raw) * mult;
+        else { const pk = r.kind+'|'+r.div;
+          pool[pk] = pool[pk] || {kind:r.kind, div:r.div, raw:0};
+          pool[pk].raw += num(r.raw) * mult; }
+      });
+    });
+    let q = totals;
+    Object.values(pool).forEach(pp=>{
+      q += pp.kind==='board' ? Math.ceil(pp.raw*1.05) : Math.ceil(pp.raw/(pp.div||1));
+    });
+    return round(q);
+  };
+  const rows = (rec.rooms||[]).map(room=>{
+    const cnt = num(room.count);
+    const total = calcRoom(room, cnt);
+    return { type: room.type, count: cnt, per: calcRoom(room, 1), total,
+             walls: (room.walls||[]).map(w=>({ name:w.name, q: calcRoom({walls:[w]}, 1) })).filter(w=>w.q>0) };
+  }).filter(r=>r.total>0);
+  return rows.length ? rows : null;
+}
+// 某個房型在這層要用到的所有材料（每間份與整層份）
+function roomMatsHTML(project, floor, room){
+  const lm = labelMatIdMap();
+  const ids = new Set();
+  (room.walls||[]).forEach(w=>(w.mats||[]).forEach(r=>{ const id=lookupMatId(lm,r); if(id) ids.add(id); }));
+  if(!ids.size) return '<div class="muted" style="font-size:12px">這個房型沒有可對應的材料。</div>';
+  const rows = [...ids].map(id=>{
+    const m = mat(id); if(!m) return null;
+    const tb = (typeBreakdown(project, floor, id)||[]).find(x=>x.type===room.type);
+    if(!tb || !tb.total) return null;
+    return {m, per:tb.per, total:tb.total};
+  }).filter(Boolean).sort((a,b)=> catOrder(a.m.cat)-catOrder(b.m.cat)
+    || matLabel(a.m).localeCompare(matLabel(b.m),'zh-Hant',{numeric:true}));
+  if(!rows.length) return '<div class="muted" style="font-size:12px">這個房型沒有可對應的材料。</div>';
+  return rows.map(r=>`<div style="display:flex;gap:8px;align-items:baseline;padding:4px 0;border-bottom:1px dashed var(--line);font-size:12.5px">
+      <span style="flex:1;min-width:0">${matDisp(r.m)}</span>
+      <span class="muted" style="white-space:nowrap">每間 ${r.per}${esc(r.m.unit||'')}</span>
+      <b style="width:62px;text-align:right;white-space:nowrap">${r.total}${esc(r.m.unit||'')}</b>
+    </div>`).join('');
+}
+function tbHTML(project, floor, matId, unit){
+  const rows = typeBreakdown(project, floor, matId);
+  if(!rows) return `<div class="muted" style="font-size:12px;padding:6px 2px">這層沒有牆食譜（沒從材料計算匯入過），無法拆出各房型用量。</div>`;
+  const sum = round(rows.reduce((a,r)=>a+r.total,0));
+  return rows.map(r=>`<div style="padding:6px 2px;border-bottom:1px dashed var(--line)">
+      <div style="display:flex;gap:8px;align-items:baseline">
+        <span style="flex:1;font-weight:800;font-size:13px">🏠 ${esc(r.type)}</span>
+        <span class="muted" style="font-size:12px">${r.per}${esc(unit)} × ${r.count} 間</span>
+        <b style="width:64px;text-align:right;font-size:14px">${r.total}${esc(unit)}</b></div>
+      ${r.walls.length>1?`<div class="muted" style="font-size:11px;margin-top:2px">每間：${r.walls.map(w=>esc(w.name)+' '+w.q).join('・')}</div>`:''}
+    </div>`).join('')
+    + `<div style="display:flex;gap:8px;padding:7px 2px 2px;font-weight:900">
+        <span style="flex:1">這層合計</span><b>${sum}${esc(unit)}</b></div>`;
+}
+const _tbOpen = new Set();
+function tbToggle(key, open){ if(open) _tbOpen.add(key); else _tbOpen.delete(key); }
 // 🔍 查材料：一種材料在全案各樓層的狀況（需求/送/剩/缺溢）＋總計
 let _msKeep = '';
 function openMatSearch(kw){
@@ -1299,8 +1366,10 @@ function openMatSearch(kw){
         const need=itemNeed(it), rem=itemRemaining(it), lack=itemLack(it), tot=itemTotal(it);
         const over=(!itemManual(it)&&lack<0)?round(rem-need):0;
         tTot+=tot; dTot+=num(it.delivered); rTot+=rem; lTot+=Math.max(lack,0); oTot+=over;
-        return `<div class="listitem" style="padding:6px 10px;cursor:pointer" onclick="closeSheet();quickCount('${it.id}')">
-          <div class="li-m" style="min-width:0">
+        const tbKey = m.id+'|'+it.room;
+        const hasRec = hasRecipe(p, it.room);
+        return `<div class="listitem" style="padding:6px 10px">
+          <div class="li-m" style="min-width:0;cursor:pointer" onclick="closeSheet();quickCount('${it.id}')">
             <div class="li-t" style="font-size:13px">🏢 ${esc(it.room)}</div>
             <div class="li-s">總需 ${tot}${esc(u)}・送 ${num(it.delivered)}${esc(u)}・剩 ${rem}${esc(u)}</div>
             ${it.note?noteHTML(it):''}
@@ -1308,7 +1377,11 @@ function openMatSearch(kw){
           <div style="flex:0 0 auto;text-align:right;white-space:nowrap">
             <div class="big ${lack>0?'lack':(over>0?'over':'ok')}" style="font-size:15px;font-weight:900">${lack>0?('缺'+lack):(over>0?('溢'+over):'✅')}</div>
           </div>
-        </div>`;
+        </div>
+        ${hasRec?`<details style="margin:0 0 4px 10px" ${_tbOpen.has(tbKey)?'open':''} ontoggle="tbToggle('${esc(tbKey).replace(/'/g,"\\'")}',this.open)">
+          <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--blue);padding:2px 0">🏠 各房型各要用幾${esc(u)||'支'} ›</summary>
+          <div style="padding:2px 4px 6px">${tbHTML(p, it.room, m.id, u)}</div>
+        </details>`:''}`;
       }).join('');
       return `<div class="card" style="padding:11px 13px;border-left:4px solid ${tn.c}">
         <div style="font-weight:900;color:${tn.c};font-size:14px">${matDisp(m)}<span class="muted" style="font-weight:400">・${esc(m.cat||'')}</span></div>
@@ -2451,6 +2524,10 @@ function renderProgress(){
         <div style="margin-left:auto;font-size:22px;font-weight:900;color:${rpct>=100?'var(--green)':'var(--blue)'}" id="pr-pct-${ri}">${rpct}%</div>
       </div>
       <div id="pr-bar-${ri}">${pctBar(rpct,8)}</div>
+      <details style="margin-top:9px" ${_tbOpen.has('pr|'+room.type)?'open':''} ontoggle="tbToggle('pr|${esc(room.type).replace(/'/g,"\\'")}',this.open)">
+        <summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--blue);padding:3px 0">📦 這個房型要用哪些料（每間 × ${room.count} 間）›</summary>
+        <div style="padding:4px 2px 2px">${roomMatsHTML(project, floor, room)}</div>
+      </details>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:9px;padding:8px 10px;background:var(--bg2,#f8fafc);border-radius:10px">
         <span style="font-size:12px;font-weight:800;color:var(--text2)">整個房型</span>
         <button class="btn mini" onclick="prFill(${ri},null,0)">✅ 全做完</button>
