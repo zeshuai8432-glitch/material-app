@@ -133,7 +133,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v121</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v122</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -314,7 +314,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 121;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 122;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -1492,10 +1492,23 @@ function openTransferLog(){
       const tag = t.cut ? cutTag(t.mode||'cut', 1)
                 : t.manual ? '<span class="tag" style="background:#e0e7ff;color:#3730a3;font-size:10px;padding:1px 6px">手動</span>'
                 : '<span class="tag ok-bg" style="font-size:10px;padding:1px 6px">自動</span>';
-      body+=`<div class="listitem" style="padding:8px 11px;gap:8px">
+      // 同層裁／接：來源與目標是「不同長度的同型號」，要把兩邊的規格都寫出來，
+      // 不然只看到「10F（C41 骨架 接）→ 10F」根本不知道接成多長
+      const fm = t.fromMatId ? mat(t.fromMatId) : null;
+      const st = cutStyle(t.mode||'cut');
+      const useQ = round(num(t.use) || t.qty);
+      const detail = (t.cut && fm)
+        ? `<div class="li-s" style="line-height:1.7">
+             <span style="color:var(--text2)">🔧 ${esc(t.to)} 現場加工</span><br>
+             <b>${matPlain(fm)}</b> <span style="color:${st.c};font-weight:800">${useQ}${esc(fm.unit||'')}</span>
+             　${st.icon} ${st.label}成　<b>${matPlain(m)}</b> <span style="color:${st.c};font-weight:800">${t.qty}${esc(unit)}</span>
+             ${t.ratio?`<br><span style="color:var(--text2);font-size:11.5px">${esc(t.ratio)}</span>`:''}
+           </div>`
+        : `<div class="li-s">${esc(t.from)} → ${esc(t.to)}</div>`;
+      body+=`<div class="listitem" style="padding:8px 11px;gap:8px${t.cut?';border-left:3px solid '+st.line:''}">
         <div class="li-m" style="min-width:0">
           <div class="li-t" style="font-size:13px">${matDisp(m)} ${tag}</div>
-          <div class="li-s">${esc(t.from)} → ${esc(t.to)}</div>
+          ${detail}
         </div>
         <div style="flex:0 0 auto;font-weight:800;white-space:nowrap;color:var(--blue)">${t.qty}${esc(unit)}</div>
         <button class="btn mini gray" style="flex:0 0 auto" onclick="undoTransfer('${t.id}')">撤銷</button>
@@ -1519,8 +1532,8 @@ function undoTransfer(id){
     if(!fromMatId){ const nm=(String(t.from).match(/（(.+) 裁）/)||[])[1]; const fm=nm && D.mats.find(x=>x.name===nm); fromMatId = fm && fm.id; }
     if(!fromMatId){ toast('這筆是舊裁切紀錄，找不到來源材料，無法自動撤銷'); return; }
     const back = round(num(t.use) || t.qty);      // 短接長：當初耗掉幾支就還幾支
-    if(!confirm('撤銷這筆'+(t.mode==='join'?'接料':'裁切')+'？\n'
-      +(mat(fromMatId)?.name||'')+' +'+back+' ← '+(m?m.name:'')+' −'+t.qty+'（'+t.to+'）')) return;
+    if(!confirm('撤銷這筆'+(t.mode==='join'?'接料':'裁切')+'？\n\n'
+      +matPlain(m)+' −'+t.qty+'\n'+matPlain(mat(fromMatId))+' +'+back+'\n（'+t.to+'）')) return;
     const toIt = mkIt(t.to, t.matId), fromIt = mkIt(t.to, fromMatId);
     setRem(toIt, itemRemaining(toIt)-t.qty);
     setRem(fromIt, itemRemaining(fromIt)+back);
@@ -3769,7 +3782,7 @@ function doCuts(p, cuts){
     if(to){ to.remaining = round(itemRemaining(to)+c.qty); markUsed(to); }
     const verb = c.mode==='join' ? '接' : '裁';
     D.transfers.push({id:uid(), date:todayStr(), project:p, matId:c.toMatId, fromMatId:c.fromMatId,
-      from:c.floor+'（'+(mat(c.fromMatId)?.name||'')+' '+verb+'）', to:c.floor,
+      from:c.floor+'（'+matPlain(mat(c.fromMatId))+' '+verb+'）', to:c.floor,
       qty:round(c.qty), use, ratio:c.per||'', mode:c.mode, cut:true});
   });
 }
