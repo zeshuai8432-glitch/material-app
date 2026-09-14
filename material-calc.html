@@ -895,7 +895,7 @@
 <!-- ═══════════════ LOGIN ═══════════════ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v72</span></h1>
+    <h1>材料計算系統 <span style="font-size:12px;font-weight:600;color:var(--text-3)">v73</span></h1>
     <p>隔間 · 天花板 · 材料估算</p>
     <div class="field">
       <label>使用者名稱</label>
@@ -920,7 +920,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v72</span></h1>
+      <h1>材料計算系統 <span style="font-size:12px;font-weight:600;opacity:.7">v73</span></h1>
     </div>
     <div class="topbar-user">
       <span id="save-status" class="save-status" onclick="retrySave()"></span>
@@ -1766,7 +1766,7 @@ async function doLogin() {
             const hk = 'mc_hist_' + name;
             let hist = []; try { hist = JSON.parse(localStorage.getItem(hk)) || []; } catch(e) {}
             hist.unshift({ at: Date.now(), data: local }, { at: (userData.savedAt || Date.now()-1), data: userData });
-            localStorage.setItem(hk, JSON.stringify(hist.slice(0, 6)));
+            localStorage.setItem(hk, JSON.stringify(hist.slice(0, 3)));
           } catch(e) {}
           const cnt = d => (d.projects||[]).length + ' 案場・' + Object.values(d.zones||{}).reduce((a,z)=>a+(z||[]).length,0) + ' 區塊';
           if (confirm('本機備份和雲端內容不同，要用哪份？（兩份都已存進快照，選錯可從登入畫面🔍還原）\n\n本機（較新）：'+cnt(local)+'（'+fmtT(local.savedAt)+'）\n雲端：'+cnt(userData)+'（'+fmtT(userData.savedAt)+'）\n\n【確定】用本機備份（剛在這台做的工作選這個）\n【取消】用雲端資料')) { userData = local; repush = true; }
@@ -2214,7 +2214,7 @@ function dismissRollback(){
   try {  // 先把舊備份塞進快照，才不會真的消失
     const hk='mc_hist_'+state.user; let h=[]; try{h=JSON.parse(localStorage.getItem(hk))||[];}catch(e){}
     if(d) h.unshift({at:Date.now(), data:d});
-    localStorage.setItem(hk, JSON.stringify(h.slice(0,6)));
+    localStorage.setItem(hk, JSON.stringify(h.slice(0,3)));
   } catch(e) {}
   cacheLocal(snapshotData());
   window._rollbackCandidate = null;
@@ -2257,7 +2257,7 @@ async function openCloudRevs(){
   const cz = d=>Object.values((d&&d.zones)||{}).reduce((a,z)=>a+(z||[]).length,0);
   if(!confirm('用 rev '+rev+'（'+((g.data.projects)||[]).length+' 案場・'+cz(g.data)+' 區塊）覆蓋目前資料？\n目前這份會先存進本機快照。')) return;
   try { const hk='mc_hist_'+state.user; let h=[]; try{h=JSON.parse(localStorage.getItem(hk))||[];}catch(e){}
-    h.unshift({at:Date.now(), data:snapshotData()}); localStorage.setItem(hk, JSON.stringify(h.slice(0,6))); } catch(e){}
+    h.unshift({at:Date.now(), data:snapshotData()}); localStorage.setItem(hk, JSON.stringify(h.slice(0,3))); } catch(e){}
   loadUserData(g.data);
   _forceNextSave = true; saveNow();
   renderProjects(); renderCalcTab(); renderResults();
@@ -2378,7 +2378,7 @@ async function handleConflict(res){
   } else {
     try { // 先把本機這份收進快照，避免被雲端蓋掉後找不回來
       const hk='mc_hist_'+state.user; let h=[]; try{h=JSON.parse(localStorage.getItem(hk))||[];}catch(e){}
-      h.unshift({at:Date.now(), data:snapshotData()}); localStorage.setItem(hk, JSON.stringify(h.slice(0,6)));
+      h.unshift({at:Date.now(), data:snapshotData()}); localStorage.setItem(hk, JSON.stringify(h.slice(0,3)));
     } catch(e) {}
     state.rev = res.rev;
     loadUserData(res.data || {});
@@ -4057,7 +4057,50 @@ function exportDiag(pid) {
     + '・其中有設樓層間數的 <b>' + nFloorSet + '</b> 個'
     + '・計算區塊 <b>' + nZones + '</b> 個・算出結果的 <b>' + nCalc + '</b> 個';
 }
-function exportToFieldApp() {
+// ── IndexedDB 小工具：localStorage 只有 ~5MB，兩支 app 又共用同一個額度，
+//    匯出的暫存改走 IndexedDB（額度大得多），localStorage 只當備援 ──
+function idbOpen(){
+  return new Promise((res, rej)=>{
+    const r = indexedDB.open('matapp', 1);
+    r.onupgradeneeded = ()=>{ const db=r.result; if(!db.objectStoreNames.contains('kv')) db.createObjectStore('kv'); };
+    r.onsuccess = ()=>res(r.result);
+    r.onerror  = ()=>rej(r.error);
+  });
+}
+async function idbSet(k, v){
+  const db = await idbOpen();
+  return new Promise((res, rej)=>{ const t=db.transaction('kv','readwrite');
+    t.objectStore('kv').put(v, k); t.oncomplete=()=>res(true); t.onerror=()=>rej(t.error); });
+}
+async function idbDel(k){
+  try{ const db = await idbOpen();
+    return new Promise(res=>{ const t=db.transaction('kv','readwrite');
+      t.objectStore('kv').delete(k); t.oncomplete=()=>res(true); t.onerror=()=>res(false); });
+  }catch(e){ return false; }
+}
+// localStorage 爆掉時清出空間：兩支 app 的自動快照都是可丟的（雲端才是本體）
+function freeLocalSpace(){
+  let freed = 0;
+  const drop = k=>{ try{ const v=localStorage.getItem(k); if(v){ freed += v.length; localStorage.removeItem(k); } }catch(e){} };
+  // 先砍最舊的快照，砍不夠再整個丟掉
+  for(const key of Object.keys(localStorage)){
+    if(key.startsWith('mc_hist_') || key === 'fieldmat_hist'){
+      try{
+        const a = JSON.parse(localStorage.getItem(key)||'[]');
+        if(Array.isArray(a) && a.length>1){
+          const before = localStorage.getItem(key).length;
+          localStorage.setItem(key, JSON.stringify(a.slice(0,1)));
+          freed += before - localStorage.getItem(key).length;
+          continue;
+        }
+      }catch(e){}
+      drop(key);
+    }
+  }
+  return freed;
+}
+
+async function exportToFieldApp() {
   const pid = state.activeProjectId;
   if (!pid) {
     exportBlocked('⚠️ 還沒選案場', '匯出是「把目前這個案場的各樓層需求量」送給材料管理，所以要先在上面選一個案場。');
@@ -4118,10 +4161,22 @@ function exportToFieldApp() {
     for (const m of rows) { if (!delta) break; const nq = Math.max(0, m.qty + delta); delta -= (nq - m.qty); m.qty = nq; }
   });
   const payload = { source: 'material-calc', exportedAt: new Date().toISOString(), project: proj.name, floors };
-  try { localStorage.setItem('fieldmat_pending_import', JSON.stringify(payload)); }
-  catch (e) {
+  const text = JSON.stringify(payload);
+  let okIdb = false, okLs = false, lastErr = null;
+  // 1) IndexedDB：容量大，當主要管道
+  try { await idbSet('pending_import', text); okIdb = true; } catch (e) { lastErr = e; }
+  // 2) localStorage：舊版材料管理只認得這個，寫得進去就順便寫
+  const tryLs = () => { try { localStorage.setItem('fieldmat_pending_import', text); return true; }
+                        catch (e) { lastErr = e; return false; } };
+  okLs = tryLs();
+  if (!okLs) {                        // 空間不夠 → 清掉可丟的自動快照再試一次
+    const freed = freeLocalSpace();
+    if (freed) okLs = tryLs();
+    if (okLs) toast('（順手清掉 ' + Math.round(freed/1024) + 'KB 舊快照騰出空間）', 'info', 3200);
+  }
+  if (!okIdb && !okLs) {
     exportBlocked('⚠️ 寫入暫存失敗', '瀏覽器不讓我寫暫存資料，材料管理就讀不到。<br><br>'
-      + '錯誤：' + esc(String(e.message || e)) + '<br><br>'
+      + '錯誤：' + esc(String((lastErr && lastErr.message) || lastErr)) + '<br><br>'
       + '如果是無痕模式、或瀏覽器把網站資料封鎖了，換成一般視窗再試。');
     return;
   }
@@ -4130,7 +4185,8 @@ function exportToFieldApp() {
   exportBlocked('✅ 已匯出「' + proj.name + '」',
     '<b>' + floors.length + '</b> 個樓層、<b>' + matCount + '</b> 項材料已經放進暫存。<br><br>'
     + '接下來：打開<b>現場材料管理</b>（同一個瀏覽器），它會自己跳出「📥 匯入計算結果」讓你確認。<br>'
-    + '沒跳出來的話，把材料管理那頁<b>重新整理</b>一次。',
+    + '沒跳出來的話，把材料管理那頁<b>重新整理</b>一次。'
+    + (okIdb && !okLs ? '<br><br><span style="color:#b45309">本機空間不足，這次走 IndexedDB 暫存 —— 材料管理請確認是 v106 以上。</span>' : ''),
     '樓層：' + floors.map(function (f) { return esc(f.floor); }).join('、'));
 }
 

@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v105</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v106</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -233,6 +233,7 @@
       </div>
       <input type="file" id="imp-file" accept="application/json" style="display:none" onchange="importBackup(this.files[0])">
       <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="openHistSheet()">🕘 本機備份紀錄（自動留的快照）</button>
+      <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="openStorageSheet()">💾 儲存空間（滿了會匯不進來）</button>
       <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="openCountRescue()">🛟 找回盤點（從流水帳撈回那天盤的數字）</button>
       <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="restorePreImport()">↩︎ 還原「匯入前」狀態</button>
       <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="forceCloudRestore()">☁️↓ 強制從雲端拉回（誤刪救援）</button>
@@ -304,7 +305,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 105;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 106;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -1886,11 +1887,81 @@ function renderCount(){
   html += `<button class="btn" onclick="saveCount()">💾 儲存盤點</button>`;
   el.innerHTML = html;
 }
+// 💾 儲存空間：localStorage 只有 ~5MB，兩支 app 共用。看得到誰在吃、也能直接清
+function openStorageSheet(){
+  const rows = [];
+  let total = 0;
+  try{
+    for(const k of Object.keys(localStorage)){
+      const v = localStorage.getItem(k) || '';
+      const sz = (k.length + v.length) * 2;          // UTF-16，約略值
+      total += sz; rows.push({k, sz});
+    }
+  }catch(e){}
+  rows.sort((a,b)=>b.sz-a.sz);
+  const kb = n=> n>=1048576 ? (n/1048576).toFixed(2)+' MB' : Math.round(n/1024)+' KB';
+  const nameOf = k=> k==='fieldmat_v1' ? '現場材料・資料本體'
+    : k==='fieldmat_hist' ? '現場材料・自動快照'
+    : k==='fieldmat_pending_import' ? '計算匯出的暫存'
+    : k.startsWith('mc_hist_') ? '材料計算・自動快照' + k.slice(8).replace(/^/,'（')+'）'
+    : k.startsWith('mc_cache_') ? '材料計算・資料本體'
+    : k;
+  const drop = k=> ['fieldmat_hist','fieldmat_pending_import'].includes(k) || k.startsWith('mc_hist_');
+  const pct = Math.min(100, Math.round(total/5242880*100));
+  openSheet(`<h3>💾 儲存空間<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="hint">瀏覽器給每個網站大約 5MB，<b>材料管理與材料計算共用同一份</b>。滿了就會出現「寫入暫存失敗／The quota has been exceeded」。</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:800">目前用量</span>
+      <b style="font-size:16px;color:${pct>=80?'var(--red)':'var(--text)'}">${kb(total)} / 5 MB（${pct}%）</b></div>
+    ${pctBar(pct,8)}
+    <div style="height:8px"></div>
+    ${rows.map(r=>`<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:13px">
+      <span style="flex:1;min-width:0">${esc(nameOf(r.k))}${drop(r.k)?' <span class="tag over-bg" style="font-size:10px;padding:1px 6px">可清</span>':''}</span>
+      <b style="white-space:nowrap">${kb(r.sz)}</b></div>`).join('')}
+    <div class="divider"></div>
+    <button class="btn" onclick="clearSnapshots()">🧹 清掉所有自動快照（騰出空間）</button>
+    <div class="muted" style="margin-top:8px;font-size:12px">自動快照只是本機的保險，資料本體與雲端不受影響。清完之後每次存檔還是會重新開始留。</div>`);
+}
+function clearSnapshots(){
+  let freed = 0;
+  try{
+    for(const k of Object.keys(localStorage)){
+      if(k==='fieldmat_hist' || k==='fieldmat_pending_import' || k.startsWith('mc_hist_')){
+        freed += ((localStorage.getItem(k)||'').length + k.length) * 2;
+        localStorage.removeItem(k);
+      }
+    }
+  }catch(e){}
+  closeSheet();
+  toast('🧹 已清出 '+(freed>=1048576 ? (freed/1048576).toFixed(2)+' MB' : Math.round(freed/1024)+' KB'));
+}
+
 // ════════════════════════════════════════════
 //  🕘 本機備份紀錄：每次存檔順手留快照，最多 6 份、至少隔 30 分鐘
 //  雲端再怎麼出事，這台至少留得住前幾天的樣子
 // ════════════════════════════════════════════
-const HIST_KEY = 'fieldmat_hist', HIST_MAX = 6, HIST_GAP = 30*60*1000;
+// ── IndexedDB：匯入暫存改走這裡（localStorage 只有 ~5MB，兩支 app 共用會爆） ──
+function idbOpen(){
+  return new Promise((res, rej)=>{
+    const r = indexedDB.open('matapp', 1);
+    r.onupgradeneeded = ()=>{ const db=r.result; if(!db.objectStoreNames.contains('kv')) db.createObjectStore('kv'); };
+    r.onsuccess = ()=>res(r.result);
+    r.onerror  = ()=>rej(r.error);
+  });
+}
+async function idbGet(k){
+  try{ const db = await idbOpen();
+    return await new Promise((res, rej)=>{ const t=db.transaction('kv','readonly');
+      const q=t.objectStore('kv').get(k); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); });
+  }catch(e){ return undefined; }
+}
+async function idbDel(k){
+  try{ const db = await idbOpen();
+    return await new Promise(res=>{ const t=db.transaction('kv','readwrite');
+      t.objectStore('kv').delete(k); t.oncomplete=()=>res(true); t.onerror=()=>res(false); });
+  }catch(e){ return false; }
+}
+const HIST_KEY = 'fieldmat_hist', HIST_MAX = 3, HIST_GAP = 30*60*1000;
+const HIST_BYTES = 1200000;   // 快照總量上限，別把 localStorage 吃光害匯出寫不進來
 function histRead(){ try{ const a = JSON.parse(localStorage.getItem(HIST_KEY)||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
 function histWrite(a){
   for(let keep=a.length; keep>=1; keep--){
@@ -1908,7 +1979,15 @@ function histSnap(force){
     if(!force && a.length && (now - (a[0].t||0)) < HIST_GAP) return;
     const c = recTotals();
     a.unshift({ t:now, at:new Date().toISOString(), n:c.total, c, data:JSON.stringify(D) });
-    histWrite(a.slice(0, HIST_MAX));
+    // 依「份數」與「總位元組」雙重上限，避免大案場的快照把 localStorage 佔滿
+    const keep = [];
+    let bytes = 0;
+    for(const h of a.slice(0, HIST_MAX)){
+      const sz = (h.data||'').length;
+      if(keep.length && bytes + sz > HIST_BYTES) break;
+      keep.push(h); bytes += sz;
+    }
+    histWrite(keep);
   }catch(e){}
 }
 function openHistSheet(){
@@ -3510,12 +3589,15 @@ function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg
 
 // ── 從材料計算匯入（同網域共用暫存）──
 let _pendingImport = null, _dismissedImport = null;
-function checkPendingImport(){
+async function checkPendingImport(){
   if(document.getElementById('ov').classList.contains('show')) return; // 有其他彈窗時先不打擾
-  let raw; try{ raw = localStorage.getItem('fieldmat_pending_import'); }catch(e){ return; }
+  let raw = null;
+  try{ raw = localStorage.getItem('fieldmat_pending_import'); }catch(e){}
+  if(!raw){ raw = await idbGet('pending_import') || null; }   // 本機空間不足時計算程式會改走 IndexedDB
   if(!raw) return;
-  let pl; try{ pl = JSON.parse(raw); }catch(e){ localStorage.removeItem('fieldmat_pending_import'); return; }
-  if(!pl || pl.source!=='material-calc' || !Array.isArray(pl.floors)){ localStorage.removeItem('fieldmat_pending_import'); return; }
+  const dropPending = ()=>{ try{ localStorage.removeItem('fieldmat_pending_import'); }catch(e){} idbDel('pending_import'); };
+  let pl; try{ pl = JSON.parse(raw); }catch(e){ dropPending(); return; }
+  if(!pl || pl.source!=='material-calc' || !Array.isArray(pl.floors)){ dropPending(); return; }
   if(_dismissedImport === pl.exportedAt) return;
   const matCount = pl.floors.reduce((a,f)=>a+((f.materials&&f.materials.length)||0),0);
   _pendingImport = pl;
@@ -3714,6 +3796,7 @@ function confirmCalcImport(){
   if(!_pendingImport) return;
   applyCalcImport(_pendingImport);
   try{ localStorage.removeItem('fieldmat_pending_import'); }catch(e){}
+  idbDel('pending_import');
   _dismissedImport = _pendingImport.exportedAt; _pendingImport = null;
   const r = _lastRecon||{surplus:0,removed:0};
   const extra = (r.surplus||r.removed) ? `（溢料 ${r.surplus}、移除 ${r.removed}）` : '';
