@@ -129,7 +129,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v111</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v112</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -302,11 +302,12 @@ let D = {
   items: [],         // [{id, project, room, matId, demand, remaining, delivered, restock, needAdj}]
   deliveries: [],    // [{id, date, project, room, matId, qty}]
   drafts: [],        // 叫料草稿（先記下來，數量確定後整合成一張單）[{id, project, room, matId, qty, memo, at}]
+  moves: [],         // 搬運草稿（調撥還沒真的搬，先排單）[{id, project, matId, from, to, qty, kind, memo, at}]
   recipes: {},       // { [project]: [{floor, rooms:[{type,count,walls:[{name,mats:[{label,unit,cat,kind,raw,div}]}]}]}] }
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 111;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 112;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -338,7 +339,7 @@ function clearNeedCache(){ _needCache = {}; }
 function saveLocalOnly(){ clearNeedCache(); try{ localStorage.setItem('fieldmat_v1', JSON.stringify(D)); }catch(e){} }
 function save(){ D.updatedAt = new Date().toISOString(); stampChanges(); saveLocalOnly(); histSnap(); schedulePush(); }
 function normalize(x){
-  ['projects','archived','rooms','cats','mats','items','deliveries','transfers','counts','orders','drafts'].forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; });
+  ['projects','archived','rooms','cats','mats','items','deliveries','transfers','counts','orders','drafts','moves'].forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; });
   ['recipes','progress'].forEach(k=>{ if(!x[k] || typeof x[k]!=='object' || Array.isArray(x[k])) x[k]={}; });
   if(!x.cats.length) x.cats = DEFAULT_CATS.slice();
   x.items.forEach(it=>{ if(it.demand==null){ it.demand = it.stillNeed!=null ? num(it.stillNeed) : num(it.plan||0); } delete it.plan; delete it.stillNeed; });
@@ -372,7 +373,7 @@ function load(){
 //   field/{project}/parts/{key}     該案場的 items/deliveries/counts/transfers/orders/recipes/progress/rooms
 // ════════════════════════════════════
 const FB_GLOBAL = ['projects','archived','cats','mats'];
-const FB_PROJ   = ['rooms','items','deliveries','counts','transfers','orders','drafts'];
+const FB_PROJ   = ['rooms','items','deliveries','counts','transfers','orders','drafts','moves'];
 const FB_PROJ_O = ['recipes','progress'];  // 物件型（以案場為 key）
 let _fbLast = {}, _fbUnsubs = [], _fbSelfAt = 0, _fbOn = false;
 
@@ -443,7 +444,7 @@ async function fbPullField(){
   if(!ms.exists()) return null;
   const meta = ms.data()||{};
   const out = {projects:meta.projects||[],archived:meta.archived||[],cats:meta.cats||[],mats:meta.mats||[],
-    rooms:[],items:[],deliveries:[],counts:[],transfers:[],orders:[],drafts:[],recipes:{},progress:{}};
+    rooms:[],items:[],deliveries:[],counts:[],transfers:[],orders:[],drafts:[],moves:[],recipes:{},progress:{}};
   out.__updatedAt = meta.updatedAt || '';
   out.tomb = meta.tomb || {}; out.strAt = meta.strAt || {}; out.objAt = meta.objAt || {};
   out.alias = meta.alias || {}; out.aliasLbl = meta.aliasLbl || {};
@@ -619,7 +620,7 @@ function localIsEmpty(){ return !(D.items||[]).length && !(D.projects||[]).lengt
 //  墓碑比留下的那份新才算真的刪掉。所以：離線改的東西會在有網時自己併進去，
 //  兩台同時改不同東西也各自保留，只有「同一筆」才用時間決勝。
 // ════════════════════════════════════════════
-const ID_ARRAYS  = ['rooms','mats','items','deliveries','counts','transfers','orders','drafts'];
+const ID_ARRAYS  = ['rooms','mats','items','deliveries','counts','transfers','orders','drafts','moves'];
 const STR_ARRAYS = ['projects','archived','cats'];
 const OLD_T = '1970-01-01T00:00:00.000Z';
 let _sig = {};                       // k -> {key: 內容簽章}，用來偵測哪幾筆被改過
@@ -1081,6 +1082,7 @@ function migrateMatSpecs(){
     (D.counts||[]).forEach(c=>{ if(c.matId===m.id) c.matId=keep.id; });
     (D.orders||[]).forEach(o=>(o.lines||[]).forEach(l=>{ if(l.matId===m.id) l.matId=keep.id; }));
     (D.drafts||[]).forEach(d=>{ if(d.matId===m.id) d.matId=keep.id; });
+  (D.moves||[]).forEach(d=>{ if(d.matId===m.id) d.matId=keep.id; });
     D.items.filter(i=>i.matId===m.id).forEach(di=>{
       const ki = D.items.find(i=>i.matId===keep.id && i.project===di.project && i.room===di.room);
       if(!ki){ di.matId = keep.id; return; }
@@ -1217,7 +1219,8 @@ function renderBoard(){
         <button class="btn sm gray" onclick="openAllocSheet()">🔄 調撥建議</button>
         <button class="btn sm gray" onclick="openRefillSheet()">📄 補料單</button>
         <button class="btn sm gray" onclick="openAdjLog()">📝 追加紀錄${adjCount?` <span style="background:var(--amber);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${adjCount}</span>`:''}</button>
-        <button class="btn sm gray" onclick="openTransferLog()">🚚 調撥紀錄</button>
+        <button class="btn sm gray" onclick="openMovePlan()">🚚 搬運單${moveList(p).length?` <span style="background:var(--amber);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${moveList(p).length}</span>`:''}</button>
+        <button class="btn sm gray" onclick="openTransferLog()">📋 調撥紀錄</button>
         <button class="btn sm gray" onclick="openNoteList()">📌 備註提醒${noteCount?` <span style="background:${noteDue?'var(--red)':'var(--blue)'};color:#fff;border-radius:9px;padding:0 6px;font-size:11px">${noteCount}</span>`:''}</button>
         <button class="btn sm gray" onclick="openMatSearch()">🔍 查材料</button>
       </div>
@@ -2723,7 +2726,7 @@ function saveRoom(oldName){
   if(oldName){
     const r = D.rooms.find(x=>x.project===p && x.name===oldName);
     if(r){ r.name=name; r.floor=floor; }
-    if(name!==oldName){ D.items.forEach(i=>{ if(i.project===p&&i.room===oldName)i.room=name; }); D.deliveries.forEach(d=>{ if(d.project===p&&d.room===oldName)d.room=name; }); (D.drafts||[]).forEach(d=>{ if(d.project===p&&d.room===oldName)d.room=name; }); }
+    if(name!==oldName){ D.items.forEach(i=>{ if(i.project===p&&i.room===oldName)i.room=name; }); D.deliveries.forEach(d=>{ if(d.project===p&&d.room===oldName)d.room=name; }); (D.drafts||[]).forEach(d=>{ if(d.project===p&&d.room===oldName)d.room=name; }); (D.moves||[]).forEach(d=>{ if(d.project!==p)return; if(d.from===oldName)d.from=name; if(d.to===oldName)d.to=name; }); }
   } else {
     D.rooms.push({project:p, name, floor});
   }
@@ -2736,6 +2739,7 @@ function delRoom(name){
   D.items = D.items.filter(i=>!(i.project===p&&i.room===name));
   D.deliveries = D.deliveries.filter(d=>!(d.project===p&&d.room===name));
   D.drafts = (D.drafts||[]).filter(d=>!(d.project===p&&d.room===name));
+  D.moves = (D.moves||[]).filter(d=>!(d.project===p&&(d.from===name||d.to===name)));
   save(); renderAll(); renderSettings(); toast('已刪除');
 }
 
@@ -2783,6 +2787,7 @@ function delMat(id){
   D.items = D.items.filter(i=>i.matId!==id);
   D.deliveries = D.deliveries.filter(d=>d.matId!==id);
   D.drafts = (D.drafts||[]).filter(d=>d.matId!==id);
+  D.moves = (D.moves||[]).filter(d=>d.matId!==id);
   D.mats = D.mats.filter(m=>m.id!==id);
   save(); renderSettings(); toast('已刪除');
 }
@@ -3592,7 +3597,10 @@ function openAllocSheet(){
       <div class="muted" style="margin-bottom:8px">缺：${line(a.sho)||'—'}</div>
       <div style="background:var(--bg);border-radius:9px;padding:8px 10px;margin-bottom:8px">${planRows}
         <div style="margin-top:6px;font-size:13px;font-weight:800">調完 → ${a.order>0?`<span class="lack">還要叫 ${a.order}${esc(u)}</span>`:`<span class="ok">不用叫${a.leftover>0?`（還溢 ${a.leftover}${esc(u)}）`:''}</span>`}</div></div>
-      <button class="btn sm" onclick="applyMatAlloc('${mid}')">✅ 套用此調撥</button>
+      <div class="row">
+        <button class="btn sm gray" onclick="addAllocToPlan('${mid}')">🚚 排入搬運單</button>
+        <button class="btn sm" onclick="applyMatAlloc('${mid}')">✅ 直接套用</button>
+      </div>
     </div>`);
   });
   const recent = (D.transfers||[]).filter(t=>t.project===p).slice(-6).reverse()
@@ -3615,7 +3623,10 @@ function openAllocSheet(){
         : `<span class="ok" style="font-weight:800">${esc(matPlain(mat(c.toMatId)))} 補滿 ✅</span>`}　·　來源${c.fromLeft>0?`還溢 <b>${c.fromLeft}</b> 支`:'剛好用完'}`;
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;${cross?'background:var(--amber-bg);border-radius:8px;padding:6px 8px':''}">
       <div style="flex:1;min-width:0;font-size:13px">🏢 ${esc(c.floor)}${sysBadge}：<b>${esc(matPlain(mat(c.fromMatId)))}</b> ${verb} <span style="color:var(--blue)">${c.qty}</span> 支 → 補 <b>${esc(matPlain(mat(c.toMatId)))}</b>${crossNote}<br><span style="font-size:12px">${after}</span><br><span style="color:var(--text2);font-size:12px">這料自己還要 ${reserve} 支已先留著，只用多的${note}</span></div>
-      <button class="btn mini" style="flex:0 0 auto" onclick="applyCut('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">${verb}</button>
+      <div style="flex:0 0 auto;display:flex;flex-direction:column;gap:4px">
+        <button class="btn mini" onclick="applyCut('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">${verb}</button>
+        <button class="btn mini gray" onclick="addCutToPlan('${esc(c.floor)}','${esc(c.fromMatId)}','${esc(c.toMatId)}')">🚚 排單</button>
+      </div>
     </div>`;
   }).join('');
   const cutsCard = cuts.length ? `<div class="card" style="padding:12px;border-left:4px solid var(--amber)">
@@ -3626,10 +3637,156 @@ function openAllocSheet(){
   </div>` : '';
   openSheet(`<h3>🔄 調撥建議<span class="x" onclick="closeSheet()">✕</span></h3>
     <div class="muted" style="margin-bottom:10px">順序：<b>先同層裁切 → 再跨樓層調撥 → 最後才叫料</b>。只動「超過該樓層整體需求」的量。</div>
+    ${moveList(p).length?`<button class="btn" style="margin-bottom:12px" onclick="closeSheet();openMovePlan()">🚚 看搬運單（${moveList(p).length} 項待搬）</button>`
+      :`<div class="hint">不想馬上動庫存的話，用「🚚 排入搬運單」先排好，印出來給師傅照著搬，搬完再確認。</div>`}
     ${cutsCard}
     <button class="btn gray sm" onclick="openManualTransfer()" style="margin-bottom:12px">✋ 手動調撥（緊急，先搬再說）</button>
-    ${cards.length? cards.join('')+`<button class="btn" onclick="applyAllAlloc()" style="margin-top:2px">✅ 全部套用</button>` : '<div class="card"><div class="muted">目前沒有可自動調撥的材料（沒有「某層多、另一層缺」的情況）。要把還沒用到的先搬去別層，用上面的「手動調撥」。</div></div>'}
+    ${cards.length? cards.join('')+`<div class="row" style="margin-top:2px">
+        <button class="btn gray" onclick="addAllAllocToPlan()">🚚 全部排入搬運單</button>
+        <button class="btn" onclick="applyAllAlloc()">✅ 全部直接套用</button>
+      </div>` : '<div class="card"><div class="muted">目前沒有可自動調撥的材料（沒有「某層多、另一層缺」的情況）。要把還沒用到的先搬去別層，用上面的「手動調撥」。</div></div>'}
     ${recent?`<div style="margin-top:14px"><div style="font-size:13px;font-weight:800;margin-bottom:6px">最近調撥</div>${recent}</div>`:''}`);
+}
+// ════════════════════════════════════════════
+//  🚚 搬運單（調撥草稿）：先排好要搬什麼、從哪搬到哪，印出來給師傅照著搬，
+//  真的搬完再「確認搬完」才寫進調撥紀錄、才動庫存
+// ════════════════════════════════════════════
+function moveList(p){ return (D.moves||[]).filter(x=>x.project===p); }
+function addMove(matId, from, to, qty, kind, memo){
+  const p = cur.project;
+  qty = round(num(qty));
+  if(!matId || !from || !to || qty<=0) return false;
+  const same = moveList(p).find(x=>x.matId===matId && x.from===from && x.to===to && (x.kind||'')===(kind||''));
+  if(same) same.qty = round(num(same.qty)+qty);                 // 同一趟同一料 → 併成一筆
+  else D.moves.push({id:uid(), project:p, matId, from, to, qty, kind:kind||'', memo:memo||'', at:todayStr()});
+  return true;
+}
+function addCutToPlan(floor, fromMatId, toMatId){
+  const c = floorCuts(cur.project, floor).find(x=>x.fromMatId===fromMatId && x.toMatId===toMatId);
+  if(!c){ toast('已無此裁切'); return; }
+  const fm = mat(fromMatId), tm = mat(toMatId);
+  // 同層裁切：搬運單上寫成「這層自己裁」，備註寫清楚裁成什麼
+  addMove(fromMatId, floor, floor, c.qty, 'cut', (fm?matPlain(fm):'')+' → '+(tm?matPlain(tm):''));
+  save(); renderAll(); openAllocSheet(); toast('🚚 已排入搬運單');
+}
+function addAllocToPlan(mid){
+  const p = cur.project, a = matAlloc(p, mid);
+  let n = 0;
+  a.plan.forEach(t=>{ if(addMove(mid, t.from, t.to, t.qty, 'move')) n++; });
+  if(!n){ toast('這筆沒有可排的搬運'); return; }
+  save(); renderAll(); openAllocSheet(); toast('🚚 已排入搬運單（'+n+' 趟）');
+}
+function addAllAllocToPlan(){
+  const p = cur.project;
+  const ids = [...new Set(D.items.filter(i=>i.project===p).map(i=>i.matId))];
+  let n = 0;
+  ids.forEach(mid=> matAlloc(p, mid).plan.forEach(t=>{ if(addMove(mid, t.from, t.to, t.qty, 'move')) n++; }));
+  if(!n){ toast('目前沒有可排的搬運'); return; }
+  save(); renderAll(); closeSheet(); toast('🚚 已全部排入搬運單（'+n+' 趟）');
+}
+function openMovePlan(){
+  const p = cur.project;
+  const list = moveList(p);
+  if(!list.length){
+    openSheet(`<h3>🚚 搬運單<span class="x" onclick="closeSheet()">✕</span></h3>
+      <div class="muted" style="padding:6px 0 12px">目前沒有排定的搬運。<br><br>到「🔄 調撥建議」按「🚚 排入搬運單」，或用「✋ 手動調撥」選「先排單」，
+      就會累積在這裡。排好可以印出來給師傅照著搬，搬完再回來按「確認搬完」。</div>
+      <button class="btn" onclick="closeSheet();openAllocSheet()">🔄 去看調撥建議</button>`);
+    return;
+  }
+  // 依「從哪層 → 到哪層」分組，師傅一趟就是一組
+  const routes = {};
+  list.forEach(x=>{ const k = x.from+' → '+x.to; (routes[k]=routes[k]||[]).push(x); });
+  const keys = Object.keys(routes).sort();
+  const body = keys.map(k=>{
+    const g = routes[k];
+    const n = round(g.reduce((a,x)=>a+num(x.qty),0));
+    return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:13px;font-weight:800;padding:10px 2px 3px">
+        <span>🚚 ${esc(k)}</span><span class="muted" style="font-weight:700">${g.length} 項・共 ${n}</span></div>`
+      + g.slice().sort((a,b)=>matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''})).map(x=>{
+        const m = mat(x.matId), u = m?m.unit:'';
+        const src = D.items.find(i=>i.project===p&&i.room===x.from&&i.matId===x.matId);
+        const have = src ? itemRemaining(src) : 0;
+        const short = num(x.qty) > have;
+        return `<div class="listitem" style="padding:6px 10px;gap:8px">
+          <div class="li-m" style="min-width:0">
+            <div class="li-t" style="font-size:13px">${matDisp(m)}${x.kind==='cut'?' <span class="tag" style="background:#fef3c7;color:#b45309;font-size:10px;padding:1px 6px">裁切</span>':''}</div>
+            <div class="li-s">${esc(x.from)} 現場剩 ${have}${esc(u)}${short?` <span style="color:var(--red);font-weight:700">・不夠搬！</span>`:''}</div>
+            ${x.memo?`<div style="font-size:12px;color:var(--purple,#7c3aed);font-weight:700;margin-top:2px">📌 ${esc(x.memo)}</div>`:''}
+          </div>
+          <div style="flex:0 0 auto;display:flex;align-items:center;gap:5px;white-space:nowrap">
+            <input type="number" inputmode="decimal" value="${x.qty}" style="width:62px;text-align:center;font-weight:800;padding:5px 4px"
+              onchange="editMove('${x.id}',this.value)">
+            <span style="font-size:12px;color:var(--text2)">${esc(u)}</span>
+            <button class="btn mini gray" onclick="delMove('${x.id}')">刪</button>
+          </div>
+        </div>`; }).join('');
+  }).join('');
+  openSheet(`<h3>🚚 搬運單<span class="x" onclick="closeSheet()">✕</span></h3>
+    <div class="hint">還沒真的搬 —— 這裡只是排單，<b>不會動庫存</b>。印出來給師傅照著搬，搬完回來按「確認搬完」才會寫進調撥紀錄。</div>
+    <div class="muted" style="margin-bottom:2px">${keys.length} 趟・${list.length} 項</div>
+    ${body}
+    <div class="divider"></div>
+    <button class="btn" onclick="exportMovePDF()">📄 匯出搬運單 PDF</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="confirmMoves()">✅ 確認搬完（寫進調撥紀錄）</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="clearMoves()">🗑 清空搬運單</button>`);
+}
+function editMove(id, v){
+  const x = (D.moves||[]).find(y=>y.id===id); if(!x) return;
+  const q = round(num(v));
+  if(!(q>0)){ toast('⚠️ 數量要大於 0'); return; }
+  x.qty = q; save(); renderAll(); openMovePlan();
+}
+function delMove(id){ D.moves = (D.moves||[]).filter(y=>y.id!==id); save(); renderAll(); openMovePlan(); toast('已移除'); }
+function clearMoves(){
+  const p = cur.project;
+  if(!confirm('清空「'+p+'」的搬運單？（還沒搬的排程，不會動庫存）')) return;
+  D.moves = (D.moves||[]).filter(x=>x.project!==p);
+  save(); renderAll(); closeSheet(); toast('已清空');
+}
+// 真的搬完了 → 動庫存並寫進調撥紀錄
+function confirmMoves(){
+  const p = cur.project;
+  const list = moveList(p);
+  if(!list.length){ toast('沒有要確認的'); return; }
+  const short = list.filter(x=>{ const src=D.items.find(i=>i.project===p&&i.room===x.from&&i.matId===x.matId);
+    return num(x.qty) > (src?itemRemaining(src):0); });
+  const warn = short.length ? '\n\n⚠️ 其中 '+short.length+' 項來源樓層的現場剩餘不夠，確認後來源會扣到 0。' : '';
+  if(!confirm('確認這 '+list.length+' 項都已經搬好了？\n\n來源樓層扣掉、目的樓層加上，並寫進調撥紀錄。'+warn)) return;
+  let n = 0;
+  list.forEach(x=>{
+    const src = D.items.find(i=>i.project===p&&i.room===x.from&&i.matId===x.matId);
+    let dst = D.items.find(i=>i.project===p&&i.room===x.to&&i.matId===x.matId);
+    if(!dst){ dst={id:uid(), project:p, room:x.to, matId:x.matId, demand:0, remaining:0, delivered:0}; D.items.push(dst); }
+    if(src){ src.remaining = round(Math.max(itemRemaining(src)-num(x.qty), 0)); markUsed(src); }
+    dst.remaining = round(itemRemaining(dst)+num(x.qty)); markUsed(dst);
+    D.transfers.push({id:uid(), date:todayStr(), project:p, matId:x.matId, from:x.from, to:x.to, qty:round(num(x.qty)), planned:true});
+    n++;
+  });
+  D.moves = (D.moves||[]).filter(x=>x.project!==p);
+  save(); closeSheet(); renderAll();
+  toast('✅ 已登記 '+n+' 筆調撥');
+}
+// 📄 搬運單 PDF：依「從哪層 → 到哪層」分頁，師傅一趟一張
+function exportMovePDF(){
+  const p = cur.project;
+  const list = moveList(p);
+  if(!list.length){ toast('搬運單是空的'); return; }
+  const routes = {};
+  list.forEach(x=>{ const k = x.from+' → '+x.to; (routes[k]=routes[k]||[]).push(x); });
+  const keys = Object.keys(routes).sort();
+  let body = `<h1>搬運單</h1><div class="meta">案場：${esc(p)}　列印：${todayStr()}　共 ${keys.length} 趟・${list.length} 項　搬運人：____________</div>`;
+  keys.forEach((k,i)=>{
+    const g = routes[k].slice().sort((a,b)=>matSort(mat(a.matId)||{cat:'其他',name:''}, mat(b.matId)||{cat:'其他',name:''}));
+    const tot = round(g.reduce((a,x)=>a+num(x.qty),0));
+    body += `<div class="fl"${i?' style="page-break-before:always"':''}>🚚 ${esc(k)}　<span class="sub">${g.length} 項・共 ${tot}</span></div>`;
+    body += `<table><thead><tr><th>材料</th><th class="sp">規格</th><th>厚度</th><th class="q">要搬</th><th class="ck">搬了</th><th>備註</th></tr></thead><tbody>`
+      + g.map(x=>{ const m=mat(x.matId), u=m?m.unit:'';
+          return `<tr><td>${esc(m?m.name:'?')}</td><td class="sp">${esc((m&&m.spec)||'')}</td><td>${esc((m&&m.thick)||'')}</td>`
+            + `<td class="q">${round(num(x.qty))}${esc(u)}</td><td class="ck">☐</td><td style="border-bottom:1px solid #94a3b8">&nbsp;${esc(x.memo||'')}</td></tr>`; }).join('')
+      + `</tbody></table>`;
+  });
+  printHTML('搬運單 '+p, body);
 }
 // 手動調撥（緊急）：不管大方向，直接把某層的料搬去另一層
 function openManualTransfer(){
@@ -3647,7 +3804,8 @@ function openManualTransfer(){
     <div class="fg"><label>到（搬去哪層）</label><select id="mt-to">${roomOpts(1)}</select></div>
     <div class="fg"><label>數量</label><input id="mt-qty" type="number" inputmode="decimal" placeholder="幾支/片/捲" oninput="mtHint()"></div>
     <div id="mt-hint" class="muted" style="margin-bottom:8px"></div>
-    <button class="btn" onclick="doManualTransfer()">✅ 確認調撥</button>`);
+    <button class="btn" onclick="doManualTransfer()">✅ 已經搬好了，直接登記</button>
+    <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="planManualTransfer()">🚚 還沒搬，先排進搬運單</button>`);
   mtHint();
 }
 function mtHint(){
@@ -3676,6 +3834,19 @@ function doManualTransfer(){
   D.transfers.push({id:uid(), date:todayStr(), project:p, matId, from, to, qty, manual:true});
   save(); renderAll(); closeSheet();
   const m=mat(matId); toast(`✅ 已調撥 ${esc(m?m.name:'')} ${qty}${esc(m?m.unit:'')}：${from} → ${to}`);
+}
+// 手動調撥但「還沒搬」：只排進搬運單，不動庫存
+function planManualTransfer(){
+  const p=cur.project;
+  const matId=document.getElementById('mt-mat').value;
+  const from=document.getElementById('mt-from').value, to=document.getElementById('mt-to').value;
+  const qty=round(num(document.getElementById('mt-qty').value));
+  if(!matId||!from||!to){ toast('⚠️ 請選材料和樓層'); return; }
+  if(from===to){ toast('⚠️ 來源和目的樓層不能一樣'); return; }
+  if(qty<=0){ toast('⚠️ 數量要大於 0'); return; }
+  addMove(matId, from, to, qty, 'move');
+  save(); renderAll(); closeSheet(); openMovePlan();
+  toast('🚚 已排入搬運單（還沒動庫存）');
 }
 function doAlloc(p, mid){ // 實際套用一個材料的調撥（重算以防過期），回傳搬了幾筆
   const a = matAlloc(p, mid); if(!a.plan.length) return 0;
@@ -3781,6 +3952,7 @@ function absorbMat(keep, dead, opts){
   (D.counts||[]).forEach(c=>{ if(c.matId===dead.id) c.matId=keep.id; });
   (D.orders||[]).forEach(o=>(o.lines||[]).forEach(l=>{ if(l.matId===dead.id) l.matId=keep.id; }));
   (D.drafts||[]).forEach(d=>{ if(d.matId===dead.id) d.matId=keep.id; });
+  (D.moves||[]).forEach(d=>{ if(d.matId===dead.id) d.matId=keep.id; });
   D.items.filter(i=>i.matId===dead.id).forEach(di=>{
     const ki = D.items.find(i=>i.matId===keep.id && i.project===di.project && i.room===di.room);
     if(!ki){ di.matId = keep.id; return; }
