@@ -112,7 +112,11 @@
   #printov{position:fixed;inset:0;z-index:90;background:#fff;display:none;flex-direction:column}
   #printov.show{display:flex}
   #printbar{display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 10px) 12px 10px;background:var(--blue);color:#fff}
-  #printbar .t{flex:1;font-weight:800;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #printbar .t{flex:1;min-width:0;font-weight:800;font-size:15px;background:rgba(255,255,255,.16);
+    border:1px solid rgba(255,255,255,.32);color:#fff;padding:8px 11px;border-radius:10px;
+    font-family:inherit;text-overflow:ellipsis}
+  #printbar .t::placeholder{color:rgba(255,255,255,.6)}
+  #printbar .t:focus{outline:none;background:rgba(255,255,255,.26);border-color:#fff}
   #printbar button{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.32);color:#fff;padding:8px 13px;border-radius:10px;font-weight:800;font-size:14px;white-space:nowrap}
   #printframe{flex:1;border:0;width:100%;background:#eef1f5}
   /* 列印時只印預覽內容，絕不印整個 app（避免變成全部樓層/材料） */
@@ -129,7 +133,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v112</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v113</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -260,7 +264,8 @@
 <div id="printov">
   <div id="printbar">
     <button onclick="closePrint()">✕ 關閉</button>
-    <div class="t" id="printtitle">預覽</div>
+    <input class="t" id="printtitle" type="text" placeholder="檔名" autocomplete="off"
+           oninput="syncPrintName()" onfocus="this.select()" title="這就是存成 PDF 時的檔名，可以直接改">
     <button onclick="doPrint()">🖨 列印 / 存PDF</button>
   </div>
   <iframe id="printframe" title="列印預覽"></iframe>
@@ -307,7 +312,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 112;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 113;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -3894,14 +3899,26 @@ function printHTML(title, inner){
     @media print{body{padding:0}}
   </style></head><body>${inner}</body></html>`;
   _lastPrintHTML = html;
-  document.getElementById('printtitle').textContent = title;
+  _printBase = title;
+  const ti = document.getElementById('printtitle');
+  ti.value = title;                                  // 存成 PDF 時的預設檔名，使用者可直接改
   document.getElementById('printframe').srcdoc = html;
   document.getElementById('printov').classList.add('show');
 }
-let _lastPrintHTML = '';
+// 改檔名 → 同步到預覽 iframe 的 <title>（瀏覽器「儲存為 PDF」就是拿它當檔名）
+function syncPrintName(){
+  const v = (document.getElementById('printtitle').value || '').trim() || _printBase;
+  try{
+    const doc = document.getElementById('printframe').contentDocument;
+    if(doc){ doc.title = v; }
+  }catch(e){}
+  _lastPrintHTML = _lastPrintHTML.replace(/<title>[\s\S]*?<\/title>/, '<title>'+esc(v)+'</title>');
+}
+let _lastPrintHTML = '', _printBase = '';
 function closePrint(){ document.getElementById('printov').classList.remove('show'); document.getElementById('printframe').srcdoc=''; }
 function doPrint(){
   const f = document.getElementById('printframe');
+  syncPrintName();                                   // 用目前欄位裡的檔名
   // 把 iframe 高度設成「內容實際高度」，避免多印一張空白頁（有些裝置會印到父頁）
   try{ const h = f.contentDocument.body.scrollHeight; if(h) f.style.height = (h+16)+'px'; }catch(e){}
   const restore = ()=>{ f.style.height=''; };
