@@ -133,7 +133,7 @@
 
 <div class="topbar">
   <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
-    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v122</span></h1>
+    <h1>🏗️ 現場材料 <span style="font-size:11px;font-weight:600;opacity:.75">v123</span></h1>
     <span id="syncPill" class="syncpill" onclick="manualSync()">☁️ 連線中…</span>
   </div>
   <select class="proj-sel" id="projSel" onchange="onProjChange(this.value)"></select>
@@ -314,7 +314,7 @@ let D = {
   progress: {},      // { [project]: { [floor]: { [type]: { [wallName]: 還沒做幾間 } } } }
 };
 let cur = { project: null, page: 'board', sysFilter: '全部' };
-const APP_VER = 122;                 // 與標題列、sw.js 的 CACHE_NAME 同步
+const APP_VER = 123;                 // 與標題列、sw.js 的 CACHE_NAME 同步
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -3982,6 +3982,18 @@ function addAllAllocToPlan(){
   if(!n){ toast('目前沒有可排的搬運'); return; }
   save(); renderAll(); closeSheet(); toast('🚚 已全部排入搬運單（'+n+' 趟）');
 }
+// 搬運單裡所有排定的搬運，對每個 (樓層,材料) 的淨進出
+function movesDelta(p){
+  const d = {};
+  moveList(p).forEach(x=>{
+    if(x.from===x.to) return;                 // 同層裁／接不算搬運，庫存在套用時另外處理
+    const k = m2 => (d[x.matId] = d[x.matId] || {});
+    const mm = k();
+    mm[x.from] = round(num(mm[x.from]||0) - num(x.qty));
+    mm[x.to]   = round(num(mm[x.to]||0)   + num(x.qty));
+  });
+  return d;
+}
 function openMovePlan(){
   const p = cur.project;
   const list = moveList(p);
@@ -3993,6 +4005,7 @@ function openMovePlan(){
     return;
   }
   // 依「從哪層 → 到哪層」分組，師傅一趟就是一組
+  const delta = movesDelta(p);
   const routes = {};
   list.forEach(x=>{ const k = x.from+' → '+x.to; (routes[k]=routes[k]||[]).push(x); });
   const keys = Object.keys(routes).sort();
@@ -4009,10 +4022,20 @@ function openMovePlan(){
         const src = D.items.find(i=>i.project===p&&i.room===x.from&&i.matId===x.matId);
         const have = src ? itemRemaining(src) : 0;
         const short = num(x.qty) > have;
+        // 這支料在來源／目的搬完之後會變怎樣（把整張搬運單一起算進去）
+        const st = (delta[x.matId]||{});
+        const after = matFloorState(p, x.matId, st);
+        const aFrom = after.find(z=>z.room===x.from), aTo = after.find(z=>z.room===x.to);
+        const chip = (z, tag)=> z ? `<span style="white-space:nowrap">${tag}${esc(z.room)} ${
+          z.lack>0?`<b style="color:var(--red)">缺 ${z.lack}${esc(u)}</b>`
+          :(z.over>0?`<b style="color:var(--amber)">溢 ${z.over}${esc(u)}</b>`
+          :`<b style="color:var(--green,#16a34a)">剛好</b>`)}</span>` : '';
         return `<div class="listitem" style="padding:6px 10px;gap:8px">
           <div class="li-m" style="min-width:0">
             <div class="li-t" style="font-size:13px">${matDisp(m)}${(x.kind==='cut'||x.kind==='join')?' '+cutTag(x.kind,1):''}</div>
             <div class="li-s">${esc(x.from)} 現場剩 ${have}${esc(u)}${short?` <span style="color:var(--red);font-weight:700">・不夠搬！</span>`:''}</div>
+            ${x.from!==x.to?`<div style="font-size:12px;margin-top:2px;color:var(--text2)">
+              搬完後　${chip(aFrom,'⬆ ')}　${chip(aTo,'⬇ ')}</div>`:''}
             ${x.memo?`<div style="font-size:12px;color:var(--purple,#7c3aed);font-weight:700;margin-top:2px">📌 ${esc(x.memo)}</div>`:''}
           </div>
           <div style="flex:0 0 auto;display:flex;align-items:center;gap:5px;white-space:nowrap">
@@ -4028,6 +4051,29 @@ function openMovePlan(){
     <div class="muted" style="margin-bottom:2px">${keys.length} 趟・${list.length} 項</div>
     ${body}
     <div class="divider"></div>
+    ${(()=>{ // 搬完之後，全案的缺／溢會變多少
+      const ids = [...new Set(list.filter(x=>x.from!==x.to).map(x=>x.matId))];
+      if(!ids.length) return '';
+      let l0=0,o0=0,l1=0,o1=0;
+      ids.forEach(id=>{
+        matFloorState(p, id, {}).forEach(z=>{ l0+=z.lack; o0+=z.over; });
+        matFloorState(p, id, delta[id]||{}).forEach(z=>{ l1+=z.lack; o1+=z.over; });
+      });
+      const dl = round(l1-l0), dov = round(o1-o0);
+      return `<div style="background:var(--bg2,#f8fafc);border-radius:10px;padding:10px 12px;margin-bottom:10px">
+        <div style="font-weight:800;font-size:13px;margin-bottom:5px">📊 這批搬完之後（${ids.length} 種材料）</div>
+        <div style="display:flex;gap:8px;font-size:12.5px;padding:3px 0">
+          <span style="flex:1;color:var(--text2)">全案還缺</span>
+          <b>${round(l0)}</b><span style="color:var(--text2);padding:0 2px">→</span>
+          <b style="color:${dl<0?'var(--green,#16a34a)':'var(--text)'}">${round(l1)}</b>
+          ${dl?`<span style="color:${dl<0?'var(--green,#16a34a)':'var(--red)'};font-weight:800">${dl>0?'+':''}${dl}</span>`:''}</div>
+        <div style="display:flex;gap:8px;font-size:12.5px;padding:3px 0">
+          <span style="flex:1;color:var(--text2)">全案溢料</span>
+          <b>${round(o0)}</b><span style="color:var(--text2);padding:0 2px">→</span>
+          <b style="color:${dov<0?'var(--green,#16a34a)':'var(--text)'}">${round(o1)}</b>
+          ${dov?`<span style="color:${dov<0?'var(--green,#16a34a)':'var(--amber)'};font-weight:800">${dov>0?'+':''}${dov}</span>`:''}</div>
+        <div class="muted" style="font-size:11.5px;margin-top:5px">缺料變少＝這批搬得有價值；沒變就是搬了也補不到缺口。</div>
+      </div>`; })()}
     <button class="btn" onclick="exportMovePDF()">📄 匯出搬運單 PDF</button>
     <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="confirmMoves()">✅ 確認搬完（寫進調撥紀錄）</button>
     <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="clearMoves()">🗑 清空搬運單</button>`);
@@ -4089,6 +4135,30 @@ function exportMovePDF(){
   });
   printHTML('搬運單 '+p, body);
 }
+// 一種材料在各樓層的狀況（給手動調撥／搬運單看情勢用）
+// delta：{room: 這層搬進(+)搬出(-)多少}，用來預告「搬完之後」會變怎樣
+function matFloorState(p, matId, delta){
+  delta = delta || {};
+  return D.items.filter(i=>i.project===p && i.matId===matId).map(it=>{
+    const d = num(delta[it.room]||0);
+    const rem0 = itemRemaining(it), rem = round(rem0 + d);
+    const need = itemNeed(it);
+    const manual = itemManual(it);
+    const lack = manual ? round(num(it.restock)) : round(need - rem);
+    return { room: it.room, it, rem0, rem, need, manual,
+             lack: Math.max(lack, 0), over: (!manual && lack<0) ? -lack : 0 };
+  }).sort((a,b)=>cmpFloor(a.room,b.room));
+}
+// 一列：樓層 + 剩餘(搬完後) + 缺/溢
+function stateRowHTML(x, unit, mark){
+  const moved = round(x.rem - x.rem0);
+  const tone = x.lack>0 ? 'var(--red)' : (x.over>0 ? 'var(--amber)' : 'var(--green,#16a34a)');
+  const badge = x.lack>0 ? '缺 '+x.lack+unit : (x.over>0 ? '溢 '+x.over+unit : '剛好');
+  return `<div style="display:flex;gap:8px;align-items:baseline;padding:4px 0;border-bottom:1px dashed var(--line);font-size:12.5px${mark?';background:#eff6ff':''}">
+    <span style="flex:0 0 52px;font-weight:${mark?'800':'600'}">${mark||''}${esc(x.room)}</span>
+    <span style="flex:1;color:var(--text2)">剩 ${x.rem}${esc(unit)}${moved?` <span style="color:var(--blue);font-weight:700">(${moved>0?'+':''}${moved})</span>`:''}・需 ${x.need}${esc(unit)}${x.manual?'<span style="color:#1d4ed8">・🎯自己填的</span>':''}</span>
+    <b style="flex:0 0 auto;color:${tone};white-space:nowrap">${badge}</b></div>`;
+}
 // 手動調撥（緊急）：不管大方向，直接把某層的料搬去另一層
 function openManualTransfer(){
   const p = cur.project;
@@ -4102,9 +4172,10 @@ function openManualTransfer(){
     <div class="muted" style="margin-bottom:12px">緊急先搬（例如 14F 還沒用到的先給 12F）。搬完兩邊現場剩餘會更新、留紀錄；來源層之後會顯示缺，記得補回。</div>
     <div class="fg"><label>材料</label><select id="mt-mat" onchange="mtHint()">${matOpts}</select></div>
     <div class="fg"><label>從（哪層搬出）</label><select id="mt-from" onchange="mtHint()">${roomOpts(0)}</select></div>
-    <div class="fg"><label>到（搬去哪層）</label><select id="mt-to">${roomOpts(1)}</select></div>
+    <div class="fg"><label>到（搬去哪層）</label><select id="mt-to" onchange="mtHint()">${roomOpts(1)}</select></div>
     <div class="fg"><label>數量</label><input id="mt-qty" type="number" inputmode="decimal" placeholder="幾支/片/捲" oninput="mtHint()"></div>
-    <div id="mt-hint" class="muted" style="margin-bottom:8px"></div>
+    <div id="mt-hint" class="muted" style="margin-bottom:6px"></div>
+    <div id="mt-state" style="margin-bottom:10px"></div>
     <button class="btn" onclick="doManualTransfer()">✅ 已經搬好了，直接登記</button>
     <button class="btn gray sm" style="width:100%;margin-top:8px" onclick="planManualTransfer()">🚚 還沒搬，先排進搬運單</button>`);
   mtHint();
@@ -4112,12 +4183,29 @@ function openManualTransfer(){
 function mtHint(){
   const p=cur.project;
   const matId=document.getElementById('mt-mat').value, from=document.getElementById('mt-from').value;
+  const to=(document.getElementById('mt-to')||{}).value;
   const src=D.items.find(i=>i.project===p && i.room===from && i.matId===matId);
   const m=mat(matId); const u=m?m.unit:'';
   const avail = src? itemRemaining(src):0;
   const q = num(document.getElementById('mt-qty').value);
-  const el=document.getElementById('mt-hint'); if(!el) return;
-  el.innerHTML = `來源 ${esc(from)} 現場剩餘 <b>${avail}${esc(u)}</b>` + (q>avail? ` <span class="lack">· 超過現場剩餘，${esc(from)}會變缺 ${q-avail}${esc(u)}</span>`:'');
+  const el=document.getElementById('mt-hint');
+  if(el) el.innerHTML = `來源 ${esc(from)} 現場剩餘 <b>${avail}${esc(u)}</b>`
+    + (q>avail? ` <span class="lack">· 超過現場剩餘，${esc(from)}會變缺 ${q-avail}${esc(u)}</span>`:'');
+  // 這支料在各樓層的情勢，並預告搬完後會變怎樣
+  const se=document.getElementById('mt-state'); if(!se) return;
+  const delta = {};
+  if(q>0 && from && to && from!==to){ delta[from]=-q; delta[to]=q; }
+  const rows = matFloorState(p, matId, delta);
+  if(!rows.length){ se.innerHTML=''; return; }
+  const totLack = round(rows.reduce((a,x)=>a+x.lack,0)), totOver = round(rows.reduce((a,x)=>a+x.over,0));
+  se.innerHTML = `<div style="border:1px solid var(--line);border-radius:10px;padding:9px 11px">
+    <div style="font-weight:800;font-size:12.5px;margin-bottom:5px">📊 ${matPlain(m)} 各樓層${(q>0&&from!==to)?'（<span style="color:var(--blue)">搬完後</span>）':''}</div>
+    ${rows.map(x=>stateRowHTML(x, u, x.room===from?'⬆':(x.room===to?'⬇':''))).join('')}
+    <div style="display:flex;gap:8px;padding:6px 0 0;font-size:12.5px;font-weight:800">
+      <span style="flex:1">全案合計</span>
+      <span style="color:var(--red)">缺 ${totLack}${esc(u)}</span>
+      <span style="color:var(--amber)">溢 ${totOver}${esc(u)}</span></div>
+  </div>`;
 }
 function doManualTransfer(){
   const p=cur.project;
